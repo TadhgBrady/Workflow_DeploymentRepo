@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: admin-bl-service
+  labels:
+    app: admin-bl-service
+spec:
+  type: ClusterIP
+  selector:
+    app: admin-bl-service
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP
+    name: http
+  sessionAffinity: None
