@@ -1,0 +1,54 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: year4-project-staging
+
+# Reference the base configuration
+bases:
+  - ../../base
+
+# Staging-specific configuration
+commonLabels:
+  app.kubernetes.io/name: year4-project
+  app.kubernetes.io/version: "1.0.0"
+  environment: staging
+  managed-by: kustomize
+
+commonAnnotations:
+  environment: staging
+  deployment.type: staging
+  description: "Staging deployment with balanced configuration"
+
+# Staging uses moderate replicas
+replicas:
+  - name: auth-service
+    count: 2
+  - name: user-bl-service
+    count: 2
+  - name: user-db-access-service
+    count: 2
+  - name: job-bl-service
+    count: 2
+  - name: job-db-access-service
+    count: 2
+  - name: customer-bl-service
+    count: 2
+  - name: customer-db-access-service
+    count: 2
+  - name: admin-bl-service
+    count: 2
+  - name: frontend-deployment
+    count: 2
+  - name: nginx-gateway
+    count: 2
+
+# Use staging image tags
+images:
+  - name: bencev04/4th-year-proj-tadgh-bence
+    newTag: staging
+
+# Service type patch - use LoadBalancer for staging (cloud access)
+patchesStrategicMerge:
+  - nginx-service-patch.yaml
+
+namePrefix: staging-

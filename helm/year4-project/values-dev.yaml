@@ -1,0 +1,67 @@
+# Development environment overrides
+global:
+  environment: development
+
+# Create namespace for dev
+namespace:
+  create: true
+  name: year4-project-dev
+
+# Use dev image tags
+image:
+  tag: dev
+
+# Development uses single replicas
+replicaCount: 1
+
+# Reduced resources for development
+resources:
+  requests:
+    memory: "128Mi"
+    cpu: "100m"
+  limits:
+    memory: "256Mi"
+    cpu: "200m"
+
+# All services with reduced replicas
+nginx:
+  replicaCount: 1
+
+authService:
+  replicaCount: 1
+
+userBlService:
+  replicaCount: 1
+
+userDbService:
+  replicaCount: 1
+
+jobBlService:
+  replicaCount: 1
+
+jobDbService:
+  replicaCount: 1
+
+customerBlService:
+  replicaCount: 1
+
+customerDbService:
+  replicaCount: 1
+
+adminBlService:
+  replicaCount: 1
+
+adminDbService:
+  replicaCount: 1
+
+frontend:
+  replicaCount: 1
+
+# Port forwarding for local access
+nginx:
+  service:
+    type: ClusterIP
+
+env:
+  ENVIRONMENT: development
+  LOG_LEVEL: DEBUG

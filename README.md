@@ -8,8 +8,9 @@ This repository contains Kubernetes manifests for deploying the Year 4 Project m
 2. [Architecture](#architecture)
 3. [Services](#services)
 4. [Kubernetes Structure](#kubernetes-structure)
-5. [Configuration Details](#configuration-details)
-6. [Deployment Instructions](#deployment-instructions)
+5. [Package Managers](#package-managers)
+6. [Configuration Details](#configuration-details)
+7. [Deployment Instructions](#deployment-instructions)
 
 ## Overview
 
@@ -187,6 +188,91 @@ Kubernetes Ingress resource routing external traffic:
 - Maps `localhost` host to nginx-gateway service
 - Configures path routing (currently root path `/`)
 
+## Package Managers
+
+This deployment repo includes configurations for two popular Kubernetes package managers, allowing you to choose the best approach for your needs.
+
+### Kustomize (kubectl apply -k)
+
+**Location:** `kubernetes/overlays/`
+
+Kustomize is a native Kubernetes templating tool that uses layering and patching. It's built into kubectl and requires no additional installation.
+
+**Features:**
+- Environment-specific overlays for dev, staging, and production
+- Strategic merge patches for customization
+- Prefix/suffix modifications per environment
+- Simple, declarative configuration
+
+**Directory Structure:**
+```
+kubernetes/
+├── base/                    # Base manifests
+├── kustomization.yaml      # Root kustomization
+└── overlays/
+    ├── dev/               # Development overrides (1 replica, dev tag)
+    ├── staging/           # Staging overrides (2 replicas, staging tag)
+    └── production/        # Production overrides (3 replicas, latest tag)
+```
+
+**Quick Start:**
+```bash
+kubectl apply -k kubernetes/overlays/production
+```
+
+### Helm (Package Manager)
+
+**Location:** `helm/year4-project/`
+
+Helm is a complete package manager for Kubernetes with templating, versioning, and release management capabilities.
+
+**Features:**
+- Templated manifests with Go templating support
+- Environment-specific values files
+- Automatic rollback capabilities
+- Release versioning and history
+- Chart repository support
+
+**Directory Structure:**
+```
+helm/year4-project/
+├── Chart.yaml             # Chart metadata
+├── values.yaml            # Default values
+├── values-dev.yaml        # Development overrides
+├── values-staging.yaml    # Staging overrides
+├── values-prod.yaml       # Production overrides
+└── templates/             # Template files
+    ├── _helpers.tpl       # Helper functions
+    ├── namespace.yaml
+    ├── nginx-configmap.yaml
+    └── ...
+```
+
+**Quick Start:**
+```bash
+helm install year4-prod helm/year4-project \
+  --namespace year4-project \
+  --create-namespace \
+  --values helm/year4-project/values-prod.yaml
+```
+
+### Which Should I Use?
+
+**Use Kustomize if:**
+- You want a simple, declarative approach
+- No additional tools to install (built into kubectl)
+- Working with mostly static YAML with patch overlays
+- Team prefers simple configurations
+
+**Use Helm if:**
+- You need advanced templating
+- Managing multiple related deployments
+- Want automatic rollback capabilities
+- Sharing charts across projects
+- Need release versioning and history
+
+👉 **For detailed instructions on both, see [KUSTOMIZE_HELM_GUIDE.md](KUSTOMIZE_HELM_GUIDE.md)**
+
 ## Configuration Details
 
 ### Resource Allocation
@@ -278,7 +364,7 @@ Nginx implements multiple rate limit zones:
 - Docker images built and pushed to registry
 - Persistent volume provisioning (if using databases)
 
-### Deploy All Services
+### Quick Deploy (kubectl)
 
 ```bash
 # Deploy everything from base directory
@@ -289,6 +375,49 @@ kubectl get deployments
 kubectl get services
 kubectl get pods
 ```
+
+### Deploy with Kustomize (Recommended for Multi-Environment)
+
+Kustomize allows you to manage different environments (dev, staging, production) with overlays.
+
+```bash
+# Deploy to development (1 replica per service, reduced resources)
+kubectl apply -k kubernetes/overlays/dev
+
+# Deploy to staging (2 replicas per service, balanced resources)
+kubectl apply -k kubernetes/overlays/staging
+
+# Deploy to production (3 replicas per service, full resources)
+kubectl apply -k kubernetes/overlays/production
+```
+
+See [KUSTOMIZE_HELM_GUIDE.md](KUSTOMIZE_HELM_GUIDE.md#using-kustomize) for detailed Kustomize instructions.
+
+### Deploy with Helm (Recommended for Package Management)
+
+Helm is a full package manager with templating, versioning, and automatic rollback.
+
+```bash
+# Install to development
+helm install year4-dev helm/year4-project \
+  --namespace year4-project-dev \
+  --create-namespace \
+  --values helm/year4-project/values-dev.yaml
+
+# Install to staging
+helm install year4-staging helm/year4-project \
+  --namespace year4-project-staging \
+  --create-namespace \
+  --values helm/year4-project/values-staging.yaml
+
+# Install to production
+helm install year4-prod helm/year4-project \
+  --namespace year4-project \
+  --create-namespace \
+  --values helm/year4-project/values-prod.yaml
+```
+
+See [KUSTOMIZE_HELM_GUIDE.md](KUSTOMIZE_HELM_GUIDE.md#using-helm) for detailed Helm instructions.
 
 ### Check Service Status
 

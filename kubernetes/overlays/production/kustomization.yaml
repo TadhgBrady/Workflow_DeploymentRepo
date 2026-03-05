@@ -1,0 +1,55 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: year4-project
+
+# Reference the base configuration
+bases:
+  - ../../base
+
+# Production-specific configuration
+commonLabels:
+  app.kubernetes.io/name: year4-project
+  app.kubernetes.io/version: "1.0.0"
+  environment: production
+  managed-by: kustomize
+
+commonAnnotations:
+  environment: production
+  deployment.type: production
+  description: "Production deployment with full replicas and LoadBalancer"
+
+# Production uses full replicas
+replicas:
+  - name: auth-service
+    count: 3
+  - name: user-bl-service
+    count: 3
+  - name: user-db-access-service
+    count: 3
+  - name: job-bl-service
+    count: 3
+  - name: job-db-access-service
+    count: 3
+  - name: customer-bl-service
+    count: 3
+  - name: customer-db-access-service
+    count: 3
+  - name: admin-bl-service
+    count: 3
+  - name: frontend-deployment
+    count: 3
+  - name: nginx-gateway
+    count: 3
+
+# Use latest image tags for production
+images:
+  - name: bencev04/4th-year-proj-tadgh-bence
+    newTag: latest
+
+# Service type patch - use LoadBalancer for production (production access)
+patchesStrategicMerge:
+  - nginx-service-patch.yaml
+  - resource-limits-patch.yaml
+
+namePrefix: prod-

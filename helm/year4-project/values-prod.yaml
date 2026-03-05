@@ -1,0 +1,87 @@
+# Production environment overrides
+global:
+  environment: production
+
+# Create namespace for production
+namespace:
+  create: true
+  name: year4-project
+
+# Use latest image tags
+image:
+  tag: latest
+
+# Production uses full replicas
+replicaCount: 3
+
+# Production resources
+resources:
+  requests:
+    memory: "512Mi"
+    cpu: "500m"
+  limits:
+    memory: "1Gi"
+    cpu: "1000m"
+
+# All services with high replicas
+nginx:
+  replicaCount: 3
+  service:
+    type: LoadBalancer
+
+authService:
+  replicaCount: 3
+
+userBlService:
+  replicaCount: 3
+
+userDbService:
+  replicaCount: 3
+
+jobBlService:
+  replicaCount: 3
+
+jobDbService:
+  replicaCount: 3
+
+customerBlService:
+  replicaCount: 3
+
+customerDbService:
+  replicaCount: 3
+
+adminBlService:
+  replicaCount: 3
+
+adminDbService:
+  replicaCount: 3
+
+frontend:
+  replicaCount: 3
+
+env:
+  ENVIRONMENT: production
+  LOG_LEVEL: WARN
+
+# Enable autoscaling for production
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# Enable ingress for production
+ingress:
+  enabled: true
+  className: "nginx"
+  hosts:
+    - host: yourdomain.com
+      paths:
+        - path: /
+          pathType: Prefix
+
+# Pod disruption budget for production
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2

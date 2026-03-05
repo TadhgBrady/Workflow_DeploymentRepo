@@ -1,0 +1,276 @@
+# Default values for year4-project Helm chart
+# This is a YAML-formatted file for Helm configuration
+
+# Global settings
+global:
+  environment: production
+  imageRegistry: bencev04
+  imagePullPolicy: IfNotPresent
+
+# Namespace configuration
+namespace:
+  create: true
+  name: year4-project
+
+# Docker image settings
+image:
+  registry: bencev04
+  pullPolicy: IfNotPresent
+  tag: latest
+
+# Common labels and annotations
+labels:
+  app.kubernetes.io/name: year4-project
+  app.kubernetes.io/version: "1.0.0"
+  managed-by: helm
+
+annotations:
+  deployment.type: microservices
+  documentation: "See README.md for details"
+
+# Default replica counts
+replicaCount: 2
+
+# Resource management
+resources:
+  requests:
+    memory: "256Mi"
+    cpu: "250m"
+  limits:
+    memory: "512Mi"
+    cpu: "500m"
+
+# Nginx Gateway configuration
+nginx:
+  enabled: true
+  replicaCount: 3
+  service:
+    type: LoadBalancer  # ClusterIP, NodePort, LoadBalancer
+    port: 80
+    targetPort: 80
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+# Auth Service configuration
+authService:
+  enabled: true
+  replicaCount: 2
+  port: 8005
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  healthCheck:
+    enabled: true
+    path: /health
+    initialDelaySeconds: 30
+    periodSeconds: 10
+
+# User Business Logic Service
+userBlService:
+  enabled: true
+  replicaCount: 2
+  port: 8004
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  healthCheck:
+    enabled: true
+    path: /health
+    initialDelaySeconds: 30
+    periodSeconds: 10
+
+# User Database Access Service
+userDbService:
+  enabled: true
+  replicaCount: 2
+  port: 8001
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  healthCheck:
+    enabled: true
+    path: /health
+    initialDelaySeconds: 30
+    periodSeconds: 10
+
+# Job Business Logic Service
+jobBlService:
+  enabled: true
+  replicaCount: 2
+  port: 8006
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  healthCheck:
+    enabled: true
+    path: /health
+    initialDelaySeconds: 30
+    periodSeconds: 10
+
+# Job Database Access Service
+jobDbService:
+  enabled: true
+  replicaCount: 2
+  port: 8003
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  healthCheck:
+    enabled: true
+    path: /health
+    initialDelaySeconds: 30
+    periodSeconds: 10
+
+# Customer Business Logic Service
+customerBlService:
+  enabled: true
+  replicaCount: 2
+  port: 8007
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  healthCheck:
+    enabled: true
+    path: /health
+    initialDelaySeconds: 30
+    periodSeconds: 10
+
+# Customer Database Access Service
+customerDbService:
+  enabled: true
+  replicaCount: 2
+  port: 8002
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  healthCheck:
+    enabled: true
+    path: /health
+    initialDelaySeconds: 30
+    periodSeconds: 10
+
+# Admin Business Logic Service
+adminBlService:
+  enabled: true
+  replicaCount: 2
+  port: 8008
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  healthCheck:
+    enabled: true
+    path: /ready
+    initialDelaySeconds: 30
+    periodSeconds: 10
+
+# Admin Database Access Service
+adminDbService:
+  enabled: true
+  replicaCount: 2
+  port: 8009
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  healthCheck:
+    enabled: true
+    path: /health
+    initialDelaySeconds: 30
+    periodSeconds: 10
+
+# Frontend deployment
+frontend:
+  enabled: true
+  replicaCount: 2
+  port: 8000
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  healthCheck:
+    enabled: true
+    path: /health
+    initialDelaySeconds: 30
+    periodSeconds: 10
+
+# Ingress configuration
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations: {}
+  hosts:
+    - host: localhost
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# Environment variables
+env:
+  ENVIRONMENT: production
+  LOG_LEVEL: INFO
+
+# Autoscaling (optional)
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+# Security context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsReadOnlyRootFilesystem: false
+  capabilities:
+    drop:
+      - ALL
+
+# Pod disruption budget (for maintainence)
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
