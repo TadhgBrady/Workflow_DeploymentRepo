@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: customer-db-access-service
+  labels:
+    app: customer-db-access-service
+spec:
+  type: ClusterIP
+  selector:
+    app: customer-db-access-service
+  ports:
+  - port: 80
+    targetPort: 8002
+    protocol: TCP
+    name: http

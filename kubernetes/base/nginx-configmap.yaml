@@ -7,36 +7,11 @@ metadata:
     component: config
 data:
   nginx.conf: |
-    # ==============================================================================
-    # CRM Calendar — NGINX API Gateway
-    # ==============================================================================
-    #
-    # Single entry-point for all traffic.  Responsibilities:
-    #   • Reverse-proxy to business-layer services and the frontend
-    #   • Security headers (OWASP baseline)
-    #   • Gzip / Brotli compression
-    #   • Rate limiting (login brute-force protection)
-    #   • Request size limits
-    #   • Static asset caching directives
-    #   • WebSocket upgrade support (for future use)
-    #   • Hides internal DB-access services from the public internet
-    #
-    # Architecture:
-    #   Client ──► NGINX :80 ──┬──► frontend          :8000  (HTML / HTMX)
-    #                           ├──► auth-service       :8005  /api/v1/auth/*
-    #                           ├──► user-bl-service    :8004  /api/v1/users/* , /api/v1/employees/* , /api/v1/company
-    #                           ├──► job-bl-service     :8006  /api/v1/jobs/*
-    #                           ├──► customer-bl-service:8007  /api/v1/customers/* , /api/v1/notes/*
-    #                           └──► admin-bl-service   :8008  /api/v1/admin/*  (superadmin only)
-    #
-    # DB-access services (8001-8003) are NEVER exposed through the gateway.
-    # ==============================================================================
-
     worker_processes auto;
     worker_rlimit_nofile 65535;
+    pid /var/cache/nginx/nginx.pid;
 
     error_log /var/log/nginx/error.log warn;
-    pid       /var/run/nginx.pid;
 
     events {
         worker_connections 4096;
@@ -93,34 +68,33 @@ data:
         limit_req_zone $binary_remote_addr zone=api_general:10m rate=30r/s;
         limit_req_zone $binary_remote_addr zone=auth_limit:10m rate=5r/s;
         limit_conn_zone $binary_remote_addr zone=conn_limit:10m;
-
         upstream frontend {
-            server frontend:8000;
+            server frontend-service:80;
             keepalive 32;
         }
 
         upstream auth_service {
-            server auth-service:8005;
+            server auth-service:80;
             keepalive 16;
         }
 
         upstream user_service {
-            server user-bl-service:8004;
+            server user-bl-service:80;
             keepalive 16;
         }
 
         upstream job_service {
-            server job-bl-service:8006;
+            server job-bl-service:80;
             keepalive 16;
         }
 
         upstream customer_service {
-            server customer-bl-service:8007;
+            server customer-bl-service:80;
             keepalive 16;
         }
 
         upstream admin_service {
-            server admin-bl-service:8008;
+            server admin-bl-service:80;
             keepalive 16;
         }
 
@@ -129,27 +103,30 @@ data:
             ''      close;
         }
 
+        # Default server (reject unknown hosts)
         server {
             listen 80 default_server;
             server_name _;
-            
+
             location = /health {
                 access_log off;
                 default_type application/json;
                 return 200 '{"status":"healthy","service":"nginx-gateway","version":"1.0.0"}';
             }
-            
+
             location / {
                 return 444;
             }
         }
 
+        # Main server
         server {
             listen 80;
-            server_name localhost crm.local;
+            server_name localhost;
 
             limit_conn conn_limit 100;
 
+            # Security headers
             add_header X-Frame-Options        "SAMEORIGIN"       always;
             add_header X-Content-Type-Options "nosniff"          always;
             add_header X-XSS-Protection       "1; mode=block"    always;
@@ -174,108 +151,98 @@ data:
             proxy_buffer_size      4k;
             proxy_buffers          8 8k;
 
+            # Frontend routes
             location /api/auth {
                 limit_req zone=auth_limit burst=10 nodelay;
                 limit_req_status 429;
                 proxy_pass http://frontend/api/auth;
             }
-
             location /api/users {
                 limit_req zone=api_general burst=20 nodelay;
                 limit_req_status 429;
                 proxy_pass http://frontend/api/users;
             }
-
             location /api/employees {
                 limit_req zone=api_general burst=20 nodelay;
                 limit_req_status 429;
                 proxy_pass http://frontend/api/employees;
             }
-
             location /api/customers {
                 limit_req zone=api_general burst=20 nodelay;
                 limit_req_status 429;
                 proxy_pass http://frontend/api/customers;
             }
-
             location /api/notes {
                 limit_req zone=api_general burst=20 nodelay;
                 limit_req_status 429;
                 proxy_pass http://frontend/api/notes;
             }
-
             location /api/jobs {
                 limit_req zone=api_general burst=20 nodelay;
                 limit_req_status 429;
                 proxy_pass http://frontend/api/jobs;
             }
-
             location /api/admin {
                 limit_req zone=api_general burst=10 nodelay;
                 limit_req_status 429;
                 proxy_pass http://frontend/api/admin;
             }
-
             location /api/admin/ {
                 limit_req zone=api_general burst=10 nodelay;
                 limit_req_status 429;
                 proxy_pass http://frontend/api/admin/;
             }
 
+            # Direct service routes
             location /api/v1/auth {
                 limit_req zone=auth_limit burst=10 nodelay;
                 limit_req_status 429;
                 proxy_pass http://auth_service;
             }
-
             location /api/v1/users {
                 limit_req zone=api_general burst=20 nodelay;
                 limit_req_status 429;
                 proxy_pass http://user_service;
             }
-
             location /api/v1/employees {
                 limit_req zone=api_general burst=20 nodelay;
                 limit_req_status 429;
                 proxy_pass http://user_service;
             }
-
             location /api/v1/company {
                 limit_req zone=api_general burst=20 nodelay;
                 limit_req_status 429;
                 proxy_pass http://user_service;
             }
-
             location /api/v1/jobs {
                 limit_req zone=api_general burst=20 nodelay;
                 limit_req_status 429;
                 proxy_pass http://job_service;
             }
-
             location /api/v1/customers {
                 limit_req zone=api_general burst=20 nodelay;
                 limit_req_status 429;
                 proxy_pass http://customer_service;
             }
-
             location /api/v1/notes {
                 limit_req zone=api_general burst=20 nodelay;
                 limit_req_status 429;
                 proxy_pass http://customer_service;
             }
-
             location /api/v1/admin {
                 limit_req zone=api_general burst=10 nodelay;
                 limit_req_status 429;
                 proxy_pass http://admin_service;
             }
 
+            # Health
             location = /health {
                 access_log off;
                 default_type application/json;
                 return 200 '{"status":"healthy","service":"nginx-gateway","version":"1.0.0"}';
             }
 
+            # Static assets
             location /static/ {
                 proxy_pass http://frontend;
                 expires 7d;
@@ -283,6 +250,7 @@ data:
                 add_header X-Content-Type-Options "nosniff" always;
             }
 
+            # Catch-all
             location / {
                 limit_req zone=api_general burst=40 nodelay;
                 limit_req_status 429;

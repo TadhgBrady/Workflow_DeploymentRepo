@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-bl-service
+  labels:
+    app: user-bl-service
+spec:
+  type: ClusterIP
+  selector:
+    app: user-bl-service
+  ports:
+  - port: 80
+    targetPort: 8003
+    protocol: TCP
+    name: http
+  sessionAffinity: None

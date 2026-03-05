@@ -1,24 +1,24 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: admin-bl-service
+  name: customer-bl-service
   labels:
-    app: admin-bl-service
+    app: customer-bl-service
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: admin-bl-service
+      app: customer-bl-service
   template:
     metadata:
       labels:
-        app: admin-bl-service
+        app: customer-bl-service
     spec:
       containers:
-      - name: admin-bl-service
-        image: bencev04/4th-year-proj-tadgh-bence:admin-bl-service-latest
+      - name: customer-bl-service
+        image: bencev04/4th-year-proj-tadgh-bence:customer-bl-service-latest
         ports:
-        - containerPort: 8008
+        - containerPort: 8007
           name: http
           protocol: TCP
         env:
@@ -36,13 +36,12 @@ spec:
         livenessProbe:
           httpGet:
             path: /health
-            port: 8008
+            port: 8007
           initialDelaySeconds: 30
           periodSeconds: 10
         readinessProbe:
           httpGet:
-            path: /ready
-            port: 8008
+            path: /health
+            port: 8007
           initialDelaySeconds: 5
           periodSeconds: 5
-       

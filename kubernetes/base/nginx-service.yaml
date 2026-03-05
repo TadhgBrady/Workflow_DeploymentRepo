@@ -5,7 +5,7 @@ metadata:
   labels:
     app: nginx-gateway
 spec:
-  type: LoadBalancer
+  type: ClusterIP
   selector:
     app: nginx-gateway
   ports:
