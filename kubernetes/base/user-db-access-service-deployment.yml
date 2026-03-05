@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: user-db-access-service
-        image: bencev04/4th-year-proj-tadgh-bence:user-db-access-service-latest  # <-- change this
+        image: bencev04/4th-year-proj-tadgh-bence:user-db-access-service-latest
         ports:
         - containerPort: 8001
           name: http

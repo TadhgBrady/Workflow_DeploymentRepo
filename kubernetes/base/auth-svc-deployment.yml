@@ -18,7 +18,7 @@ spec:
     spec:
       containers:
       - name: auth-service
-        image: bencev04/4th-year-proj-tadgh-bence:auth-service-latest  # <-- change this
+        image: bencev04/4th-year-proj-tadgh-bence:auth-service-latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8005

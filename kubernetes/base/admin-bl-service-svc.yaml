@@ -10,7 +10,7 @@ spec:
     app: admin-bl-service
   ports:
   - port: 80
-    targetPort: 8080
+    targetPort: 8008
     protocol: TCP
     name: http
   sessionAffinity: None

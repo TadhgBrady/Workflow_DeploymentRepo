@@ -10,7 +10,7 @@ spec:
     app: user-bl-service
   ports:
   - port: 80
-    targetPort: 8003
+    targetPort: 8004
     protocol: TCP
     name: http
   sessionAffinity: None

@@ -10,7 +10,7 @@ spec:
     app: user-db-access-service
   ports:
   - port: 80
-    targetPort: 8003
+    targetPort: 8001
     protocol: TCP
     name: http
   sessionAffinity: None
