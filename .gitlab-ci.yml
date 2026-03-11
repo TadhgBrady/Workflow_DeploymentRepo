@@ -1,0 +1,662 @@
+# =============================================================================
+# Year 4 Project — CD Pipeline (Deployment Repo)
+# =============================================================================
+#
+# Triggered by the dev repo CI pipeline (trigger-deploy stage) via GitLab webhook.
+# Receives: IMAGE_TAG, IMAGE_VERSION, SOURCE_COMMIT, SOURCE_BRANCH
+#
+# Pipeline Architecture (8 stages):
+#
+#   validate → update-tags → deploy-staging → staging-tests → promote → deploy-prod → prod-validation → notify
+#
+# Environments:
+#   - Staging:    Auto-deploy, canary rollout, full test suite before promotion
+#   - Production: Manual gate, conservative canary rollout, post-deploy smoke tests
+#
+# Infrastructure:
+#   - AWS EKS (managed via Terraform in terraform/)
+#   - ArgoCD for GitOps-driven deployments
+#   - Argo Rollouts for canary (slow switchover) strategy
+#   - RDS PostgreSQL + ElastiCache Redis (AWS-managed, Terraform-provisioned)
+#   - External Secrets Operator for secrets from AWS Secrets Manager
+#
+# Scale-up/down jobs at the bottom allow bringing staging or production
+# infrastructure up and down independently via Terraform to minimise cost.
+#
+# =============================================================================
+
+stages:
+  - validate            # Lint manifests, validate Terraform & Helm
+  - update-tags         # Patch Kustomize overlays with new image version
+  - deploy-staging      # ArgoCD sync staging, canary rollout
+  - staging-tests       # Playwright E2E, Grafana k6 load tests, smoke tests
+  - promote             # Manual gate — approve promotion to production
+  - deploy-prod         # ArgoCD sync production, conservative canary rollout
+  - prod-validation     # Post-deploy smoke tests & health verification
+  - notify              # Slack/webhook notification of deploy result
+
+# =============================================================================
+# VARIABLES
+# =============================================================================
+
+variables:
+  # -- Passed from dev repo trigger-deploy stage --
+  # IMAGE_TAG:       Docker Hub registry path (e.g. bencev04/4th-year-proj-tadgh-bence)
+  # IMAGE_VERSION:   Short SHA of the source commit (e.g. a1b2c3d4)
+  # SOURCE_COMMIT:   Full SHA of the source commit
+  # SOURCE_BRANCH:   Branch that triggered the build (should be "main")
+
+  # -- ArgoCD connection (set in GitLab CI/CD settings) --
+  # ARGOCD_SERVER:     ArgoCD server URL
+  # ARGOCD_AUTH_TOKEN: ArgoCD API token
+
+  # -- AWS credentials (set in GitLab CI/CD settings) --
+  # AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION
+
+  # -- Terraform --
+  TF_IN_AUTOMATION: "true"
+
+  # -- Cluster --
+  EKS_CLUSTER_NAME: "year4-project"
+  STAGING_NAMESPACE: "year4-project-staging"
+  PROD_NAMESPACE: "year4-project"
+
+  # -- App --
+  STAGING_URL: ""   # Set after ALB/ingress is provisioned
+  PROD_URL: ""      # Set after ALB/ingress is provisioned
+
+  # -- Services list (matches dev repo) --
+  SERVICES: "nginx-gateway auth-service user-bl-service user-db-access-service job-bl-service job-db-access-service customer-bl-service customer-db-access-service admin-bl-service frontend migration-runner"
+
+# =============================================================================
+# STAGE 1: VALIDATE — Lint manifests, validate Terraform & Helm
+# =============================================================================
+
+validate-manifests:
+  stage: validate
+  image: ghcr.io/yannh/kubeconform:latest
+  before_script: []
+  script:
+    - echo "═══════════════════════════════════════════════════════════════"
+    - echo "  Validating Kubernetes manifests (kubeconform)"
+    - echo "═══════════════════════════════════════════════════════════════"
+
+    # Validate that Kustomize overlays produce valid K8s YAML
+    # Note: requires kustomize binary; kubeconform image may need a multi-tool image
+    - |
+      for ENV in staging production; do
+        echo "── Validating overlay: $ENV ──"
+        kubectl kustomize kubernetes/overlays/$ENV | kubeconform -strict -summary
+      done
+
+    - echo ""
+    - echo "✅ All Kubernetes manifests are valid"
+  rules:
+    - when: always
+  allow_failure: false
+
+validate-terraform:
+  stage: validate
+  image:
+    name: hashicorp/terraform:1.7
+    entrypoint: [""]
+  before_script: []
+  script:
+    - echo "═══════════════════════════════════════════════════════════════"
+    - echo "  Validating Terraform configuration"
+    - echo "═══════════════════════════════════════════════════════════════"
+    - |
+      for ENV in staging production; do
+        echo "── terraform validate: environments/$ENV ──"
+        cd terraform/environments/$ENV
+        terraform init -backend=false
+        terraform validate
+        terraform fmt -check -recursive
+        cd "$CI_PROJECT_DIR"
+      done
+    - echo ""
+    - echo "✅ Terraform configuration is valid"
+  rules:
+    - when: always
+  allow_failure: false
+
+validate-helm:
+  stage: validate
+  image:
+    name: alpine/helm:3.14
+    entrypoint: [""]
+  before_script: []
+  script:
+    - echo "═══════════════════════════════════════════════════════════════"
+    - echo "  Validating Helm templates"
+    - echo "═══════════════════════════════════════════════════════════════"
+    - |
+      for ENV in dev staging prod; do
+        echo "── helm template: values-${ENV}.yaml ──"
+        helm template year4-project helm/year4-project \
+          -f helm/year4-project/values-${ENV}.yaml \
+          --debug > /dev/null
+      done
+    - echo ""
+    - echo "✅ All Helm templates render successfully"
+  rules:
+    - when: always
+  allow_failure: false
+
+# =============================================================================
+# STAGE 2: UPDATE TAGS — Patch Kustomize overlays with new image version
+# =============================================================================
+#
+# This commits the updated image tags back to the deployment repo.
+# ArgoCD watches this repo — the commit triggers an automatic sync for staging.
+#
+# References dev repo: IMAGE_TAG = $CI_REGISTRY_IMAGE, IMAGE_VERSION = $CI_COMMIT_SHORT_SHA
+# Image naming convention: $IMAGE_TAG:{service}-{IMAGE_VERSION} and {service}-latest
+# (see dev repo .gitlab-ci.yml build-scan-push stage)
+
+update-image-tags:
+  stage: update-tags
+  image: alpine:latest
+  needs:
+    - validate-manifests
+    - validate-terraform
+    - validate-helm
+  before_script:
+    - apk add --no-cache git sed
+  script:
+    - echo "═══════════════════════════════════════════════════════════════"
+    - echo "  Updating Kustomize image tags"
+    - echo "  IMAGE_TAG:     ${IMAGE_TAG}"
+    - echo "  IMAGE_VERSION: ${IMAGE_VERSION}"
+    - echo "  SOURCE_COMMIT: ${SOURCE_COMMIT}"
+    - echo "═══════════════════════════════════════════════════════════════"
+
+    # Update staging overlay — use the SHA-tagged images
+    - |
+      cd kubernetes/overlays/staging
+      sed -i "s|newTag:.*|newTag: ${IMAGE_VERSION}|" kustomization.yaml
+      cd "$CI_PROJECT_DIR"
+
+    # Update production overlay — keep on latest for now (promotion updates this)
+    # Production tag update happens in the promote stage
+
+    # Commit and push the tag update
+    - git config user.email "cd-pipeline@gitlab.ci"
+    - git config user.name "CD Pipeline"
+    - git add kubernetes/overlays/staging/kustomization.yaml
+    - |
+      git commit -m "ci: update staging image tag to ${IMAGE_VERSION}
+
+      Source commit: ${SOURCE_COMMIT}
+      Source branch: ${SOURCE_BRANCH}
+      Triggered by dev repo CI pipeline" || echo "No changes to commit"
+    - git push "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git" HEAD:main
+  rules:
+    - if: $IMAGE_VERSION
+      when: always
+  allow_failure: false
+
+# =============================================================================
+# STAGE 3: DEPLOY STAGING — ArgoCD sync + canary rollout
+# =============================================================================
+
+deploy-staging:
+  stage: deploy-staging
+  image: argoproj/argocd:v2.10.0
+  needs:
+    - update-image-tags
+  before_script:
+    - argocd login "$ARGOCD_SERVER" --auth-token "$ARGOCD_AUTH_TOKEN" --grpc-web
+  script:
+    - echo "═══════════════════════════════════════════════════════════════"
+    - echo "  Deploying to STAGING via ArgoCD"
+    - echo "  Image version: ${IMAGE_VERSION}"
+    - echo "═══════════════════════════════════════════════════════════════"
+
+    # Trigger sync (staging app has auto-sync, but force it here for immediacy)
+    - argocd app sync year4-project-staging --force --prune
+
+    # Wait for all resources to be healthy (canary rollout completion)
+    - argocd app wait year4-project-staging --health --timeout 600
+
+    - echo ""
+    - echo "✅ Staging deployment healthy — canary rollout complete"
+  rules:
+    - if: $IMAGE_VERSION
+      when: always
+  allow_failure: false
+
+# =============================================================================
+# STAGE 4: STAGING TESTS — E2E, load tests, smoke tests
+# =============================================================================
+#
+# All three jobs run in parallel against the staging environment.
+# Playwright E2E and k6 load tests validate the deployment before promotion.
+#
+
+smoke-tests-staging:
+  stage: staging-tests
+  image: alpine:latest
+  needs:
+    - deploy-staging
+  before_script:
+    - apk add --no-cache curl
+  script:
+    - echo "═══════════════════════════════════════════════════════════════"
+    - echo "  Smoke Tests — Staging Health Checks"
+    - echo "═══════════════════════════════════════════════════════════════"
+    - |
+      FAILED=0
+      SERVICES_TO_CHECK="auth-service user-bl-service user-db-access-service job-bl-service job-db-access-service customer-bl-service customer-db-access-service admin-bl-service frontend"
+      for SVC in $SERVICES_TO_CHECK; do
+        echo -n "  Checking $SVC... "
+        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
+          "${STAGING_URL}/api/${SVC}/health" 2>/dev/null || echo "000")
+        if [ "$HTTP_CODE" = "200" ]; then
+          echo "✅ ($HTTP_CODE)"
+        else
+          echo "❌ ($HTTP_CODE)"
+          FAILED=$((FAILED + 1))
+        fi
+      done
+
+      echo ""
+      if [ "$FAILED" -gt 0 ]; then
+        echo "❌ $FAILED service(s) failed health check"
+        exit 1
+      else
+        echo "✅ All services healthy"
+      fi
+  rules:
+    - if: $IMAGE_VERSION
+      when: always
+  allow_failure: false
+
+# ---------------------------------------------------------------------------
+# PLAYWRIGHT E2E TESTS (Staging)
+# ---------------------------------------------------------------------------
+# Runs browser-based end-to-end tests against the staging environment.
+# Tests live in tests/e2e/ (to be created — see CD_PLAN.md Phase 4).
+#
+# TODO: Add Playwright test suite covering critical user journeys:
+#   - Login / logout / token refresh
+#   - Customer CRUD
+#   - Job scheduling & calendar
+#   - Admin panel access
+# ---------------------------------------------------------------------------
+
+playwright-e2e-staging:
+  stage: staging-tests
+  image: mcr.microsoft.com/playwright:v1.42.0-jammy
+  needs:
+    - deploy-staging
+  before_script:
+    - npm ci --prefix tests/e2e || echo "⚠️  No package.json yet — Playwright tests not configured"
+  script:
+    - echo "═══════════════════════════════════════════════════════════════"
+    - echo "  🎭 Playwright E2E Tests — Staging"
+    - echo "═══════════════════════════════════════════════════════════════"
+    - echo ""
+    - echo "  Target: ${STAGING_URL}"
+    - echo ""
+
+    # ┌─────────────────────────────────────────────────────────┐
+    # │  PLACEHOLDER — Playwright tests to be implemented       │
+    # │                                                         │
+    # │  Once tests/e2e/ is set up:                             │
+    # │    npx playwright test --config=tests/e2e/playwright.   │
+    # │      config.ts --base-url="${STAGING_URL}"              │
+    # │                                                         │
+    # │  Critical journeys to cover:                            │
+    # │    - Authentication (login, logout, token refresh)      │
+    # │    - Customer CRUD operations                           │
+    # │    - Job scheduling & conflict detection                │
+    # │    - Calendar view rendering                            │
+    # │    - Admin panel & user management                      │
+    # │    - Multi-tenant data isolation                        │
+    # └─────────────────────────────────────────────────────────┘
+
+    - echo "⚠️  PLACEHOLDER — Playwright E2E tests not yet implemented"
+    - echo "  See CD_PLAN.md Phase 4 for implementation steps"
+    - echo ""
+    - echo "⏭️  Skipping (allow_failure: true until tests are written)"
+  artifacts:
+    when: always
+    paths:
+      - tests/e2e/test-results/
+      - tests/e2e/playwright-report/
+    expire_in: 7 days
+  rules:
+    - if: $IMAGE_VERSION
+      when: always
+  allow_failure: true   # Soft gate until Playwright tests are implemented
+
+# ---------------------------------------------------------------------------
+# GRAFANA K6 LOAD TESTS (Staging)
+# ---------------------------------------------------------------------------
+# Runs load/performance tests against the staging environment to verify
+# the deployment can handle expected traffic before promoting to production.
+# Test scripts live in tests/k6/ (to be created — see CD_PLAN.md Phase 4).
+#
+# TODO: Add k6 test scenarios:
+#   - Baseline: 10 VUs for 1 minute (health check)
+#   - Ramp-up:  1 → 50 VUs over 3 minutes (normal load)
+#   - Spike:    50 → 100 VUs for 1 minute (burst traffic)
+#   - Thresholds: p95 < 500ms, error rate < 1%
+# ---------------------------------------------------------------------------
+
+k6-load-tests-staging:
+  stage: staging-tests
+  image:
+    name: grafana/k6:latest
+    entrypoint: [""]
+  needs:
+    - deploy-staging
+  script:
+    - echo "═══════════════════════════════════════════════════════════════"
+    - echo "  📊 Grafana k6 Load Tests — Staging"
+    - echo "═══════════════════════════════════════════════════════════════"
+    - echo ""
+    - echo "  Target: ${STAGING_URL}"
+    - echo ""
+
+    # ┌─────────────────────────────────────────────────────────┐
+    # │  PLACEHOLDER — k6 load tests to be implemented          │
+    # │                                                         │
+    # │  Once tests/k6/ is set up:                              │
+    # │    k6 run tests/k6/staging-load-test.js                 │
+    # │      --env BASE_URL="${STAGING_URL}"                    │
+    # │      --out json=k6-results.json                         │
+    # │                                                         │
+    # │  Suggested thresholds:                                  │
+    # │    - http_req_duration p(95) < 500ms                    │
+    # │    - http_req_failed rate < 0.01 (1%)                   │
+    # │    - http_reqs count > 1000 (min throughput)            │
+    # │                                                         │
+    # │  Scenarios to cover:                                    │
+    # │    - API health endpoints (all 9 services)              │
+    # │    - Auth flow (login → token → refresh)                │
+    # │    - Customer list + search (read-heavy)                │
+    # │    - Job creation + scheduling (write-heavy)            │
+    # │    - Mixed workload (realistic traffic pattern)         │
+    # └─────────────────────────────────────────────────────────┘
+
+    - echo "⚠️  PLACEHOLDER — Grafana k6 load tests not yet implemented"
+    - echo "  See CD_PLAN.md Phase 4 for implementation steps"
+    - echo ""
+    - echo "⏭️  Skipping (allow_failure: true until tests are written)"
+  artifacts:
+    when: always
+    paths:
+      - k6-results.json
+    expire_in: 7 days
+  rules:
+    - if: $IMAGE_VERSION
+      when: always
+  allow_failure: true   # Soft gate until k6 tests are implemented
+
+# =============================================================================
+# STAGE 5: PROMOTE — Manual approval to deploy to production
+# =============================================================================
+#
+# Same manual gate pattern as the dev repo's trigger-deploy stage.
+# Updates production overlay image tags and commits back to repo.
+# ArgoCD production app requires manual sync in ArgoCD UI as a second gate.
+
+promote-to-production:
+  stage: promote
+  image: alpine:latest
+  needs:
+    - smoke-tests-staging
+    - playwright-e2e-staging
+    - k6-load-tests-staging
+  before_script:
+    - apk add --no-cache git sed
+  script:
+    - echo "═══════════════════════════════════════════════════════════════"
+    - echo "  Promoting ${IMAGE_VERSION} to PRODUCTION"
+    - echo "═══════════════════════════════════════════════════════════════"
+
+    # Update production overlay with the validated staging image version
+    - |
+      cd kubernetes/overlays/production
+      sed -i "s|newTag:.*|newTag: ${IMAGE_VERSION}|" kustomization.yaml
+      cd "$CI_PROJECT_DIR"
+
+    # Commit and push
+    - git config user.email "cd-pipeline@gitlab.ci"
+    - git config user.name "CD Pipeline"
+    - git add kubernetes/overlays/production/kustomization.yaml
+    - |
+      git commit -m "ci: promote ${IMAGE_VERSION} to production
+
+      Staging validation passed:
+        ✅ Smoke tests
+        ✅ Playwright E2E (or skipped — placeholder)
+        ✅ k6 load tests (or skipped — placeholder)
+
+      Source commit: ${SOURCE_COMMIT}
+      Promoted by: manual approval in GitLab CI" || echo "No changes to commit"
+    - git push "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git" HEAD:main
+
+    - echo ""
+    - echo "✅ Production overlay updated — awaiting ArgoCD manual sync"
+    - echo ""
+    - echo "ACTION REQUIRED: Approve the sync in ArgoCD UI for year4-project-production"
+  rules:
+    - if: $IMAGE_VERSION
+      when: manual
+      allow_failure: false
+
+# =============================================================================
+# STAGE 6: DEPLOY PRODUCTION — ArgoCD sync + conservative canary rollout
+# =============================================================================
+
+deploy-production:
+  stage: deploy-prod
+  image: argoproj/argocd:v2.10.0
+  needs:
+    - promote-to-production
+  before_script:
+    - argocd login "$ARGOCD_SERVER" --auth-token "$ARGOCD_AUTH_TOKEN" --grpc-web
+  script:
+    - echo "═══════════════════════════════════════════════════════════════"
+    - echo "  Deploying to PRODUCTION via ArgoCD"
+    - echo "  Image version: ${IMAGE_VERSION}"
+    - echo "═══════════════════════════════════════════════════════════════"
+
+    # Production app uses manual sync — trigger it from pipeline
+    # (Operator already approved promotion in the promote stage)
+    - argocd app sync year4-project-production --force --prune
+
+    # Wait for healthy — production canary takes longer (conservative steps)
+    # 10% → 30% → 60% → 100% with 2-minute pauses = ~8 min total minimum
+    - argocd app wait year4-project-production --health --timeout 900
+
+    - echo ""
+    - echo "✅ Production deployment healthy — canary rollout complete"
+  rules:
+    - if: $IMAGE_VERSION
+      when: always
+  allow_failure: false
+
+# =============================================================================
+# STAGE 7: PRODUCTION VALIDATION — Post-deploy smoke tests
+# =============================================================================
+
+smoke-tests-production:
+  stage: prod-validation
+  image: alpine:latest
+  needs:
+    - deploy-production
+  before_script:
+    - apk add --no-cache curl
+  script:
+    - echo "═══════════════════════════════════════════════════════════════"
+    - echo "  Production Smoke Tests — Health Checks"
+    - echo "═══════════════════════════════════════════════════════════════"
+    - |
+      FAILED=0
+      SERVICES_TO_CHECK="auth-service user-bl-service user-db-access-service job-bl-service job-db-access-service customer-bl-service customer-db-access-service admin-bl-service frontend"
+      for SVC in $SERVICES_TO_CHECK; do
+        echo -n "  Checking $SVC... "
+        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
+          "${PROD_URL}/api/${SVC}/health" 2>/dev/null || echo "000")
+        if [ "$HTTP_CODE" = "200" ]; then
+          echo "✅ ($HTTP_CODE)"
+        else
+          echo "❌ ($HTTP_CODE)"
+          FAILED=$((FAILED + 1))
+        fi
+      done
+
+      echo ""
+      if [ "$FAILED" -gt 0 ]; then
+        echo "❌ $FAILED service(s) failed health check in production"
+        echo "⚠️  ACTION REQUIRED: Check ArgoCD dashboard and rollout status"
+        exit 1
+      else
+        echo "✅ All production services healthy"
+      fi
+  rules:
+    - if: $IMAGE_VERSION
+      when: always
+  allow_failure: false
+
+# =============================================================================
+# STAGE 8: NOTIFY — Deploy result notification
+# =============================================================================
+
+notify-success:
+  stage: notify
+  image: alpine:latest
+  needs:
+    - smoke-tests-production
+  before_script:
+    - apk add --no-cache curl
+  script:
+    - echo "═══════════════════════════════════════════════════════════════"
+    - echo "  ✅ DEPLOYMENT SUCCESSFUL"
+    - echo "═══════════════════════════════════════════════════════════════"
+    - echo ""
+    - echo "  Environment:  Production"
+    - echo "  Version:      ${IMAGE_VERSION}"
+    - echo "  Source:        ${SOURCE_COMMIT}"
+    - echo "  Pipeline:     ${CI_PIPELINE_URL}"
+    - echo ""
+    # TODO: Add Slack/Teams/webhook notification
+    # - |
+    #   curl -X POST "$SLACK_WEBHOOK_URL" -H "Content-Type: application/json" \
+    #     -d "{\"text\": \"✅ Production deploy complete — version ${IMAGE_VERSION}\"}"
+  rules:
+    - if: $IMAGE_VERSION
+      when: on_success
+  allow_failure: true
+
+notify-failure:
+  stage: notify
+  image: alpine:latest
+  needs:
+    - smoke-tests-production
+  before_script:
+    - apk add --no-cache curl
+  script:
+    - echo "═══════════════════════════════════════════════════════════════"
+    - echo "  ❌ DEPLOYMENT FAILED"
+    - echo "═══════════════════════════════════════════════════════════════"
+    - echo ""
+    - echo "  Environment:  Production"
+    - echo "  Version:      ${IMAGE_VERSION}"
+    - echo "  Pipeline:     ${CI_PIPELINE_URL}"
+    - echo ""
+    - echo "  ACTION REQUIRED: Check ArgoCD dashboard for rollback status"
+    # TODO: Add Slack/Teams/webhook notification
+  rules:
+    - if: $IMAGE_VERSION
+      when: on_failure
+  allow_failure: true
+
+# =============================================================================
+# INFRASTRUCTURE SCALE-UP / SCALE-DOWN JOBS
+# =============================================================================
+#
+# Manual-trigger jobs for bringing environments up and down via Terraform.
+# Each environment has independent Terraform state — can be controlled separately.
+#
+# Typical workflow:
+#   1. scale-up-staging    → bring staging infra up
+#   2. (pipeline deploys)  → validate in staging
+#   3. scale-up-production → bring prod infra up
+#   4. (pipeline deploys)  → canary rollout to prod
+#   5. scale-down-staging  → staging no longer needed
+#   6. (after demo/use)    → scale-down-production
+#
+# EKS control plane ($0.10/hr) still runs when nodes=0.
+# RDS auto-restarts after 7 days — re-run scale-down if needed.
+
+.terraform-base: &terraform-base
+  image:
+    name: hashicorp/terraform:1.7
+    entrypoint: [""]
+  before_script:
+    - echo "Terraform $TF_ENV environment — $TF_ACTION"
+
+scale-up-staging:
+  <<: *terraform-base
+  stage: validate   # Runs independently, not tied to deploy flow
+  variables:
+    TF_ENV: staging
+    TF_ACTION: scale-up
+  script:
+    - cd terraform/environments/staging
+    - terraform init
+    - terraform apply -var="enabled=true" -auto-approve
+    - echo "✅ Staging infrastructure scaled UP"
+  rules:
+    - when: manual
+  allow_failure: true
+
+scale-down-staging:
+  <<: *terraform-base
+  stage: validate
+  variables:
+    TF_ENV: staging
+    TF_ACTION: scale-down
+  script:
+    - cd terraform/environments/staging
+    - terraform init
+    - terraform apply -var="enabled=false" -auto-approve
+    - echo "✅ Staging infrastructure scaled DOWN"
+  rules:
+    - when: manual
+  allow_failure: true
+
+scale-up-production:
+  <<: *terraform-base
+  stage: validate
+  variables:
+    TF_ENV: production
+    TF_ACTION: scale-up
+  script:
+    - cd terraform/environments/production
+    - terraform init
+    - terraform apply -var="enabled=true" -auto-approve
+    - echo "✅ Production infrastructure scaled UP"
+  rules:
+    - when: manual
+  allow_failure: true
+
+scale-down-production:
+  <<: *terraform-base
+  stage: validate
+  variables:
+    TF_ENV: production
+    TF_ACTION: scale-down
+  script:
+    - cd terraform/environments/production
+    - terraform init
+    - terraform apply -var="enabled=false" -auto-approve
+    - echo "✅ Production infrastructure scaled DOWN"
+  rules:
+    - when: manual
+  allow_failure: true
