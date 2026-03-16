@@ -1,0 +1,61 @@
+# Cert-Manager Certificate Issuers for Let's Encrypt Integration
+# These create automatic TLS certificate issuance and renewal
+# 
+# Prerequisites: cert-manager must be installed in the cluster
+# Install cert-manager: helm repo add jetstack https://charts.jetstack.io
+#                       helm install cert-manager jetstack/cert-manager --namespace cert-manager --create-namespace
+
+---
+# Let's Encrypt Production Issuer
+# Use this for real certificates in production
+# Rate limits: 50 certificates per domain per week
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    # Let's Encrypt ACME API endpoint
+    server: https://acme-v02.api.letsencrypt.org/directory
+    
+    # Email for ACME account registration and certificate expiration notices
+    # Replace with your actual email
+    email: your-email@example.com
+    
+    # Secret to store ACME private key
+    privateKeySecretRef:
+      name: letsencrypt-prod-key
+    
+    # HTTP-01 challenge solver for domain validation
+    solvers:
+    - http01:
+        ingress:
+          class: nginx
+
+---
+# Let's Encrypt Staging Issuer
+# Use this for testing to avoid rate limits
+# Certificates are self-signed but chain is identical to production
+# Rate limits: 30,000 certificates per IP per week
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+spec:
+  acme:
+    # Let's Encrypt ACME staging API endpoint (for testing)
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    
+    # Email for ACME account registration
+    # Replace with your actual email
+    email: your-email@example.com
+    
+    # Secret to store ACME private key
+    privateKeySecretRef:
+      name: letsencrypt-staging-key
+    
+    # HTTP-01 challenge solver for domain validation
+    solvers:
+    - http01:
+        ingress:
+          class: nginx

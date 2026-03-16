@@ -1,0 +1,394 @@
+# RBAC Configuration for Year4 Project
+# Implements least-privilege access control for all microservices
+
+---
+# Auth Service Account
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: auth-service-sa
+  labels:
+    app: auth-service
+
+---
+# Auth Service Role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: auth-service-role
+rules:
+# Allow reading secrets for auth configuration
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: ["auth-secrets"]
+  verbs: ["get"]
+# Allow reading configmaps for auth config
+- apiGroups: [""]
+  resources: ["configmaps"]
+  resourceNames: ["auth-config"]
+  verbs: ["get"]
+# Allow writing logs (via stdout/stderr)
+- apiGroups: [""]
+  resources: ["pods/log"]
+  verbs: ["get", "list"]
+
+---
+# Auth Service RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: auth-service-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: auth-service-role
+subjects:
+- kind: ServiceAccount
+  name: auth-service-sa
+
+---
+# Customer BL Service Account
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: customer-bl-service-sa
+  labels:
+    app: customer-bl-service
+
+---
+# Customer BL Service Role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: customer-bl-service-role
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: ["db-credentials"]
+  verbs: ["get"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  resourceNames: ["app-config"]
+  verbs: ["get", "list"]
+
+---
+# Customer BL Service RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: customer-bl-service-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: customer-bl-service-role
+subjects:
+- kind: ServiceAccount
+  name: customer-bl-service-sa
+
+---
+# Admin BL Service Account
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: admin-bl-service-sa
+  labels:
+    app: admin-bl-service
+
+---
+# Admin BL Service Role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: admin-bl-service-role
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: ["db-credentials"]
+  verbs: ["get"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  resourceNames: ["app-config"]
+  verbs: ["get", "list"]
+
+---
+# Admin BL Service RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: admin-bl-service-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: admin-bl-service-role
+subjects:
+- kind: ServiceAccount
+  name: admin-bl-service-sa
+
+---
+# Job BL Service Account
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: job-bl-service-sa
+  labels:
+    app: job-bl-service
+
+---
+# Job BL Service Role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: job-bl-service-role
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: ["db-credentials"]
+  verbs: ["get"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  resourceNames: ["app-config"]
+  verbs: ["get", "list"]
+
+---
+# Job BL Service RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: job-bl-service-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: job-bl-service-role
+subjects:
+- kind: ServiceAccount
+  name: job-bl-service-sa
+
+---
+# User BL Service Account
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: user-bl-service-sa
+  labels:
+    app: user-bl-service
+
+---
+# User BL Service Role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: user-bl-service-role
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: ["db-credentials"]
+  verbs: ["get"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  resourceNames: ["app-config"]
+  verbs: ["get", "list"]
+
+---
+# User BL Service RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: user-bl-service-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: user-bl-service-role
+subjects:
+- kind: ServiceAccount
+  name: user-bl-service-sa
+
+---
+# Database Access Services (Customer, Job, User) - Use same SA model
+# Customer DB Access Service Account
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: customer-db-access-sa
+  labels:
+    app: customer-db-access-service
+
+---
+# Customer DB Access Role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: customer-db-access-role
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: ["db-credentials"]
+  verbs: ["get"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  resourceNames: ["db-config"]
+  verbs: ["get"]
+
+---
+# Customer DB Access RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: customer-db-access-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: customer-db-access-role
+subjects:
+- kind: ServiceAccount
+  name: customer-db-access-sa
+
+---
+# Job DB Access Service Account
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: job-db-access-sa
+  labels:
+    app: job-db-access-service
+
+---
+# Job DB Access Role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: job-db-access-role
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: ["db-credentials"]
+  verbs: ["get"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  resourceNames: ["db-config"]
+  verbs: ["get"]
+
+---
+# Job DB Access RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: job-db-access-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: job-db-access-role
+subjects:
+- kind: ServiceAccount
+  name: job-db-access-sa
+
+---
+# User DB Access Service Account
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: user-db-access-sa
+  labels:
+    app: user-db-access-service
+
+---
+# User DB Access Role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: user-db-access-role
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: ["db-credentials"]
+  verbs: ["get"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  resourceNames: ["db-config"]
+  verbs: ["get"]
+
+---
+# User DB Access RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: user-db-access-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: user-db-access-role
+subjects:
+- kind: ServiceAccount
+  name: user-db-access-sa
+
+---
+# Frontend Service Account
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: frontend-sa
+  labels:
+    app: frontend
+
+---
+# Frontend Role (minimal - frontend mainly needs configmaps)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: frontend-role
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  resourceNames: ["frontend-config"]
+  verbs: ["get"]
+
+---
+# Frontend RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: frontend-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: frontend-role
+subjects:
+- kind: ServiceAccount
+  name: frontend-sa
+
+---
+# Nginx Gateway Service Account
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nginx-gateway-sa
+  labels:
+    app: nginx-gateway
+
+---
+# Nginx Gateway Role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: nginx-gateway-role
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  resourceNames: ["nginx-config"]
+  verbs: ["get", "watch"]
+- apiGroups: [""]
+  resources: ["services"]
+  verbs: ["get", "list"]
+
+---
+# Nginx Gateway RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: nginx-gateway-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: nginx-gateway-role
+subjects:
+- kind: ServiceAccount
+  name: nginx-gateway-sa

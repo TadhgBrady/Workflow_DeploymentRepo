@@ -14,6 +14,7 @@ spec:
       labels:
         app: job-bl-service
     spec:
+      serviceAccountName: job-bl-service-sa
       containers:
       - name: job-bl-service
         image: bencev04/4th-year-proj-tadgh-bence:job-bl-service-latest

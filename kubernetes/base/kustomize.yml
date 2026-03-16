@@ -1,6 +1,8 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 bases:
+- rbac.yaml
+- cert-issuers.yaml
 - auth-svc-deployment.yml
 - auth-service-svc.yml
 - customer-bl-service-deployment.yml

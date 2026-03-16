@@ -42,11 +42,6 @@ replicas:
   - name: nginx-gateway
     count: 2
 
-# Use staging image tags
-images:
-  - name: bencev04/4th-year-proj-tadgh-bence
-    newTag: staging
-
 # Service type patch - use LoadBalancer for staging (cloud access)
 patchesStrategicMerge:
   - nginx-service-patch.yaml

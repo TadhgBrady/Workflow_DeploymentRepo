@@ -14,6 +14,7 @@ spec:
       labels:
         app: job-db-access-service
     spec:
+      serviceAccountName: job-db-access-sa
       containers:
       - name: job-db-access-service
         image: bencev04/4th-year-proj-tadgh-bence:job-db-access-service-latest

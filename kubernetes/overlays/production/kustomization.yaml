@@ -42,11 +42,6 @@ replicas:
   - name: nginx-gateway
     count: 3
 
-# Use latest image tags for production
-images:
-  - name: bencev04/4th-year-proj-tadgh-bence
-    newTag: latest
-
 # Service type patch - use LoadBalancer for production (production access)
 patchesStrategicMerge:
   - nginx-service-patch.yaml

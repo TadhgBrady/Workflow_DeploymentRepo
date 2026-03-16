@@ -7,48 +7,20 @@ metadata:
 
 # Include all YAML files from base directory
 resources:
-  - base/auth-svc-deployment.yml
-  - base/auth-service-svc.yml
-  - base/user-bl-service-deployment.yml
-  - base/user-bl-service-svc.yml
-  - base/user-db-access-service-deployment.yml
-  - base/user-db-access-service-svc.yml
-  - base/job-bl-service-deployment.yml
-  - base/job-bl-service-svc.yml
-  - base/job-db-access-service-deployment.yml
-  - base/job-db-access-service-svc.yml
-  - base/customer-bl-service-deployment.yml
-  - base/customer-bl-service-svc.yml
-  - base/customer-db-access-service-deployment.yml
-  - base/customer-db-access-service-svc.yml
-  - base/admin-bl-service-deployment.yaml
-  - base/admin-bl-service-svc.yaml
-  - base/user-db-access-service-deployment.yml
-  - base/user-db-access-service-svc.yml
-  - base/frontend-deployment.yml
-  - base/frontend-svc.yml
-  - base/nginx-configmap.yaml
-  - base/nginx-deployment.yaml
-  - base/nginx-service.yaml
-  - base/ingress-gateway.yml
+  - base
 
 # Common labels applied to all resources
-commonLabels:
-  app.kubernetes.io/name: year4-project
-  app.kubernetes.io/version: "1.0.0"
-  managed-by: kustomize
+labels:
+  - pairs:
+      app.kubernetes.io/name: year4-project
+      app.kubernetes.io/version: "1.0.0"
+      managed-by: kustomize
+    includeSelectors: false
+    includeTemplates: true
 
 # Common annotations
 commonAnnotations:
   deployment.type: microservices
   documentation: "See README.md for details"
 
-# Image configuration (can be overridden in overlays)
-images:
-  - name: bencev04/4th-year-proj-tadgh-bence
-    newTag: latest
-
-# Namespace configuration
-namespace: default
-
-# TODO: Add patches or kustomization options here as needed
+# Image tags are defined per-service in base deployment manifests
