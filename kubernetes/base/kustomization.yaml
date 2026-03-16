@@ -49,3 +49,9 @@ resources:
   
   # Ingress
   - ingress-gateway.yml
+  
+  # Redis
+  - redis-pv.yml
+  - redis-pvc.yml
+  - redis-deployment.yml
+  - redis-service.yml
