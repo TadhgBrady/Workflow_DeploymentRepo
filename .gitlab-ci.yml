@@ -16,9 +16,8 @@
 #   - Production: Manual gate, conservative canary rollout, post-deploy smoke tests
 #
 # Infrastructure:
-#   - AWS EKS (managed via Terraform in terraform/)
-#   - ArgoCD for GitOps-driven deployments
-#   - Argo Rollouts for canary (slow switchover) strategy
+#   - AWS EKS (managed via Terraform in infra repo)
+#   - Direct kubectl/kustomize deployments from pipeline
 #   - RDS PostgreSQL + ElastiCache Redis (AWS-managed, Terraform-provisioned)
 #   - External Secrets Operator for secrets from AWS Secrets Manager
 #
@@ -31,11 +30,11 @@ stages:
   - validate            # Lint manifests, validate Helm templates
   - update-tags         # Patch Kustomize overlays with new image version
   - ensure-staging      # Scale up staging cluster (or trigger infra pipeline)
-  - deploy-staging      # ArgoCD sync staging, canary rollout
+  - deploy-staging      # kubectl apply staging, rollout verification
   - staging-tests       # Playwright E2E, Grafana k6 load tests, smoke tests
   - promote             # Manual gate — approve promotion to production
   - ensure-production   # Scale up production cluster (or trigger infra pipeline)
-  - deploy-prod         # ArgoCD sync production, conservative canary rollout
+  - deploy-prod         # kubectl apply production, rollout verification
   - prod-validation     # Post-deploy smoke tests & health verification
   - teardown            # Tear down staging after successful prod deploy
   - notify              # Slack/webhook notification of deploy result
@@ -50,10 +49,6 @@ variables:
   # IMAGE_VERSION:   Short SHA of the source commit (e.g. a1b2c3d4)
   # SOURCE_COMMIT:   Full SHA of the source commit
   # SOURCE_BRANCH:   Branch that triggered the build (should be "main")
-
-  # -- ArgoCD connection (set in GitLab CI/CD settings) --
-  # ARGOCD_SERVER:     ArgoCD server URL
-  # ARGOCD_AUTH_TOKEN: ArgoCD API token
 
   # -- AWS credentials (set in GitLab CI/CD settings) --
   # AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
@@ -71,9 +66,9 @@ variables:
   # INFRA_TRIGGER_TOKEN: ""     # Pipeline trigger token for infra repo
   # GITLAB_API_TOKEN: ""        # GitLab personal/project token with API access (for polling)
 
-  # -- App --
-  STAGING_URL: ""   # Set after ALB/ingress is provisioned
-  PROD_URL: ""      # Set after ALB/ingress is provisioned
+  # -- App URLs --
+  # STAGING_URL and PROD_URL are discovered dynamically by deploy jobs
+  # and exported as dotenv artifacts for downstream smoke test jobs.
 
   # -- Services list (matches dev repo) --
   SERVICES: "nginx-gateway auth-service user-bl-service user-db-access-service job-bl-service job-db-access-service customer-bl-service customer-db-access-service admin-bl-service frontend migration-runner"
@@ -140,7 +135,6 @@ validate-helm:
 # =============================================================================
 #
 # This commits the updated image tags back to the deployment repo.
-# ArgoCD watches this repo — the commit triggers an automatic sync for staging.
 #
 # References dev repo: IMAGE_TAG = $CI_REGISTRY_IMAGE, IMAGE_VERSION = $CI_COMMIT_SHORT_SHA
 # Image naming convention: $IMAGE_TAG:{service}-{IMAGE_VERSION} and {service}-latest
@@ -219,7 +213,7 @@ trigger-infra-staging:
       when: always
 
 # After the infra pipeline completes, do a quick readiness check to confirm
-# nodes are actually in Ready state before ArgoCD tries to sync.
+# nodes are actually in Ready state before kubectl tries to deploy.
 wait-staging-ready:
   stage: ensure-staging
   image:
@@ -260,30 +254,67 @@ wait-staging-ready:
   allow_failure: false
 
 # =============================================================================
-# STAGE 3b: DEPLOY STAGING — ArgoCD sync + canary rollout
+# STAGE 3b: DEPLOY STAGING — kubectl apply + rollout verification
 # =============================================================================
 
 deploy-staging:
   stage: deploy-staging
-  image: argoproj/argocd:v2.10.0
+  image:
+    name: amazon/aws-cli:2.22.0
+    entrypoint: [""]
   needs:
     - wait-staging-ready
   before_script:
-    - argocd login "$ARGOCD_SERVER" --auth-token "$ARGOCD_AUTH_TOKEN" --grpc-web
+    # Install kubectl
+    - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
+    - chmod +x kubectl && mv kubectl /usr/local/bin/
+    # Configure kubeconfig for the staging EKS cluster
+    - aws eks update-kubeconfig --name $STAGING_CLUSTER_NAME --region $AWS_DEFAULT_REGION
   script:
     - echo "═══════════════════════════════════════════════════════════════"
-    - echo "  Deploying to STAGING via ArgoCD"
+    - echo "  Deploying to STAGING via kubectl apply"
     - echo "  Image version: ${IMAGE_VERSION}"
     - echo "═══════════════════════════════════════════════════════════════"
 
-    # Trigger sync (staging app has auto-sync, but force it here for immediacy)
-    - argocd app sync year4-project-staging --force --prune
+    # Create namespace if it doesn't exist
+    - kubectl create namespace $STAGING_NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
 
-    # Wait for all resources to be healthy (canary rollout completion)
-    - argocd app wait year4-project-staging --health --timeout 600
+    # Apply the staging kustomize overlay
+    - kubectl apply -k kubernetes/overlays/staging
+
+    # Wait for all deployments to roll out
+    - |
+      echo "Waiting for deployments to become ready..."
+      for DEPLOY in $(kubectl get deployments -n $STAGING_NAMESPACE -o name); do
+        echo "  Waiting for $DEPLOY..."
+        kubectl rollout status $DEPLOY -n $STAGING_NAMESPACE --timeout=300s
+      done
+
+    # Discover LoadBalancer URL and export for downstream jobs
+    - |
+      echo ""
+      echo "Waiting for LoadBalancer external hostname..."
+      for i in $(seq 1 30); do
+        LB_HOST=$(kubectl get svc staging-nginx-gateway -n $STAGING_NAMESPACE \
+          -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+        if [ -n "$LB_HOST" ]; then
+          echo "STAGING_URL=http://$LB_HOST" > staging-deploy.env
+          echo "✅ Staging URL: http://$LB_HOST"
+          break
+        fi
+        echo "  Attempt $i/30 — waiting for LB provisioning..."
+        sleep 10
+      done
+      if [ -z "$LB_HOST" ]; then
+        echo "⚠️  LoadBalancer hostname not available yet (may still be provisioning)"
+        echo "STAGING_URL=" > staging-deploy.env
+      fi
 
     - echo ""
-    - echo "✅ Staging deployment healthy — canary rollout complete"
+    - echo "✅ Staging deployment complete"
+  artifacts:
+    reports:
+      dotenv: staging-deploy.env
   rules:
     - if: $IMAGE_VERSION
       when: always
@@ -464,7 +495,7 @@ k6-load-tests-staging:
 #
 # Same manual gate pattern as the dev repo's trigger-deploy stage.
 # Updates production overlay image tags and commits back to repo.
-# ArgoCD production app requires manual sync in ArgoCD UI as a second gate.
+# The pipeline waits for manual approval before deploying to production.
 
 promote-to-production:
   stage: promote
@@ -503,9 +534,7 @@ promote-to-production:
     - git push "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git" HEAD:main
 
     - echo ""
-    - echo "✅ Production overlay updated — awaiting ArgoCD manual sync"
-    - echo ""
-    - echo "ACTION REQUIRED: Approve the sync in ArgoCD UI for year4-project-production"
+    - echo "✅ Production overlay updated — kubectl deploy will proceed next"
   rules:
     - if: $IMAGE_VERSION
       when: manual
@@ -570,32 +599,65 @@ wait-production-ready:
   allow_failure: false
 
 # =============================================================================
-# STAGE 6b: DEPLOY PRODUCTION — ArgoCD sync + conservative canary rollout
+# STAGE 6b: DEPLOY PRODUCTION — kubectl apply + rollout verification
 # =============================================================================
 
 deploy-production:
   stage: deploy-prod
-  image: argoproj/argocd:v2.10.0
+  image:
+    name: amazon/aws-cli:2.22.0
+    entrypoint: [""]
   needs:
     - wait-production-ready
   before_script:
-    - argocd login "$ARGOCD_SERVER" --auth-token "$ARGOCD_AUTH_TOKEN" --grpc-web
+    - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
+    - chmod +x kubectl && mv kubectl /usr/local/bin/
+    - aws eks update-kubeconfig --name $PROD_CLUSTER_NAME --region $AWS_DEFAULT_REGION
   script:
     - echo "═══════════════════════════════════════════════════════════════"
-    - echo "  Deploying to PRODUCTION via ArgoCD"
+    - echo "  Deploying to PRODUCTION via kubectl apply"
     - echo "  Image version: ${IMAGE_VERSION}"
     - echo "═══════════════════════════════════════════════════════════════"
 
-    # Production app uses manual sync — trigger it from pipeline
-    # (Operator already approved promotion in the promote stage)
-    - argocd app sync year4-project-production --force --prune
+    # Create namespace if it doesn't exist
+    - kubectl create namespace $PROD_NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
 
-    # Wait for healthy — production canary takes longer (conservative steps)
-    # 10% → 30% → 60% → 100% with 2-minute pauses = ~8 min total minimum
-    - argocd app wait year4-project-production --health --timeout 900
+    # Apply the production kustomize overlay
+    - kubectl apply -k kubernetes/overlays/production
+
+    # Wait for all deployments to roll out
+    - |
+      echo "Waiting for deployments to become ready..."
+      for DEPLOY in $(kubectl get deployments -n $PROD_NAMESPACE -o name); do
+        echo "  Waiting for $DEPLOY..."
+        kubectl rollout status $DEPLOY -n $PROD_NAMESPACE --timeout=300s
+      done
+
+    # Discover LoadBalancer URL and export for downstream jobs
+    - |
+      echo ""
+      echo "Waiting for LoadBalancer external hostname..."
+      for i in $(seq 1 30); do
+        LB_HOST=$(kubectl get svc prod-nginx-gateway -n $PROD_NAMESPACE \
+          -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+        if [ -n "$LB_HOST" ]; then
+          echo "PROD_URL=http://$LB_HOST" > production-deploy.env
+          echo "✅ Production URL: http://$LB_HOST"
+          break
+        fi
+        echo "  Attempt $i/30 — waiting for LB provisioning..."
+        sleep 10
+      done
+      if [ -z "$LB_HOST" ]; then
+        echo "⚠️  LoadBalancer hostname not available yet"
+        echo "PROD_URL=" > production-deploy.env
+      fi
 
     - echo ""
-    - echo "✅ Production deployment healthy — canary rollout complete"
+    - echo "✅ Production deployment complete"
+  artifacts:
+    reports:
+      dotenv: production-deploy.env
   rules:
     - if: $IMAGE_VERSION
       when: always
@@ -634,7 +696,7 @@ smoke-tests-production:
       echo ""
       if [ "$FAILED" -gt 0 ]; then
         echo "❌ $FAILED service(s) failed health check in production"
-        echo "⚠️  ACTION REQUIRED: Check ArgoCD dashboard and rollout status"
+        echo "⚠️  ACTION REQUIRED: Check deployment logs and kubectl rollout status"
         exit 1
       else
         echo "✅ All production services healthy"
@@ -731,7 +793,7 @@ notify-failure:
     - echo "  Version:      ${IMAGE_VERSION}"
     - echo "  Pipeline:     ${CI_PIPELINE_URL}"
     - echo ""
-    - echo "  ACTION REQUIRED: Check ArgoCD dashboard for rollback status"
+    - echo "  ACTION REQUIRED: Check deployment logs and kubectl rollout status"
     # TODO: Add Slack/Teams/webhook notification
   rules:
     - if: $IMAGE_VERSION

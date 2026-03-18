@@ -4,7 +4,7 @@ kind: Kustomization
 namespace: year4-project-staging
 
 # Reference the base configuration
-bases:
+resources:
   - ../../base
 
 # Staging-specific configuration

@@ -4,7 +4,7 @@ kind: Kustomization
 namespace: year4-project
 
 # Reference the base configuration
-bases:
+resources:
   - ../../base
 
 # Production-specific configuration
