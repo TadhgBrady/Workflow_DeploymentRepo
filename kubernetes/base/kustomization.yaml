@@ -6,6 +6,9 @@ resources:
   # RBAC Configuration
   - rbac.yaml
   
+  # Cert Issuers
+  - cert-issuers.yaml
+  
   # Auth Service
   - auth-svc-deployment.yml
   - auth-service-svc.yml
