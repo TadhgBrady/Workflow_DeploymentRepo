@@ -27,9 +27,9 @@ replicas:
     count: 2
   - name: user-db-access-service
     count: 2
-  - name: job-bl-service
+  - name: job-bl-service-deployment
     count: 2
-  - name: job-db-access-service
+  - name: job-db-access-service-deployment
     count: 2
   - name: customer-bl-service
     count: 2
@@ -48,7 +48,7 @@ images:
     newTag: staging
 
 # Service type patch - use LoadBalancer for staging (cloud access)
-patchesStrategicMerge:
-  - nginx-service-patch.yaml
+patches:
+  - path: nginx-service-patch.yaml
 
 namePrefix: staging-

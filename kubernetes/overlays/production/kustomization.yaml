@@ -27,9 +27,9 @@ replicas:
     count: 3
   - name: user-db-access-service
     count: 3
-  - name: job-bl-service
+  - name: job-bl-service-deployment
     count: 3
-  - name: job-db-access-service
+  - name: job-db-access-service-deployment
     count: 3
   - name: customer-bl-service
     count: 3
@@ -48,8 +48,8 @@ images:
     newTag: latest
 
 # Service type patch - use LoadBalancer for production (production access)
-patchesStrategicMerge:
-  - nginx-service-patch.yaml
-  - resource-limits-patch.yaml
+patches:
+  - path: nginx-service-patch.yaml
+  - path: resource-limits-patch.yaml
 
 namePrefix: prod-
