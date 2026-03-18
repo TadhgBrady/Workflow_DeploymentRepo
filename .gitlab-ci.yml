@@ -196,7 +196,8 @@ trigger-infra-staging:
     TARGET_ENV: "staging"
   rules:
     - if: $IMAGE_VERSION
-      when: always
+      when: manual
+      allow_failure: false
 
 # After the infra pipeline completes, do a quick readiness check to confirm
 # nodes are actually in Ready state before kubectl tries to deploy.
