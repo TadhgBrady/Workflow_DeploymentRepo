@@ -38,6 +38,7 @@ stages:
   - prod-validation     # Post-deploy smoke tests & health verification
   - teardown            # Tear down staging after successful prod deploy
   - notify              # Slack/webhook notification of deploy result
+  - manual-ops          # Manual scale-up / scale-down jobs (independent)
 
 # =============================================================================
 # VARIABLES
@@ -728,7 +729,7 @@ notify-failure:
 # in the infrastructure repo.
 
 manual-scale-up-staging:
-  stage: validate
+  stage: manual-ops
   image:
     name: amazon/aws-cli:2.22.0
     entrypoint: [""]
@@ -752,7 +753,7 @@ manual-scale-up-staging:
   allow_failure: true
 
 manual-scale-down-staging:
-  stage: validate
+  stage: manual-ops
   image:
     name: amazon/aws-cli:2.22.0
     entrypoint: [""]
@@ -770,7 +771,7 @@ manual-scale-down-staging:
   allow_failure: true
 
 manual-scale-up-production:
-  stage: validate
+  stage: manual-ops
   image:
     name: amazon/aws-cli:2.22.0
     entrypoint: [""]
@@ -794,7 +795,7 @@ manual-scale-up-production:
   allow_failure: true
 
 manual-scale-down-production:
-  stage: validate
+  stage: manual-ops
   image:
     name: amazon/aws-cli:2.22.0
     entrypoint: [""]
