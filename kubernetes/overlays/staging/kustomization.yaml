@@ -8,11 +8,12 @@ resources:
   - ../../base
 
 # Staging-specific configuration
-commonLabels:
-  app.kubernetes.io/name: year4-project
-  app.kubernetes.io/version: "1.0.0"
-  environment: staging
-  managed-by: kustomize
+labels:
+  - pairs:
+      app.kubernetes.io/name: year4-project
+      app.kubernetes.io/version: "1.0.0"
+      environment: staging
+      managed-by: kustomize
 
 commonAnnotations:
   environment: staging

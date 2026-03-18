@@ -8,11 +8,12 @@ resources:
   - ../../base
 
 # Production-specific configuration
-commonLabels:
-  app.kubernetes.io/name: year4-project
-  app.kubernetes.io/version: "1.0.0"
-  environment: production
-  managed-by: kustomize
+labels:
+  - pairs:
+      app.kubernetes.io/name: year4-project
+      app.kubernetes.io/version: "1.0.0"
+      environment: production
+      managed-by: kustomize
 
 commonAnnotations:
   environment: production

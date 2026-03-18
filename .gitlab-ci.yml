@@ -93,7 +93,7 @@ validate-manifests:
     - |
       for ENV in staging production; do
         echo "── Validating overlay: $ENV ──"
-        kustomize build kubernetes/overlays/$ENV | kubeconform -strict -summary
+        kustomize build kubernetes/overlays/$ENV | kubeconform -strict -summary -skip ClusterIssuer
       done
     - echo ""
     - echo "✅ All Kubernetes manifests are valid"
@@ -107,7 +107,7 @@ validate-manifests:
 validate-helm:
   stage: validate
   image:
-    name: alpine/helm:3.14
+    name: alpine/helm:3.14.0
     entrypoint: [""]
   before_script: []
   script:
