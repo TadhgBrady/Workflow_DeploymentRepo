@@ -4,15 +4,16 @@ kind: Kustomization
 namespace: year4-project-staging
 
 # Reference the base configuration
-bases:
+resources:
   - ../../base
 
 # Staging-specific configuration
-commonLabels:
-  app.kubernetes.io/name: year4-project
-  app.kubernetes.io/version: "1.0.0"
-  environment: staging
-  managed-by: kustomize
+labels:
+  - pairs:
+      app.kubernetes.io/name: year4-project
+      app.kubernetes.io/version: "1.0.0"
+      environment: staging
+      managed-by: kustomize
 
 commonAnnotations:
   environment: staging
@@ -27,9 +28,9 @@ replicas:
     count: 2
   - name: user-db-access-service
     count: 2
-  - name: job-bl-service
+  - name: job-bl-service-deployment
     count: 2
-  - name: job-db-access-service
+  - name: job-db-access-service-deployment
     count: 2
   - name: customer-bl-service
     count: 2
@@ -43,7 +44,7 @@ replicas:
     count: 2
 
 # Service type patch - use LoadBalancer for staging (cloud access)
-patchesStrategicMerge:
-  - nginx-service-patch.yaml
+patches:
+  - path: nginx-service-patch.yaml
 
 namePrefix: staging-
