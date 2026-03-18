@@ -5,9 +5,11 @@
 # Triggered by the dev repo CI pipeline (trigger-deploy stage) via GitLab webhook.
 # Receives: IMAGE_TAG, IMAGE_VERSION, SOURCE_COMMIT, SOURCE_BRANCH
 #
-# Pipeline Architecture (8 stages):
+# Pipeline Architecture (11 stages):
 #
-#   validate → update-tags → deploy-staging → staging-tests → promote → deploy-prod → prod-validation → notify
+#   validate → update-tags → ensure-staging (triggers infra repo) → deploy-staging
+#     → staging-tests → promote → ensure-production (triggers infra repo) → deploy-prod
+#       → prod-validation → teardown → notify
 #
 # Environments:
 #   - Staging:    Auto-deploy, canary rollout, full test suite before promotion
@@ -26,13 +28,16 @@
 # =============================================================================
 
 stages:
-  - validate            # Lint manifests, validate Terraform & Helm
+  - validate            # Lint manifests, validate Helm templates
   - update-tags         # Patch Kustomize overlays with new image version
+  - ensure-staging      # Scale up staging cluster (or trigger infra pipeline)
   - deploy-staging      # ArgoCD sync staging, canary rollout
   - staging-tests       # Playwright E2E, Grafana k6 load tests, smoke tests
   - promote             # Manual gate — approve promotion to production
+  - ensure-production   # Scale up production cluster (or trigger infra pipeline)
   - deploy-prod         # ArgoCD sync production, conservative canary rollout
   - prod-validation     # Post-deploy smoke tests & health verification
+  - teardown            # Tear down staging after successful prod deploy
   - notify              # Slack/webhook notification of deploy result
 
 # =============================================================================
@@ -51,15 +56,20 @@ variables:
   # ARGOCD_AUTH_TOKEN: ArgoCD API token
 
   # -- AWS credentials (set in GitLab CI/CD settings) --
-  # AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION
+  # AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+  AWS_DEFAULT_REGION: eu-west-1
 
-  # -- Terraform --
-  TF_IN_AUTOMATION: "true"
-
-  # -- Cluster --
-  EKS_CLUSTER_NAME: "year4-project"
+  # -- Cluster (separate EKS clusters per environment) --
+  STAGING_CLUSTER_NAME: "yr4-project-staging-eks"
+  STAGING_NODE_GROUP: "yr4-project-staging-eks-nodes"
+  PROD_CLUSTER_NAME: "yr4-project-production-eks"
+  PROD_NODE_GROUP: "yr4-project-production-eks-nodes"
   STAGING_NAMESPACE: "year4-project-staging"
   PROD_NAMESPACE: "year4-project"
+  # -- Infrastructure repo (set in GitLab CI/CD settings as masked variables) --
+  # INFRA_PROJECT_ID: ""        # GitLab project ID for yr4-projectinfrarepo
+  # INFRA_TRIGGER_TOKEN: ""     # Pipeline trigger token for infra repo
+  # GITLAB_API_TOKEN: ""        # GitLab personal/project token with API access (for polling)
 
   # -- App --
   STAGING_URL: ""   # Set after ALB/ingress is provisioned
@@ -69,24 +79,28 @@ variables:
   SERVICES: "nginx-gateway auth-service user-bl-service user-db-access-service job-bl-service job-db-access-service customer-bl-service customer-db-access-service admin-bl-service frontend migration-runner"
 
 # =============================================================================
-# STAGE 1: VALIDATE — Lint manifests, validate Terraform & Helm
+# STAGE 1: VALIDATE — Lint manifests, validate Helm templates
 # =============================================================================
 
 validate-manifests:
   stage: validate
-  image: ghcr.io/yannh/kubeconform:latest
-  before_script: []
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache curl bash
+    # Install kustomize
+    - curl -sL https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.4.1/kustomize_v5.4.1_linux_amd64.tar.gz | tar xz -C /usr/local/bin/
+    # Install kubeconform
+    - curl -sL https://github.com/yannh/kubeconform/releases/download/v0.6.4/kubeconform-linux-amd64.tar.gz | tar xz -C /usr/local/bin/
   script:
     - echo "═══════════════════════════════════════════════════════════════"
     - echo "  Validating Kubernetes manifests (kubeconform)"
     - echo "═══════════════════════════════════════════════════════════════"
 
     # Validate that Kustomize overlays produce valid K8s YAML
-    # Note: requires kustomize binary; kubeconform image may need a multi-tool image
     - |
       for ENV in staging production; do
         echo "── Validating overlay: $ENV ──"
-        kubectl kustomize kubernetes/overlays/$ENV | kubeconform -strict -summary
+        kustomize build kubernetes/overlays/$ENV | kubeconform -strict -summary
       done
 
     - echo ""
@@ -95,30 +109,8 @@ validate-manifests:
     - when: always
   allow_failure: false
 
-validate-terraform:
-  stage: validate
-  image:
-    name: hashicorp/terraform:1.7
-    entrypoint: [""]
-  before_script: []
-  script:
-    - echo "═══════════════════════════════════════════════════════════════"
-    - echo "  Validating Terraform configuration"
-    - echo "═══════════════════════════════════════════════════════════════"
-    - |
-      for ENV in staging production; do
-        echo "── terraform validate: environments/$ENV ──"
-        cd terraform/environments/$ENV
-        terraform init -backend=false
-        terraform validate
-        terraform fmt -check -recursive
-        cd "$CI_PROJECT_DIR"
-      done
-    - echo ""
-    - echo "✅ Terraform configuration is valid"
-  rules:
-    - when: always
-  allow_failure: false
+# NOTE: Terraform validation happens in the infra repo pipeline, not here.
+# This repo only contains Kubernetes manifests, Helm charts, and Kustomize overlays.
 
 validate-helm:
   stage: validate
@@ -159,7 +151,6 @@ update-image-tags:
   image: alpine:latest
   needs:
     - validate-manifests
-    - validate-terraform
     - validate-helm
   before_script:
     - apk add --no-cache git sed
@@ -197,14 +188,86 @@ update-image-tags:
   allow_failure: false
 
 # =============================================================================
-# STAGE 3: DEPLOY STAGING — ArgoCD sync + canary rollout
+# STAGE 3a: ENSURE STAGING — Trigger infra repo to bring staging cluster up
+# =============================================================================
+# Cross-project trigger: fires the infra repo pipeline with ENSURE_UP=true
+# and TARGET_ENV=staging. The infra repo handles all three scenarios:
+#   1. Cluster running with nodes   → exit 0 (instant)
+#   2. Cluster exists, 0 nodes      → scale up
+#   3. Cluster doesn't exist at all → full terraform apply (ensure-apply)
+#
+# strategy: depend → this CD pipeline WAITS until the infra pipeline finishes.
+# If the infra pipeline fails, this job fails, blocking the deploy.
+#
+# REQUIRED CI/CD VARIABLES:
+#   INFRA_PROJECT_ID    — GitLab project ID for yr4-projectinfrarepo
+#   INFRA_TRIGGER_TOKEN — Pipeline trigger token created in the infra repo
+#                         (Settings > CI/CD > Pipeline trigger tokens)
+
+trigger-infra-staging:
+  stage: ensure-staging
+  needs:
+    - update-image-tags
+  trigger:
+    project: finalproject/Prototypes/yr4-projectinfrarepo
+    strategy: depend
+  variables:
+    ENSURE_UP: "true"
+    TARGET_ENV: "staging"
+  rules:
+    - if: $IMAGE_VERSION
+      when: always
+
+# After the infra pipeline completes, do a quick readiness check to confirm
+# nodes are actually in Ready state before ArgoCD tries to sync.
+wait-staging-ready:
+  stage: ensure-staging
+  image:
+    name: amazon/aws-cli:2.22.0
+    entrypoint: [""]
+  needs:
+    - trigger-infra-staging
+  script:
+    - |
+      echo "═══════════════════════════════════════════════════════════════"
+      echo "  Verifying STAGING cluster readiness after infra trigger"
+      echo "═══════════════════════════════════════════════════════════════"
+
+      # Confirm cluster exists (should always pass after infra pipeline)
+      if ! aws eks describe-cluster --name $STAGING_CLUSTER_NAME --region $AWS_DEFAULT_REGION > /dev/null 2>&1; then
+        echo "❌ Staging cluster still does not exist after infra trigger."
+        echo "   Check the infra repo pipeline for errors."
+        exit 1
+      fi
+
+      # Confirm nodes are active
+      DESIRED=$(aws eks describe-nodegroup \
+        --cluster-name $STAGING_CLUSTER_NAME \
+        --nodegroup-name $STAGING_NODE_GROUP \
+        --region $AWS_DEFAULT_REGION \
+        --query 'nodegroup.scalingConfig.desiredSize' \
+        --output text 2>/dev/null || echo "0")
+
+      if [ "$DESIRED" = "0" ] || [ "$DESIRED" = "None" ]; then
+        echo "❌ Staging nodes still at 0 after infra trigger."
+        exit 1
+      fi
+
+      echo "✅ Staging cluster ready — $DESIRED node(s) running."
+  rules:
+    - if: $IMAGE_VERSION
+      when: always
+  allow_failure: false
+
+# =============================================================================
+# STAGE 3b: DEPLOY STAGING — ArgoCD sync + canary rollout
 # =============================================================================
 
 deploy-staging:
   stage: deploy-staging
   image: argoproj/argocd:v2.10.0
   needs:
-    - update-image-tags
+    - wait-staging-ready
   before_script:
     - argocd login "$ARGOCD_SERVER" --auth-token "$ARGOCD_AUTH_TOKEN" --grpc-web
   script:
@@ -449,14 +512,72 @@ promote-to-production:
       allow_failure: false
 
 # =============================================================================
-# STAGE 6: DEPLOY PRODUCTION — ArgoCD sync + conservative canary rollout
+# STAGE 6a: ENSURE PRODUCTION — Trigger infra repo to bring production cluster up
+# =============================================================================
+# Same cross-project trigger pattern as staging. Fires after manual promotion
+# is approved. The infra repo creates/scales the production cluster, and the
+# CD pipeline waits for it to finish before deploying.
+
+trigger-infra-production:
+  stage: ensure-production
+  needs:
+    - promote-to-production
+  trigger:
+    project: finalproject/Prototypes/yr4-projectinfrarepo
+    strategy: depend
+  variables:
+    ENSURE_UP: "true"
+    TARGET_ENV: "production"
+  rules:
+    - if: $IMAGE_VERSION
+      when: always
+
+wait-production-ready:
+  stage: ensure-production
+  image:
+    name: amazon/aws-cli:2.22.0
+    entrypoint: [""]
+  needs:
+    - trigger-infra-production
+  script:
+    - |
+      echo "═══════════════════════════════════════════════════════════════"
+      echo "  Verifying PRODUCTION cluster readiness after infra trigger"
+      echo "═══════════════════════════════════════════════════════════════"
+
+      if ! aws eks describe-cluster --name $PROD_CLUSTER_NAME --region $AWS_DEFAULT_REGION > /dev/null 2>&1; then
+        echo "❌ Production cluster still does not exist after infra trigger."
+        echo "   Check the infra repo pipeline for errors."
+        exit 1
+      fi
+
+      DESIRED=$(aws eks describe-nodegroup \
+        --cluster-name $PROD_CLUSTER_NAME \
+        --nodegroup-name $PROD_NODE_GROUP \
+        --region $AWS_DEFAULT_REGION \
+        --query 'nodegroup.scalingConfig.desiredSize' \
+        --output text 2>/dev/null || echo "0")
+
+      if [ "$DESIRED" = "0" ] || [ "$DESIRED" = "None" ]; then
+        echo "❌ Production nodes still at 0 after infra trigger."
+        exit 1
+      fi
+
+      echo "✅ Production cluster ready — $DESIRED node(s) running."
+  rules:
+    - if: $IMAGE_VERSION
+      when: always
+  allow_failure: false
+
+# =============================================================================
+# STAGE 6b: DEPLOY PRODUCTION — ArgoCD sync + conservative canary rollout
 # =============================================================================
 
 deploy-production:
   stage: deploy-prod
   image: argoproj/argocd:v2.10.0
   needs:
-    - promote-to-production
+    - wait-production-ready
   before_script:
     - argocd login "$ARGOCD_SERVER" --auth-token "$ARGOCD_AUTH_TOKEN" --grpc-web
   script:
@@ -527,6 +648,47 @@ smoke-tests-production:
 # STAGE 8: NOTIFY — Deploy result notification
 # =============================================================================
 
+# =============================================================================
+# STAGE 9: TEARDOWN — Scale down staging after successful production deploy
+# =============================================================================
+# Once production is validated, staging is no longer needed. Scale its nodes
+# to 0 to save costs. The EKS control plane remains (~$0.10/hr) so it can
+# be quickly brought back up on the next deployment.
+#
+# To fully destroy the staging cluster, use 'destroy-staging' in the infra repo.
+
+teardown-staging:
+  stage: teardown
+  image:
+    name: amazon/aws-cli:2.22.0
+    entrypoint: [""]
+  needs:
+    - smoke-tests-production
+  script:
+    - |
+      echo "═══════════════════════════════════════════════════════════════"
+      echo "  Tearing down STAGING — production deploy validated"
+      echo "═══════════════════════════════════════════════════════════════"
+
+      echo "Scaling staging node group to 0 nodes..."
+      aws eks update-nodegroup-config \
+        --cluster-name $STAGING_CLUSTER_NAME \
+        --nodegroup-name $STAGING_NODE_GROUP \
+        --region $AWS_DEFAULT_REGION \
+        --scaling-config desiredSize=0,minSize=0,maxSize=3
+
+      echo "✅ Staging nodes scaled to 0."
+      echo "   Staging cluster control plane still running (~$0.10/hr)."
+      echo "   To fully destroy, run 'destroy-staging' in the infra repo."
+  rules:
+    - if: $IMAGE_VERSION
+      when: on_success
+  allow_failure: true
+
+# =============================================================================
+# STAGE 10: NOTIFY — Deploy result notification
+# =============================================================================
+
 notify-success:
   stage: notify
   image: alpine:latest
@@ -577,86 +739,104 @@ notify-failure:
   allow_failure: true
 
 # =============================================================================
-# INFRASTRUCTURE SCALE-UP / SCALE-DOWN JOBS
+# MANUAL OVERRIDE: SCALE-UP / SCALE-DOWN JOBS
 # =============================================================================
 #
-# Manual-trigger jobs for bringing environments up and down via Terraform.
-# Each environment has independent Terraform state — can be controlled separately.
+# Manual-trigger jobs for controlling EKS node groups via AWS CLI.
+# These are independent of the deploy flow — use them from the GitLab UI.
 #
-# Typical workflow:
-#   1. scale-up-staging    → bring staging infra up
+# Typical workflow (Option C — separate clusters):
+#   1. scale-up-staging    → bring staging nodes up
 #   2. (pipeline deploys)  → validate in staging
-#   3. scale-up-production → bring prod infra up
-#   4. (pipeline deploys)  → canary rollout to prod
-#   5. scale-down-staging  → staging no longer needed
+#   3. scale-up-production → bring production nodes up
+#   4. (pipeline deploys)  → canary rollout to production
+#   5. scale-down-staging  → staging no longer needed (auto after prod deploy)
 #   6. (after demo/use)    → scale-down-production
 #
-# EKS control plane ($0.10/hr) still runs when nodes=0.
-# RDS auto-restarts after 7 days — re-run scale-down if needed.
+# EKS control plane (~$0.10/hr) still runs when nodes=0.
+# To fully destroy a cluster, use 'destroy-staging' or 'destroy-production'
+# in the infrastructure repo.
 
-.terraform-base: &terraform-base
+manual-scale-up-staging:
+  stage: validate
   image:
-    name: hashicorp/terraform:1.7
+    name: amazon/aws-cli:2.22.0
     entrypoint: [""]
-  before_script:
-    - echo "Terraform $TF_ENV environment — $TF_ACTION"
-
-scale-up-staging:
-  <<: *terraform-base
-  stage: validate   # Runs independently, not tied to deploy flow
-  variables:
-    TF_ENV: staging
-    TF_ACTION: scale-up
   script:
-    - cd terraform/environments/staging
-    - terraform init
-    - terraform apply -var="enabled=true" -auto-approve
-    - echo "✅ Staging infrastructure scaled UP"
+    - |
+      echo "Scaling STAGING node group to 2 nodes..."
+      aws eks update-nodegroup-config \
+        --cluster-name $STAGING_CLUSTER_NAME \
+        --nodegroup-name $STAGING_NODE_GROUP \
+        --region $AWS_DEFAULT_REGION \
+        --scaling-config desiredSize=2,minSize=0,maxSize=3
+
+      echo "Waiting for staging nodes..."
+      aws eks wait nodegroup-active \
+        --cluster-name $STAGING_CLUSTER_NAME \
+        --nodegroup-name $STAGING_NODE_GROUP \
+        --region $AWS_DEFAULT_REGION
+      echo "✅ Staging scaled UP"
   rules:
     - when: manual
   allow_failure: true
 
-scale-down-staging:
-  <<: *terraform-base
+manual-scale-down-staging:
   stage: validate
-  variables:
-    TF_ENV: staging
-    TF_ACTION: scale-down
+  image:
+    name: amazon/aws-cli:2.22.0
+    entrypoint: [""]
   script:
-    - cd terraform/environments/staging
-    - terraform init
-    - terraform apply -var="enabled=false" -auto-approve
-    - echo "✅ Staging infrastructure scaled DOWN"
+    - |
+      echo "Scaling STAGING node group to 0 nodes..."
+      aws eks update-nodegroup-config \
+        --cluster-name $STAGING_CLUSTER_NAME \
+        --nodegroup-name $STAGING_NODE_GROUP \
+        --region $AWS_DEFAULT_REGION \
+        --scaling-config desiredSize=0,minSize=0,maxSize=3
+      echo "✅ Staging scaled DOWN"
   rules:
     - when: manual
   allow_failure: true
 
-scale-up-production:
-  <<: *terraform-base
+manual-scale-up-production:
   stage: validate
-  variables:
-    TF_ENV: production
-    TF_ACTION: scale-up
+  image:
+    name: amazon/aws-cli:2.22.0
+    entrypoint: [""]
   script:
-    - cd terraform/environments/production
-    - terraform init
-    - terraform apply -var="enabled=true" -auto-approve
-    - echo "✅ Production infrastructure scaled UP"
+    - |
+      echo "Scaling PRODUCTION node group to 3 nodes..."
+      aws eks update-nodegroup-config \
+        --cluster-name $PROD_CLUSTER_NAME \
+        --nodegroup-name $PROD_NODE_GROUP \
+        --region $AWS_DEFAULT_REGION \
+        --scaling-config desiredSize=3,minSize=0,maxSize=5
+
+      echo "Waiting for production nodes..."
+      aws eks wait nodegroup-active \
+        --cluster-name $PROD_CLUSTER_NAME \
+        --nodegroup-name $PROD_NODE_GROUP \
+        --region $AWS_DEFAULT_REGION
+      echo "✅ Production scaled UP"
   rules:
     - when: manual
   allow_failure: true
 
-scale-down-production:
-  <<: *terraform-base
+manual-scale-down-production:
   stage: validate
-  variables:
-    TF_ENV: production
-    TF_ACTION: scale-down
+  image:
+    name: amazon/aws-cli:2.22.0
+    entrypoint: [""]
   script:
-    - cd terraform/environments/production
-    - terraform init
-    - terraform apply -var="enabled=false" -auto-approve
-    - echo "✅ Production infrastructure scaled DOWN"
+    - |
+      echo "Scaling PRODUCTION node group to 0 nodes..."
+      aws eks update-nodegroup-config \
+        --cluster-name $PROD_CLUSTER_NAME \
+        --nodegroup-name $PROD_NODE_GROUP \
+        --region $AWS_DEFAULT_REGION \
+        --scaling-config desiredSize=0,minSize=0,maxSize=5
+      echo "✅ Production scaled DOWN"
   rules:
     - when: manual
   allow_failure: true
