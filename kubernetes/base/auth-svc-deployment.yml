@@ -16,6 +16,7 @@ spec:
         app: auth-service
         version: v1
     spec:
+      serviceAccountName: auth-service-sa
       containers:
       - name: auth-service
         image: bencev04/4th-year-proj-tadgh-bence:auth-service-latest

@@ -1,25 +1,54 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
+
+# All base resources for the Year4 Project
 resources:
-- auth-svc-deployment.yml
-- auth-service-svc.yml
-- customer-bl-service-deployment.yml
-- customer-bl-service-svc.yml
-- customer-db-access-service-deployment.yml
-- customer-db-access-service-svc.yml
-- job-bl-service-deployment.yml
-- job-bl-service-svc.yml
-- job-db-access-service-deployment.yml
-- job-db-access-service-svc.yml
-- admin-bl-service-deployment.yaml
-- admin-bl-service-svc.yaml
-- nginx-deployment.yaml
-- nginx-service.yaml
-- nginx-configmap.yaml
-- ingress-gateway.yml
-- user-bl-service-deployment.yml
-- user-bl-service-svc.yml
-- user-db-access-service-deployment.yml
-- user-db-access-service-svc.yml
-- frontend-deployment.yml
-- frontend-svc.yml
+  # RBAC Configuration
+  - rbac.yaml
+  
+  # Cert Issuers
+  - cert-issuers.yaml
+  
+  # Auth Service
+  - auth-svc-deployment.yml
+  - auth-service-svc.yml
+  
+  # User Business Logic Service
+  - user-bl-service-deployment.yml
+  - user-bl-service-svc.yml
+  
+  # User Database Access Service
+  - user-db-access-service-deployment.yml
+  - user-db-access-service-svc.yml
+  
+  # Job Business Logic Service
+  - job-bl-service-deployment.yml
+  - job-bl-service-svc.yml
+  
+  # Job Database Access Service
+  - job-db-access-service-deployment.yml
+  - job-db-access-service-svc.yml
+  
+  # Customer Business Logic Service
+  - customer-bl-service-deployment.yml
+  - customer-bl-service-svc.yml
+  
+  # Customer Database Access Service
+  - customer-db-access-service-deployment.yml
+  - customer-db-access-service-svc.yml
+  
+  # Admin Business Logic Service
+  - admin-bl-service-deployment.yaml
+  - admin-bl-service-svc.yaml
+  
+  # NGINX Gateway
+  - nginx-deployment.yaml
+  - nginx-service.yaml
+  - nginx-configmap.yaml
+  
+  # Frontend
+  - frontend-deployment.yml
+  - frontend-svc.yml
+  
+  # Ingress
+  - ingress-gateway.yml

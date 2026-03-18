@@ -14,6 +14,7 @@ spec:
       labels:
         app: user-bl-service
     spec:
+      serviceAccountName: user-bl-service-sa
       containers:
       - name: user-bl-service
         image: bencev04/4th-year-proj-tadgh-bence:user-bl-service-latest

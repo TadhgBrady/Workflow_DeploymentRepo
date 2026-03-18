@@ -1,0 +1,408 @@
+================================================================================
+RBAC (Role-Based Access Control) CONFIGURATION EXPLANATION
+Year4 Project Kubernetes Deployment
+================================================================================
+
+OVERVIEW:
+This document explains each RBAC component created for the Year4 Project deployment.
+RBAC enforces the principle of least privilege - each service gets only the 
+permissions it needs to function, nothing more.
+
+================================================================================
+RBAC STRUCTURE:
+================================================================================
+
+ServiceAccount: Identity for a pod/service
+Role: Definition of permissions (what resources can be accessed)
+RoleBinding: Connects a ServiceAccount to a Role (grants permissions)
+
+Example flow:
+  Pod runs with ServiceAccount "auth-service-sa"
+  -> ServiceAccount is bound to Role "auth-service-role"
+  -> Role grants permission to read specific secrets
+  -> Pod can now read those secrets, nothing else
+
+================================================================================
+SERVICE-BY-SERVICE BREAKDOWN:
+================================================================================
+
+1. AUTH SERVICE
+   ================================================================================
+   ServiceAccount: auth-service-sa
+   Role: auth-service-role
+   
+   Purpose: Handles user authentication and token validation
+   
+   Permissions Granted:
+   - READ auth-secrets (Secret object)
+     Why: Stores authentication keys, tokens, and credentials
+   
+   - READ auth-config (ConfigMap object)
+     Why: Stores non-sensitive auth configuration like token expiration times
+   
+   - READ pods/log (Pod logs)
+     Why: Can view its own logs for debugging authentication issues
+   
+   Deployment File: kubernetes/base/auth-svc-deployment.yml
+   Pod Count: 2 replicas for availability
+
+
+2. CUSTOMER BUSINESS LOGIC SERVICE
+   ================================================================================
+   ServiceAccount: customer-bl-service-sa
+   Role: customer-bl-service-role
+   
+   Purpose: Handles customer-related business logic (create, update, retrieve customers)
+   
+   Permissions Granted:
+   - READ db-credentials (Secret object)
+     Why: Needs database connection strings and credentials to access customer data
+   
+   - READ app-config (ConfigMap object)
+     Why: Configuration for business logic (rate limits, feature flags, etc.)
+   
+   Deployment File: kubernetes/base/customer-bl-service-deployment.yml
+   Pod Count: 2 replicas for availability
+   
+   Note: Does NOT have permission to modify secrets or access other service secrets
+
+
+3. ADMIN BUSINESS LOGIC SERVICE
+   ================================================================================
+   ServiceAccount: admin-bl-service-sa
+   Role: admin-bl-service-role
+   
+   Purpose: Handles admin-related operations (user management, system monitoring)
+   
+   Permissions Granted:
+   - READ db-credentials (Secret object)
+     Why: Needs database access for admin operations
+   
+   - READ app-config (ConfigMap object)
+     Why: Configuration for admin functionalities
+   
+   Deployment File: kubernetes/base/admin-bl-service-deployment.yaml
+   Pod Count: 2 replicas for availability
+   
+   Security Note: Should have additional RBAC restrictions at application level
+                  (not Kubernetes level) to ensure only authorized users can
+                  access admin functions
+
+
+4. JOB BUSINESS LOGIC SERVICE
+   ================================================================================
+   ServiceAccount: job-bl-service-sa
+   Role: job-bl-service-role
+   
+   Purpose: Handles job/task management (scheduling, execution, status tracking)
+   
+   Permissions Granted:
+   - READ db-credentials (Secret object)
+     Why: Needs database access to store and retrieve job information
+   
+   - READ app-config (ConfigMap object)
+     Why: Job configuration (max retries, timeouts, priorities, etc.)
+   
+   Deployment File: kubernetes/base/job-bl-service-deployment.yml
+   Pod Count: 2 replicas for availability
+
+
+5. USER BUSINESS LOGIC SERVICE
+   ================================================================================
+   ServiceAccount: user-bl-service-sa
+   Role: user-bl-service-role
+   
+   Purpose: Handles user management (registration, profile, preferences)
+   
+   Permissions Granted:
+   - READ db-credentials (Secret object)
+     Why: Needs database access for user data operations
+   
+   - READ app-config (ConfigMap object)
+     Why: User service configuration (password rules, profile fields, etc.)
+   
+   Deployment File: kubernetes/base/user-bl-service-deployment.yml
+   Pod Count: 2 replicas for availability
+
+
+6. CUSTOMER DATABASE ACCESS SERVICE
+   ================================================================================
+   ServiceAccount: customer-db-access-sa
+   Role: customer-db-access-role
+   
+   Purpose: Data access layer for customer data (isolation layer between 
+            business logic and actual database)
+   
+   Permissions Granted:
+   - READ db-credentials (Secret object)
+     Why: Needs database connection credentials
+   
+   - READ db-config (ConfigMap object)
+     Why: Database configuration (connection pooling, timeouts, etc.)
+   
+   Deployment File: kubernetes/base/customer-db-access-service-deployment.yml
+   Pod Count: 2 replicas for availability
+   
+   Design Pattern: Separation of concerns - dedicated database layer reduces
+                   complexity and improves security
+
+
+7. JOB DATABASE ACCESS SERVICE
+   ================================================================================
+   ServiceAccount: job-db-access-sa
+   Role: job-db-access-role
+   
+   Purpose: Data access layer for job-related database operations
+   
+   Permissions Granted:
+   - READ db-credentials (Secret object)
+     Why: Needs database connection credentials
+   
+   - READ db-config (ConfigMap object)
+     Why: Database configuration specific to job operations
+   
+   Deployment File: kubernetes/base/job-db-access-service-deployment.yml
+   Pod Count: 2 replicas for availability
+
+
+8. USER DATABASE ACCESS SERVICE
+   ================================================================================
+   ServiceAccount: user-db-access-sa
+   Role: user-db-access-role
+   
+   Purpose: Data access layer for user-related database operations
+   
+   Permissions Granted:
+   - READ db-credentials (Secret object)
+     Why: Needs database connection credentials
+   
+   - READ db-config (ConfigMap object)
+     Why: Database configuration for user data access
+   
+   Deployment File: kubernetes/base/user-db-access-service-deployment.yml
+   Pod Count: 2 replicas for availability
+
+
+9. FRONTEND SERVICE
+   ================================================================================
+   ServiceAccount: frontend-sa
+   Role: frontend-role
+   
+   Purpose: Serves the web UI (minimal permissions - mostly read-only content)
+   
+   Permissions Granted:
+   - READ frontend-config (ConfigMap object)
+     Why: Frontend configuration (API endpoints, feature flags, branding, etc.)
+   
+   Deployment File: kubernetes/base/frontend-deployment.yml
+   Pod Count: 2 replicas for availability
+   
+   Security Note: Frontend has minimal Kubernetes permissions because it runs
+                  in a browser/client and primarily makes HTTP calls to services
+
+
+10. NGINX GATEWAY SERVICE
+    ================================================================================
+    ServiceAccount: nginx-gateway-sa
+    Role: nginx-gateway-role
+    
+    Purpose: Reverse proxy and API gateway (routes external traffic to services)
+    
+    Permissions Granted:
+    - READ nginx-config (ConfigMap object)
+      Verbs: GET, WATCH
+      Why: Reads nginx configuration and watches for updates to reload routing rules
+    
+    - LIST services (Service objects)
+      Verbs: GET, LIST
+      Why: Discovers available services to route traffic to (service discovery)
+    
+    Deployment File: kubernetes/base/nginx-deployment.yaml
+    Pod Count: 3 replicas (higher count for traffic handling)
+    
+    Special Features:
+    - Uses WATCH verb on configmaps for hot-reloading configuration changes
+    - Can discover services dynamically without pod restart
+    - Entry point for all external traffic
+
+
+================================================================================
+PERMISSION TYPES EXPLAINED:
+================================================================================
+
+VERBS (Actions):
+- GET: Read a specific object by name
+- LIST: List all objects matching a selector
+- WATCH: Watch for changes to objects (streams updates in real-time)
+- CREATE: Create new objects
+- UPDATE: Modify existing objects
+- DELETE: Remove objects
+- PATCH: Partially modify objects
+
+RESOURCES:
+- secrets: Kubernetes Secret objects (passwords, tokens, credentials)
+- configmaps: Kubernetes ConfigMap objects (non-sensitive configuration)
+- services: Kubernetes Service objects (network service definitions)
+- pods/log: Pod log streams
+
+In this RBAC config, all services use READ-ONLY permissions:
+- No CREATE, UPDATE, DELETE, or PATCH verbs
+- This means compromised services CANNOT modify configuration
+- Reduces blast radius if a service is exploited
+
+
+================================================================================
+SECURITY PRINCIPLES IMPLEMENTED:
+================================================================================
+
+1. LEAST PRIVILEGE
+   Each service gets exactly the permissions it needs:
+   - Auth service doesn't need database credentials
+   - DB access services don't need app configuration
+   - Frontend only needs frontend-config
+   
+2. SEPARATION OF CONCERNS
+   - Business logic services separate from database access services
+   - Each service has a dedicated ServiceAccount
+   - Prevents lateral movement if one service is compromised
+
+3. READ-ONLY OPERATIONS
+   - No service can modify configuration
+   - No service can update secrets
+   - Changes must come through proper deployment process
+
+4. SECRETS VS CONFIGMAPS
+   - Credentials stored in Secrets (encrypted at rest when configured)
+   - Non-sensitive config in ConfigMaps
+   - Services can only read from what they need
+
+5. NETWORK BOUNDARIES
+   - Kubernetes enforces that only the pod with correct ServiceAccount
+     can use these permissions
+   - Pod identity is verified by Kubernetes API server
+   - Cannot be spoofed without compromising the node
+
+
+================================================================================
+INTEGRATION WITH DEPLOYMENTS:
+================================================================================
+
+Each deployment file includes:
+
+    spec:
+      serviceAccountName: <service>-sa
+      containers:
+      - name: <service>
+
+This line tells Kubernetes to:
+1. Create a pod from this deployment
+2. Assign the specified ServiceAccount to the pod
+3. Pod inherits all permissions from that ServiceAccount's RoleBindings
+4. Pod's access to Kubernetes API is limited by the Role permissions
+
+
+================================================================================
+HOW TO ADD NEW PERMISSIONS (IF NEEDED):
+================================================================================
+
+Example: If auth-service needs to read a new configmap called "jwt-config":
+
+1. Edit kubernetes/base/rbac.yaml
+2. Find the auth-service-role section
+3. Add to the rules array:
+
+   - apiGroups: [""]
+     resources: ["configmaps"]
+     resourceNames: ["jwt-config"]
+     verbs: ["get"]
+
+4. Apply the changes: kubectl apply -f kubernetes/base/rbac.yaml
+
+Important: Only grant permissions that the service actually needs!
+
+
+================================================================================
+TROUBLESHOOTING RBAC ISSUES:
+================================================================================
+
+If a pod cannot access a resource:
+
+1. Check the pod is using correct ServiceAccount:
+   kubectl get pod <pod-name> -o yaml | grep serviceAccountName
+
+2. Verify the ServiceAccount exists:
+   kubectl get serviceaccount <sa-name>
+
+3. Check the RoleBinding:
+   kubectl get rolebinding <binding-name>
+   kubectl describe rolebinding <binding-name>
+
+4. Verify the Role grants needed permission:
+   kubectl get role <role-name>
+   kubectl describe role <role-name>
+
+5. Check pod logs for access denied errors:
+   kubectl logs <pod-name>
+
+Common error in pod logs:
+"403 Forbidden: ... is forbidden: User 'system:serviceaccount:...' cannot..."
+
+This means the ServiceAccount doesn't have permission for that operation.
+
+
+================================================================================
+SUMMARY TABLE:
+================================================================================
+
+Service                          | Secrets Needed       | ConfigMaps Needed
+-------------------------------- | -------------------- | --------------------
+auth-service                     | auth-secrets         | auth-config
+customer-bl-service              | db-credentials       | app-config
+admin-bl-service                 | db-credentials       | app-config
+job-bl-service                   | db-credentials       | app-config
+user-bl-service                  | db-credentials       | app-config
+customer-db-access-service       | db-credentials       | db-config
+job-db-access-service            | db-credentials       | db-config
+user-db-access-service           | db-credentials       | db-config
+frontend                         | (none)               | frontend-config
+nginx-gateway                    | (none)               | nginx-config (watch)
+
+================================================================================
+NEXT STEPS:
+================================================================================
+
+1. Ensure all referenced Secrets and ConfigMaps exist in the cluster:
+   kubectl get secrets
+   kubectl get configmaps
+
+2. If ConfigMaps don't exist, create them:
+   kubectl create configmap auth-config --from-literal=key=value
+   kubectl create configmap app-config --from-literal=key=value
+   etc.
+
+3. If Secrets don't exist, create them securely:
+   kubectl create secret generic auth-secrets \
+     --from-literal=JWT_SECRET=xxxx \
+     --from-literal=API_KEY=xxxx
+
+4. Test that deployments can access resources:
+   Deploy a pod and verify it can read the secrets/configmaps it needs
+
+5. Monitor for RBAC errors:
+   kubectl logs <pod> | grep "forbidden"
+   kubectl get events -n year4-project | grep "RBAC"
+
+================================================================================
+REFERENCES:
+================================================================================
+
+Kubernetes RBAC Documentation:
+https://kubernetes.io/docs/reference/access-authn-authz/rbac/
+
+ServiceAccount Documentation:
+https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/
+
+Pod Security Standards:
+https://kubernetes.io/docs/concepts/security/pod-security-standards/
+
+================================================================================

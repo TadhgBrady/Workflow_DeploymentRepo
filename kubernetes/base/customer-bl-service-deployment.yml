@@ -14,6 +14,7 @@ spec:
       labels:
         app: customer-bl-service
     spec:
+      serviceAccountName: customer-bl-service-sa
       containers:
       - name: customer-bl-service
         image: bencev04/4th-year-proj-tadgh-bence:customer-bl-service-latest

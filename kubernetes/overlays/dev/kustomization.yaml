@@ -4,11 +4,10 @@ kind: Kustomization
 namespace: year4-project-dev
 
 # Reference the base configuration
-bases:
+resources:
   - ../../base
 
 # Development-specific configuration
-# Use dev labels
 commonLabels:
   app.kubernetes.io/name: year4-project
   app.kubernetes.io/version: "1.0.0"
@@ -38,21 +37,23 @@ replicas:
     count: 1
   - name: admin-bl-service
     count: 1
-  - name: job-db-access-service
-    count: 1
   - name: frontend-deployment
     count: 1
   - name: nginx-gateway
     count: 1
 
-# Use dev image tags
-images:
-  - name: bencev04/4th-year-proj-tadgh-bence
-    newTag: dev
-
-# Resource patches - lower resources for dev
+# Resource patches
 patchesStrategicMerge:
   - nginx-deployment-patch.yaml
+
+# Force containers to always pull images
+patches:
+  - target:
+      kind: Deployment
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Always
 
 # Kustomize configuration
 namePrefix: dev-
