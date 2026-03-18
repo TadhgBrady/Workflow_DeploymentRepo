@@ -171,7 +171,6 @@ update-image-tags:
     - git add kubernetes/overlays/staging/kustomization.yaml
     - |
       git commit -m "ci: update staging image tag to ${IMAGE_VERSION}
-
       Source commit: ${SOURCE_COMMIT}
       Source branch: ${SOURCE_BRANCH}
       Triggered by dev repo CI pipeline" || echo "No changes to commit"
@@ -523,12 +522,10 @@ promote-to-production:
     - git add kubernetes/overlays/production/kustomization.yaml
     - |
       git commit -m "ci: promote ${IMAGE_VERSION} to production
-
       Staging validation passed:
-        ✅ Smoke tests
-        ✅ Playwright E2E (or skipped — placeholder)
-        ✅ k6 load tests (or skipped — placeholder)
-
+        Smoke tests
+        Playwright E2E (or skipped)
+        k6 load tests (or skipped)
       Source commit: ${SOURCE_COMMIT}
       Promoted by: manual approval in GitLab CI" || echo "No changes to commit"
     - git push "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git" HEAD:main
