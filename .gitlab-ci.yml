@@ -154,14 +154,40 @@ update-image-tags:
     - 'echo "  SOURCE_COMMIT: ${SOURCE_COMMIT}"'
     - echo "═══════════════════════════════════════════════════════════════"
     - |
+      # ── Guard: Fail fast if required variables are missing ──
+      MISSING=""
+      if [ -z "$IMAGE_TAG" ]; then MISSING="$MISSING IMAGE_TAG"; fi
+      if [ -z "$IMAGE_VERSION" ]; then MISSING="$MISSING IMAGE_VERSION"; fi
+      if [ -n "$MISSING" ]; then
+        echo ""
+        echo "❌ MISSING REQUIRED VARIABLES:$MISSING"
+        echo ""
+        echo "This pipeline must be triggered by the dev repo (cross-project trigger)"
+        echo "with IMAGE_TAG and IMAGE_VERSION set. If this was triggered by a direct"
+        echo "push, those variables are not available."
+        exit 1
+      fi
+    - |
       cd kubernetes/overlays/staging
       sed -i "s|newTag:.*|newTag: ${IMAGE_VERSION}|" kustomization.yaml
       cd "$CI_PROJECT_DIR"
     - git config user.email "cd-pipeline@gitlab.ci"
     - git config user.name "CD Pipeline"
     - git add kubernetes/overlays/staging/kustomization.yaml
-    - 'git commit -m "ci: update staging image tag to ${IMAGE_VERSION} - Source: ${SOURCE_COMMIT}" || echo "No changes to commit"'
-    - git push "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git" HEAD:main
+    - 'git commit -m "ci: update staging image tag to ${IMAGE_VERSION} [skip ci] - Source: ${SOURCE_COMMIT}" || echo "No changes to commit"'
+    - |
+      # ── Push: prefer GITLAB_API_TOKEN, fall back to CI_JOB_TOKEN ──
+      # CI_JOB_TOKEN requires: Settings > Repository > "Allow CI job token to push"
+      # GITLAB_API_TOKEN: project/group token with write_repository scope
+      if [ -n "$GITLAB_API_TOKEN" ]; then
+        PUSH_URL="https://oauth2:${GITLAB_API_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
+      else
+        echo "⚠️  GITLAB_API_TOKEN not set — falling back to CI_JOB_TOKEN"
+        echo "   If push fails with 403, enable 'Allow CI job token to push'"
+        echo "   in Settings > Repository, or set GITLAB_API_TOKEN variable"
+        PUSH_URL="https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
+      fi
+      git push "$PUSH_URL" HEAD:main
   rules:
     - if: $IMAGE_VERSION
       when: always
@@ -450,8 +476,16 @@ promote-to-production:
     - git config user.email "cd-pipeline@gitlab.ci"
     - git config user.name "CD Pipeline"
     - git add kubernetes/overlays/production/kustomization.yaml
-    - 'git commit -m "ci: promote ${IMAGE_VERSION} to production - Source: ${SOURCE_COMMIT}" || echo "No changes to commit"'
-    - git push "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git" HEAD:main
+    - 'git commit -m "ci: promote ${IMAGE_VERSION} to production [skip ci] - Source: ${SOURCE_COMMIT}" || echo "No changes to commit"'
+    - |
+      # ── Push: prefer GITLAB_API_TOKEN, fall back to CI_JOB_TOKEN ──
+      if [ -n "$GITLAB_API_TOKEN" ]; then
+        PUSH_URL="https://oauth2:${GITLAB_API_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
+      else
+        echo "⚠️  GITLAB_API_TOKEN not set — falling back to CI_JOB_TOKEN"
+        PUSH_URL="https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
+      fi
+      git push "$PUSH_URL" HEAD:main
     - echo ""
     - echo "✅ Production overlay updated — kubectl deploy will proceed next"
   rules:
