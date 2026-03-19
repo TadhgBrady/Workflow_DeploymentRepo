@@ -27,9 +27,9 @@ replicas:
     count: 1
   - name: user-db-access-service
     count: 1
-  - name: job-bl-service
+  - name: job-bl-service-deployment
     count: 1
-  - name: job-db-access-service
+  - name: job-db-access-service-deployment
     count: 1
   - name: customer-bl-service
     count: 1
@@ -41,19 +41,30 @@ replicas:
     count: 1
   - name: nginx-gateway
     count: 1
+  - name: redis-deployment
+    count: 1
 
 # Resource patches
-patchesStrategicMerge:
-  - nginx-deployment-patch.yaml
-
-# Force containers to always pull images
 patches:
   - target:
       kind: Deployment
-    patch: |
+      name: nginx-gateway
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+  - target:
+      kind: Deployment
+    patch: |-
       - op: replace
         path: /spec/template/spec/containers/0/imagePullPolicy
         value: Always
 
 # Kustomize configuration
-namePrefix: dev-
+# namePrefix removed - would break inter-service communication with hardcoded service names

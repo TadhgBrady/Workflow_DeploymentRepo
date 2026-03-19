@@ -3,6 +3,9 @@ kind: Kustomization
 
 # All base resources for the Year4 Project
 resources:
+  # Secrets and Configuration
+  - secrets.yaml
+  
   # RBAC Configuration
   - rbac.yaml
   
@@ -49,6 +52,11 @@ resources:
   
   # Ingress
   - ingress-gateway.yml
+  
+  # PostgreSQL Database
+  - postgres-pv.yml
+  - postgres-deployment.yml
+  - postgres-service.yml
   
   # Redis
   - redis-pv.yml
