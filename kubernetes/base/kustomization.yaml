@@ -41,6 +41,14 @@ resources:
   - admin-bl-service-deployment.yaml
   - admin-bl-service-svc.yaml
   
+  # Maps Access Service
+  - maps-access-service-deployment.yaml
+  - maps-access-service-svc.yaml
+  
+  # Notification Service
+  - notification-service-deployment.yaml
+  - notification-service-svc.yaml
+  
   # NGINX Gateway
   - nginx-deployment.yaml
   - nginx-service.yaml

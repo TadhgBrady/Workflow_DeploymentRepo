@@ -8,11 +8,12 @@ resources:
   - ../../base
 
 # Development-specific configuration
-commonLabels:
-  app.kubernetes.io/name: year4-project
-  app.kubernetes.io/version: "1.0.0"
-  environment: development
-  managed-by: kustomize
+labels:
+  - pairs:
+      app.kubernetes.io/name: year4-project
+      app.kubernetes.io/version: "1.0.0"
+      environment: development
+      managed-by: kustomize
 
 commonAnnotations:
   environment: development
@@ -27,9 +28,9 @@ replicas:
     count: 1
   - name: user-db-access-service
     count: 1
-  - name: job-bl-service
+  - name: job-bl-service-deployment
     count: 1
-  - name: job-db-access-service
+  - name: job-db-access-service-deployment
     count: 1
   - name: customer-bl-service
     count: 1
@@ -37,23 +38,22 @@ replicas:
     count: 1
   - name: admin-bl-service
     count: 1
+  - name: maps-access-service
+    count: 1
+  - name: notification-service
+    count: 1
   - name: frontend-deployment
     count: 1
   - name: nginx-gateway
     count: 1
 
 # Resource patches
-patchesStrategicMerge:
-  - nginx-deployment-patch.yaml
-
-# Force containers to always pull images
 patches:
+  - path: nginx-deployment-patch.yaml
+  # Force containers to always pull images
   - target:
       kind: Deployment
     patch: |
       - op: replace
         path: /spec/template/spec/containers/0/imagePullPolicy
         value: Always
-
-# Kustomize configuration
-namePrefix: dev-

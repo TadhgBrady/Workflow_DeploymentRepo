@@ -22,11 +22,21 @@ spec:
         - containerPort: 8008
           name: http
           protocol: TCP
+        envFrom:
+        - secretRef:
+            name: app-secrets
+        - configMapRef:
+            name: app-config
         env:
-        - name: ENVIRONMENT
-          value: "production"
-        - name: LOG_LEVEL
-          value: "INFO"
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: redis-credentials
+              key: ADMIN_BL_REDIS_URL
+        - name: USER_SERVICE_URL
+          value: "http://user-db-access-service"
+        - name: AUTH_SERVICE_URL
+          value: "http://auth-service"
         resources:
           requests:
             memory: "256Mi"
@@ -36,13 +46,13 @@ spec:
             cpu: "500m"
         livenessProbe:
           httpGet:
-            path: /health
+            path: /api/v1/health
             port: 8008
           initialDelaySeconds: 30
           periodSeconds: 10
         readinessProbe:
           httpGet:
-            path: /ready
+            path: /api/v1/health
             port: 8008
           initialDelaySeconds: 5
           periodSeconds: 5

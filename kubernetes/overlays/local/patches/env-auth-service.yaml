@@ -1,0 +1,41 @@
+# auth-service: needs DB, Redis(0), user-db-access URL, secrets
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+spec:
+  template:
+    spec:
+      containers:
+        - name: auth-service
+          envFrom:
+            - secretRef:
+                name: app-secrets
+            - configMapRef:
+                name: app-config
+          env:
+            - name: ENVIRONMENT
+              value: "development"
+            - name: LOG_LEVEL
+              value: "DEBUG"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: db-credentials
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              value: "redis://:redis-dev-password@host.docker.internal:6380/0"
+            - name: USER_SERVICE_URL
+              value: "http://user-db-access-service"
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8005
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8005
+            initialDelaySeconds: 5
+            periodSeconds: 5

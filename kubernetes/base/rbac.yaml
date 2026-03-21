@@ -356,6 +356,84 @@ subjects:
   name: frontend-sa
 
 ---
+# Maps Access Service Account
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: maps-access-service-sa
+  labels:
+    app: maps-access-service
+
+---
+# Maps Access Service Role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: maps-access-service-role
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: ["maps-credentials"]
+  verbs: ["get"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  resourceNames: ["app-config"]
+  verbs: ["get"]
+
+---
+# Maps Access Service RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: maps-access-service-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: maps-access-service-role
+subjects:
+- kind: ServiceAccount
+  name: maps-access-service-sa
+
+---
+# Notification Service Account
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: notification-service-sa
+  labels:
+    app: notification-service
+
+---
+# Notification Service Role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: notification-service-role
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: ["db-credentials", "notification-secrets"]
+  verbs: ["get"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  resourceNames: ["app-config"]
+  verbs: ["get", "list"]
+
+---
+# Notification Service RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: notification-service-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: notification-service-role
+subjects:
+- kind: ServiceAccount
+  name: notification-service-sa
+
+---
 # Nginx Gateway Service Account
 apiVersion: v1
 kind: ServiceAccount

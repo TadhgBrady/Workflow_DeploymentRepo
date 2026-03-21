@@ -38,6 +38,10 @@ replicas:
     count: 3
   - name: admin-bl-service
     count: 3
+  - name: maps-access-service
+    count: 3
+  - name: notification-service
+    count: 3
   - name: frontend-deployment
     count: 3
   - name: nginx-gateway
@@ -49,4 +53,4 @@ patches:
   - path: resource-limits-patch.yaml
   - path: nginx-resource-limits-patch.yaml
 
-namePrefix: prod-
+# namePrefix removed - breaks nginx service discovery

@@ -1,0 +1,31 @@
+# user-db-access-service: needs DB, secrets
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-db-access-service
+spec:
+  template:
+    spec:
+      containers:
+        - name: user-db-access-service
+          envFrom:
+            - secretRef:
+                name: app-secrets
+            - configMapRef:
+                name: app-config
+          env:
+            - name: ENVIRONMENT
+              value: "development"
+            - name: LOG_LEVEL
+              value: "DEBUG"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: db-credentials
+                  key: DATABASE_URL
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8001
+            initialDelaySeconds: 5
+            periodSeconds: 5

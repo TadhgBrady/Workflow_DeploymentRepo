@@ -1,0 +1,25 @@
+# maps-access-service: needs Redis(5), Google Maps API key
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: maps-access-service
+spec:
+  template:
+    spec:
+      containers:
+        - name: maps-access-service
+          envFrom:
+            - configMapRef:
+                name: app-config
+          env:
+            - name: ENVIRONMENT
+              value: "development"
+            - name: LOG_LEVEL
+              value: "DEBUG"
+            - name: REDIS_URL
+              value: "redis://:redis-dev-password@host.docker.internal:6380/5"
+            - name: GOOGLE_MAPS_SERVER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: google-maps-secrets
+                  key: GOOGLE_MAPS_SERVER_KEY

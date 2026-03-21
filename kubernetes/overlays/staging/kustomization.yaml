@@ -38,6 +38,10 @@ replicas:
     count: 2
   - name: admin-bl-service
     count: 2
+  - name: maps-access-service
+    count: 2
+  - name: notification-service
+    count: 2
   - name: frontend-deployment
     count: 2
   - name: nginx-gateway
@@ -47,4 +51,4 @@ replicas:
 patches:
   - path: nginx-service-patch.yaml
 
-namePrefix: staging-
+# namePrefix removed - breaks nginx service discovery

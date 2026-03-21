@@ -1,0 +1,105 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: year4-project-local
+
+resources:
+  - ../../base
+  - namespace.yaml
+  - migration-job.yaml
+
+# No namePrefix — keeps service names matching nginx-configmap upstreams
+# (the dev overlay's namePrefix: dev- breaks nginx service discovery)
+
+labels:
+  - pairs:
+      environment: local
+    includeSelectors: false
+    includeTemplates: true
+
+# Single replica per service for local dev
+replicas:
+  - name: auth-service
+    count: 1
+  - name: user-bl-service
+    count: 1
+  - name: user-db-access-service
+    count: 1
+  - name: job-bl-service-deployment
+    count: 1
+  - name: job-db-access-service-deployment
+    count: 1
+  - name: customer-bl-service
+    count: 1
+  - name: customer-db-access-service
+    count: 1
+  - name: admin-bl-service
+    count: 1
+  - name: maps-access-service
+    count: 1
+  - name: notification-service
+    count: 1
+  - name: frontend-deployment
+    count: 1
+  - name: nginx-gateway
+    count: 1
+
+# ── Secrets (simulating AWS Secrets Manager) ────────────────────
+# In production, these are created by CD pipeline / External Secrets Operator
+secretGenerator:
+  - name: db-credentials
+    literals:
+      - DATABASE_URL=postgresql+asyncpg://crm_user:crm_password@host.docker.internal:5434/crm_calendar
+  - name: app-secrets
+    literals:
+      - SECRET_KEY=local-dev-secret-key-change-in-production
+      - NOTIFICATION_ENCRYPTION_KEY=local-dev-encryption-key-change-in-production
+  - name: redis-credentials
+    literals:
+      - REDIS_PASSWORD=redis-dev-password
+      - AUTH_REDIS_URL=redis://:redis-dev-password@host.docker.internal:6380/0
+      - USER_BL_REDIS_URL=redis://:redis-dev-password@host.docker.internal:6380/1
+      - JOB_BL_REDIS_URL=redis://:redis-dev-password@host.docker.internal:6380/2
+      - CUSTOMER_BL_REDIS_URL=redis://:redis-dev-password@host.docker.internal:6380/3
+      - ADMIN_BL_REDIS_URL=redis://:redis-dev-password@host.docker.internal:6380/4
+      - MAPS_REDIS_URL=redis://:redis-dev-password@host.docker.internal:6380/5
+      - NOTIFICATION_REDIS_URL=redis://:redis-dev-password@host.docker.internal:6380/6
+  - name: google-maps-secrets
+    literals:
+      - GOOGLE_MAPS_SERVER_KEY=
+      - GOOGLE_MAPS_BROWSER_KEY=
+      - GOOGLE_MAPS_MAP_ID=
+  - name: smtp-secrets
+    literals:
+      - SMTP_USERNAME=
+      - SMTP_PASSWORD=
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+# ── ConfigMaps ──────────────────────────────────────────────────
+configMapGenerator:
+  - name: app-config
+    literals:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=DEBUG
+      - DEBUG=true
+      - CORS_ORIGINS=*
+  - name: smtp-config
+    literals:
+      - SMTP_HOST=host.docker.internal
+      - SMTP_PORT=1026
+      - SMTP_FROM_EMAIL=noreply@workflow.local
+      - SMTP_FROM_NAME=Workflow Platform (Local)
+      - SMTP_USE_TLS=false
+
+# ── Patches ─────────────────────────────────────────────────────
+patches:
+  # NGINX: NodePort so we can access from host
+  - path: patches/nginx-service-nodeport.yaml
+
+  # Note: env vars are now handled by base deployments via envFrom (secrets/configmaps).
+  # Per-service env patch files are no longer needed.
+
+  # Note: base resources (256Mi/250m) are fine for local dev.
+  # imagePullPolicy: IfNotPresent is already set in base manifests.

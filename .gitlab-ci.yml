@@ -72,7 +72,7 @@ variables:
   # and exported as dotenv artifacts for downstream smoke test jobs.
 
   # -- Services list (matches dev repo) --
-  SERVICES: "nginx-gateway auth-service user-bl-service user-db-access-service job-bl-service job-db-access-service customer-bl-service customer-db-access-service admin-bl-service frontend migration-runner"
+  SERVICES: "nginx-gateway auth-service user-bl-service user-db-access-service job-bl-service job-db-access-service customer-bl-service customer-db-access-service admin-bl-service maps-access-service notification-service frontend migration-runner"
 
 # =============================================================================
 # STAGE 1: VALIDATE — Lint manifests, validate Helm templates
@@ -80,7 +80,7 @@ variables:
 
 validate-manifests:
   stage: validate
-  image: alpine:latest
+  image: $CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/alpine:latest
   before_script:
     - apk add --no-cache curl bash
     # Install kustomize
@@ -108,7 +108,7 @@ validate-manifests:
 validate-helm:
   stage: validate
   image:
-    name: alpine/helm:3.14.0
+    name: $CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/alpine/helm:3.14.0
     entrypoint: [""]
   before_script: []
   script:
@@ -140,7 +140,7 @@ validate-helm:
 
 update-image-tags:
   stage: update-tags
-  image: alpine:latest
+  image: $CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/alpine:latest
   needs:
     - validate-manifests
     - validate-helm
@@ -230,7 +230,7 @@ trigger-infra-staging:
 wait-staging-ready:
   stage: ensure-staging
   image:
-    name: amazon/aws-cli:2.22.0
+    name: $CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/amazon/aws-cli:2.22.0
     entrypoint: [""]
   needs:
     - trigger-infra-staging
@@ -273,7 +273,7 @@ wait-staging-ready:
 deploy-staging:
   stage: deploy-staging
   image:
-    name: amazon/aws-cli:2.22.0
+    name: $CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/amazon/aws-cli:2.22.0
     entrypoint: [""]
   needs:
     - wait-staging-ready
@@ -334,7 +334,7 @@ deploy-staging:
 
 smoke-tests-staging:
   stage: staging-tests
-  image: alpine:latest
+  image: $CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/alpine:latest
   needs:
     - deploy-staging
   before_script:
@@ -426,7 +426,7 @@ playwright-e2e-staging:
 k6-load-tests-staging:
   stage: staging-tests
   image:
-    name: grafana/k6:latest
+    name: $CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/grafana/k6:latest
     entrypoint: [""]
   needs:
     - deploy-staging
@@ -458,7 +458,7 @@ k6-load-tests-staging:
 
 promote-to-production:
   stage: promote
-  image: alpine:latest
+  image: $CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/alpine:latest
   needs:
     - smoke-tests-staging
     - playwright-e2e-staging
@@ -517,7 +517,7 @@ trigger-infra-production:
 wait-production-ready:
   stage: ensure-production
   image:
-    name: amazon/aws-cli:2.22.0
+    name: $CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/amazon/aws-cli:2.22.0
     entrypoint: [""]
   needs:
     - trigger-infra-production
@@ -558,7 +558,7 @@ wait-production-ready:
 deploy-production:
   stage: deploy-prod
   image:
-    name: amazon/aws-cli:2.22.0
+    name: $CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/amazon/aws-cli:2.22.0
     entrypoint: [""]
   needs:
     - wait-production-ready
@@ -613,7 +613,7 @@ deploy-production:
 
 smoke-tests-production:
   stage: prod-validation
-  image: alpine:latest
+  image: $CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/alpine:latest
   needs:
     - deploy-production
   before_script:
@@ -666,7 +666,7 @@ smoke-tests-production:
 teardown-staging:
   stage: teardown
   image:
-    name: amazon/aws-cli:2.22.0
+    name: $CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/amazon/aws-cli:2.22.0
     entrypoint: [""]
   needs:
     - smoke-tests-production
@@ -697,7 +697,7 @@ teardown-staging:
 
 notify-success:
   stage: notify
-  image: alpine:latest
+  image: $CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/alpine:latest
   needs:
     - smoke-tests-production
   before_script:
@@ -723,7 +723,7 @@ notify-success:
 
 notify-failure:
   stage: notify
-  image: alpine:latest
+  image: $CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/alpine:latest
   needs:
     - smoke-tests-production
   before_script:
@@ -766,7 +766,7 @@ notify-failure:
 manual-scale-up-staging:
   stage: manual-ops
   image:
-    name: amazon/aws-cli:2.22.0
+    name: $CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/amazon/aws-cli:2.22.0
     entrypoint: [""]
   script:
     - |
@@ -790,7 +790,7 @@ manual-scale-up-staging:
 manual-scale-down-staging:
   stage: manual-ops
   image:
-    name: amazon/aws-cli:2.22.0
+    name: $CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/amazon/aws-cli:2.22.0
     entrypoint: [""]
   script:
     - |
@@ -808,7 +808,7 @@ manual-scale-down-staging:
 manual-scale-up-production:
   stage: manual-ops
   image:
-    name: amazon/aws-cli:2.22.0
+    name: $CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/amazon/aws-cli:2.22.0
     entrypoint: [""]
   script:
     - |
@@ -832,7 +832,7 @@ manual-scale-up-production:
 manual-scale-down-production:
   stage: manual-ops
   image:
-    name: amazon/aws-cli:2.22.0
+    name: $CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/amazon/aws-cli:2.22.0
     entrypoint: [""]
   script:
     - |

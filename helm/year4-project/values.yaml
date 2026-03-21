@@ -218,6 +218,42 @@ adminDbService:
     initialDelaySeconds: 30
     periodSeconds: 10
 
+# Maps Access Service (Google Geocoding + Redis caching)
+mapsAccessService:
+  enabled: true
+  replicaCount: 2
+  port: 8009
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  healthCheck:
+    enabled: true
+    path: /api/v1/health
+    initialDelaySeconds: 30
+    periodSeconds: 10
+
+# Notification Service (Email + WhatsApp + scheduler)
+notificationService:
+  enabled: true
+  replicaCount: 2
+  port: 8011
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  healthCheck:
+    enabled: true
+    path: /api/v1/health
+    initialDelaySeconds: 30
+    periodSeconds: 10
+
 # Frontend deployment
 frontend:
   enabled: true

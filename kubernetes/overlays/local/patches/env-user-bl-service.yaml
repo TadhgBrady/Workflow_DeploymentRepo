@@ -1,0 +1,38 @@
+# user-bl-service: needs Redis(1), user-db URL, auth URL, secrets
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-bl-service
+spec:
+  template:
+    spec:
+      containers:
+        - name: user-bl-service
+          envFrom:
+            - secretRef:
+                name: app-secrets
+            - configMapRef:
+                name: app-config
+          env:
+            - name: ENVIRONMENT
+              value: "development"
+            - name: LOG_LEVEL
+              value: "DEBUG"
+            - name: REDIS_URL
+              value: "redis://:redis-dev-password@host.docker.internal:6380/1"
+            - name: USER_SERVICE_URL
+              value: "http://user-db-access-service"
+            - name: AUTH_SERVICE_URL
+              value: "http://auth-service"
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8004
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8004
+            initialDelaySeconds: 5
+            periodSeconds: 5

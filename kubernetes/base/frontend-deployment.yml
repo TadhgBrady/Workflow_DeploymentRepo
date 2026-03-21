@@ -22,11 +22,32 @@ spec:
         - containerPort: 8000
           name: http
           protocol: TCP
+        envFrom:
+        - secretRef:
+            name: app-secrets
+        - configMapRef:
+            name: app-config
         env:
-        - name: ENVIRONMENT
-          value: "production"
-        - name: LOG_LEVEL
-          value: "INFO"
+        - name: USER_SERVICE_URL
+          value: "http://user-bl-service"
+        - name: CUSTOMER_SERVICE_URL
+          value: "http://customer-bl-service"
+        - name: JOB_SERVICE_URL
+          value: "http://job-bl-service"
+        - name: AUTH_SERVICE_URL
+          value: "http://auth-service"
+        - name: ADMIN_BL_SERVICE_URL
+          value: "http://admin-bl-service"
+        - name: GOOGLE_MAPS_BROWSER_KEY
+          valueFrom:
+            secretKeyRef:
+              name: google-maps-secrets
+              key: GOOGLE_MAPS_BROWSER_KEY
+        - name: GOOGLE_MAPS_MAP_ID
+          valueFrom:
+            secretKeyRef:
+              name: google-maps-secrets
+              key: GOOGLE_MAPS_MAP_ID
         resources:
           requests:
             memory: "256Mi"

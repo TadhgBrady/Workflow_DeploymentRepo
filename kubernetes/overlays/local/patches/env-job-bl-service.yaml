@@ -1,0 +1,45 @@
+# job-bl-service: needs Redis(2), multiple DA URLs, auth, maps, secrets
+# NOTE: deployment name in base is "job-bl-service-deployment"
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: job-bl-service-deployment
+spec:
+  template:
+    spec:
+      containers:
+        - name: job-bl-service
+          envFrom:
+            - secretRef:
+                name: app-secrets
+            - configMapRef:
+                name: app-config
+          env:
+            - name: ENVIRONMENT
+              value: "development"
+            - name: LOG_LEVEL
+              value: "DEBUG"
+            - name: REDIS_URL
+              value: "redis://:redis-dev-password@host.docker.internal:6380/2"
+            - name: JOB_SERVICE_URL
+              value: "http://job-db-access-service"
+            - name: CUSTOMER_SERVICE_URL
+              value: "http://customer-db-access-service"
+            - name: USER_SERVICE_URL
+              value: "http://user-db-access-service"
+            - name: AUTH_SERVICE_URL
+              value: "http://auth-service"
+            - name: MAPS_SERVICE_URL
+              value: "http://maps-access-service"
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8006
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8006
+            initialDelaySeconds: 5
+            periodSeconds: 5

@@ -1,0 +1,41 @@
+# notification-service: needs DB, Redis(6), multiple BL URLs, SMTP, encryption key
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-service
+spec:
+  template:
+    spec:
+      containers:
+        - name: notification-service
+          envFrom:
+            - secretRef:
+                name: app-secrets
+            - secretRef:
+                name: smtp-secrets
+            - configMapRef:
+                name: app-config
+            - configMapRef:
+                name: smtp-config
+          env:
+            - name: ENVIRONMENT
+              value: "development"
+            - name: LOG_LEVEL
+              value: "DEBUG"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: db-credentials
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              value: "redis://:redis-dev-password@host.docker.internal:6380/6"
+            - name: AUTH_SERVICE_URL
+              value: "http://auth-service"
+            - name: USER_SERVICE_URL
+              value: "http://user-db-access-service"
+            - name: JOB_BL_SERVICE_URL
+              value: "http://job-bl-service"
+            - name: CUSTOMER_BL_SERVICE_URL
+              value: "http://customer-bl-service"
+            - name: ADMIN_BL_SERVICE_URL
+              value: "http://admin-bl-service"

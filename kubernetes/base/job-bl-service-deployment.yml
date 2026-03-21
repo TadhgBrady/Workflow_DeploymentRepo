@@ -22,11 +22,27 @@ spec:
         - containerPort: 8006
           name: http
           protocol: TCP
+        envFrom:
+        - secretRef:
+            name: app-secrets
+        - configMapRef:
+            name: app-config
         env:
-        - name: ENVIRONMENT
-          value: "production"
-        - name: LOG_LEVEL
-          value: "INFO"
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: redis-credentials
+              key: JOB_BL_REDIS_URL
+        - name: JOB_SERVICE_URL
+          value: "http://job-db-access-service"
+        - name: CUSTOMER_SERVICE_URL
+          value: "http://customer-db-access-service"
+        - name: USER_SERVICE_URL
+          value: "http://user-db-access-service"
+        - name: AUTH_SERVICE_URL
+          value: "http://auth-service"
+        - name: MAPS_SERVICE_URL
+          value: "http://maps-access-service"
         resources:
           requests:
             memory: "256Mi"
@@ -36,13 +52,13 @@ spec:
             cpu: "500m"
         livenessProbe:
           httpGet:
-            path: /health
+            path: /api/v1/health
             port: 8006
           initialDelaySeconds: 30
           periodSeconds: 10
         readinessProbe:
           httpGet:
-            path: /ready
+            path: /api/v1/health
             port: 8006
           initialDelaySeconds: 5
           periodSeconds: 5

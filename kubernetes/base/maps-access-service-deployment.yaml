@@ -1,25 +1,25 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: user-db-access-service
+  name: maps-access-service
   labels:
-    app: user-db-access-service
+    app: maps-access-service
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: user-db-access-service
+      app: maps-access-service
   template:
     metadata:
       labels:
-        app: user-db-access-service
+        app: maps-access-service
     spec:
-      serviceAccountName: user-db-access-sa
+      serviceAccountName: maps-access-service-sa
       containers:
-      - name: user-db-access-service
-        image: bencev04/4th-year-proj-tadgh-bence:user-db-access-service-latest
+      - name: maps-access-service
+        image: bencev04/4th-year-proj-tadgh-bence:maps-access-service-latest
         ports:
-        - containerPort: 8001
+        - containerPort: 8009
           name: http
           protocol: TCP
         envFrom:
@@ -28,11 +28,16 @@ spec:
         - configMapRef:
             name: app-config
         env:
-        - name: DATABASE_URL
+        - name: REDIS_URL
           valueFrom:
             secretKeyRef:
-              name: db-credentials
-              key: DATABASE_URL
+              name: redis-credentials
+              key: MAPS_REDIS_URL
+        - name: GOOGLE_MAPS_SERVER_KEY
+          valueFrom:
+            secretKeyRef:
+              name: google-maps-secrets
+              key: GOOGLE_MAPS_SERVER_KEY
         resources:
           requests:
             memory: "256Mi"
@@ -42,13 +47,13 @@ spec:
             cpu: "500m"
         livenessProbe:
           httpGet:
-            path: /health
-            port: 8001
+            path: /api/v1/health
+            port: 8009
           initialDelaySeconds: 30
           periodSeconds: 10
         readinessProbe:
           httpGet:
-            path: /health
-            port: 8001
+            path: /api/v1/health
+            port: 8009
           initialDelaySeconds: 5
           periodSeconds: 5

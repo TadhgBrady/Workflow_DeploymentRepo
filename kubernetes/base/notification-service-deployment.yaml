@@ -1,28 +1,25 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: auth-service
+  name: notification-service
   labels:
-    app: auth-service
-    version: v1
+    app: notification-service
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: auth-service
+      app: notification-service
   template:
     metadata:
       labels:
-        app: auth-service
-        version: v1
+        app: notification-service
     spec:
-      serviceAccountName: auth-service-sa
+      serviceAccountName: notification-service-sa
       containers:
-      - name: auth-service
-        image: bencev04/4th-year-proj-tadgh-bence:auth-service-latest
-        imagePullPolicy: IfNotPresent
+      - name: notification-service
+        image: bencev04/4th-year-proj-tadgh-bence:notification-service-latest
         ports:
-        - containerPort: 8005
+        - containerPort: 8011
           name: http
           protocol: TCP
         envFrom:
@@ -30,6 +27,10 @@ spec:
             name: app-secrets
         - configMapRef:
             name: app-config
+        - secretRef:
+            name: smtp-secrets
+        - configMapRef:
+            name: smtp-config
         env:
         - name: DATABASE_URL
           valueFrom:
@@ -40,9 +41,22 @@ spec:
           valueFrom:
             secretKeyRef:
               name: redis-credentials
-              key: AUTH_REDIS_URL
+              key: NOTIFICATION_REDIS_URL
+        - name: AUTH_SERVICE_URL
+          value: "http://auth-service"
         - name: USER_SERVICE_URL
           value: "http://user-db-access-service"
+        - name: JOB_BL_SERVICE_URL
+          value: "http://job-bl-service"
+        - name: CUSTOMER_BL_SERVICE_URL
+          value: "http://customer-bl-service"
+        - name: ADMIN_BL_SERVICE_URL
+          value: "http://admin-bl-service"
+        - name: NOTIFICATION_ENCRYPTION_KEY
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: NOTIFICATION_ENCRYPTION_KEY
         resources:
           requests:
             memory: "256Mi"
@@ -53,12 +67,12 @@ spec:
         livenessProbe:
           httpGet:
             path: /api/v1/health
-            port: 8005
+            port: 8011
           initialDelaySeconds: 30
           periodSeconds: 10
         readinessProbe:
           httpGet:
             path: /api/v1/health
-            port: 8005
+            port: 8011
           initialDelaySeconds: 5
           periodSeconds: 5

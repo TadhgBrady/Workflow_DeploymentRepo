@@ -98,6 +98,11 @@ data:
             keepalive 16;
         }
 
+        upstream notification_service {
+            server notification-service:80;
+            keepalive 16;
+        }
+
         map $http_upgrade $connection_upgrade {
             default upgrade;
             ''      close;
@@ -233,6 +238,13 @@ data:
                 limit_req zone=api_general burst=10 nodelay;
                 limit_req_status 429;
                 proxy_pass http://admin_service;
+            }
+
+            # Notification Service (includes Twilio webhook callback)
+            location /api/v1/notifications {
+                limit_req zone=api_general burst=20 nodelay;
+                limit_req_status 429;
+                proxy_pass http://notification_service;
             }
 
             # Health
