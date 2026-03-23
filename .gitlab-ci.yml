@@ -1,5 +1,5 @@
-# =============================================================================
-# Year 4 Project — CD Pipeline (Deployment Repo)
+﻿# =============================================================================
+# Year 4 Project â€” CD Pipeline (Deployment Repo)
 # =============================================================================
 #
 # Triggered by the dev repo CI pipeline (trigger-deploy stage) via GitLab webhook.
@@ -7,9 +7,9 @@
 #
 # Pipeline Architecture (11 stages):
 #
-#   validate → update-tags → ensure-staging (triggers infra repo) → deploy-staging
-#     → staging-tests → promote → ensure-production (triggers infra repo) → deploy-prod
-#       → prod-validation → teardown → notify
+#   validate â†’ update-tags â†’ ensure-staging (triggers infra repo) â†’ deploy-staging
+#     â†’ staging-tests â†’ promote â†’ ensure-production (triggers infra repo) â†’ deploy-prod
+#       â†’ prod-validation â†’ teardown â†’ notify
 #
 # Environments:
 #   - Staging:    Auto-deploy, canary rollout, full test suite before promotion
@@ -32,7 +32,7 @@ stages:
   - ensure-staging      # Scale up staging cluster (or trigger infra pipeline)
   - deploy-staging      # kubectl apply staging, rollout verification
   - staging-tests       # Playwright E2E, Grafana k6 load tests, smoke tests
-  - promote             # Manual gate — approve promotion to production
+  - promote             # Manual gate â€” approve promotion to production
   - ensure-production   # Scale up production cluster (or trigger infra pipeline)
   - deploy-prod         # kubectl apply production, rollout verification
   - prod-validation     # Post-deploy smoke tests & health verification
@@ -75,12 +75,12 @@ variables:
   SERVICES: "nginx-gateway auth-service user-bl-service user-db-access-service job-bl-service job-db-access-service customer-bl-service customer-db-access-service admin-bl-service maps-access-service notification-service frontend migration-runner"
 
 # =============================================================================
-# STAGE 1: VALIDATE — Lint manifests, validate Helm templates
+# STAGE 1: VALIDATE â€” Lint manifests, validate Helm templates
 # =============================================================================
 
 validate-manifests:
   stage: validate
-  image: $CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/alpine:latest
+  image: alpine:latest
   before_script:
     - apk add --no-cache curl bash
     # Install kustomize
@@ -88,16 +88,16 @@ validate-manifests:
     # Install kubeconform
     - curl -sL https://github.com/yannh/kubeconform/releases/download/v0.6.4/kubeconform-linux-amd64.tar.gz | tar xz -C /usr/local/bin/
   script:
-    - echo "═══════════════════════════════════════════════════════════════"
+    - echo "â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
     - echo "  Validating Kubernetes manifests (kubeconform)"
-    - echo "═══════════════════════════════════════════════════════════════"
+    - echo "â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
     - |
       for ENV in staging production; do
-        echo "── Validating overlay: $ENV ──"
+        echo "â”€â”€ Validating overlay: $ENV â”€â”€"
         kustomize build kubernetes/overlays/$ENV | kubeconform -strict -summary -skip ClusterIssuer
       done
     - echo ""
-    - echo "✅ All Kubernetes manifests are valid"
+    - echo "âœ… All Kubernetes manifests are valid"
   rules:
     - when: always
   allow_failure: false
@@ -108,28 +108,28 @@ validate-manifests:
 validate-helm:
   stage: validate
   image:
-    name: $CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/alpine/helm:3.14.0
+    name: alpine/helm:3.14.0
     entrypoint: [""]
   before_script: []
   script:
-    - echo "═══════════════════════════════════════════════════════════════"
+    - echo "â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
     - echo "  Validating Helm templates"
-    - echo "═══════════════════════════════════════════════════════════════"
+    - echo "â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
     - |
       for ENV in dev staging prod; do
-        echo "── helm template: values-${ENV}.yaml ──"
+        echo "â”€â”€ helm template: values-${ENV}.yaml â”€â”€"
         helm template year4-project helm/year4-project \
           -f helm/year4-project/values-${ENV}.yaml \
           --debug > /dev/null
       done
     - echo ""
-    - echo "✅ All Helm templates render successfully"
+    - echo "âœ… All Helm templates render successfully"
   rules:
     - when: always
   allow_failure: false
 
 # =============================================================================
-# STAGE 2: UPDATE TAGS — Patch Kustomize overlays with new image version
+# STAGE 2: UPDATE TAGS â€” Patch Kustomize overlays with new image version
 # =============================================================================
 #
 # This commits the updated image tags back to the deployment repo.
@@ -140,27 +140,27 @@ validate-helm:
 
 update-image-tags:
   stage: update-tags
-  image: $CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/alpine:latest
+  image: alpine:latest
   needs:
     - validate-manifests
     - validate-helm
   before_script:
     - apk add --no-cache git sed
   script:
-    - echo "═══════════════════════════════════════════════════════════════"
+    - echo "â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
     - echo "  Updating Kustomize image tags"
     - 'echo "  IMAGE_TAG:     ${IMAGE_TAG}"'
     - 'echo "  IMAGE_VERSION: ${IMAGE_VERSION}"'
     - 'echo "  SOURCE_COMMIT: ${SOURCE_COMMIT}"'
-    - echo "═══════════════════════════════════════════════════════════════"
+    - echo "â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
     - |
-      # ── Guard: Fail fast if required variables are missing ──
+      # â”€â”€ Guard: Fail fast if required variables are missing â”€â”€
       MISSING=""
       if [ -z "$IMAGE_TAG" ]; then MISSING="$MISSING IMAGE_TAG"; fi
       if [ -z "$IMAGE_VERSION" ]; then MISSING="$MISSING IMAGE_VERSION"; fi
       if [ -n "$MISSING" ]; then
         echo ""
-        echo "❌ MISSING REQUIRED VARIABLES:$MISSING"
+        echo "âŒ MISSING REQUIRED VARIABLES:$MISSING"
         echo ""
         echo "This pipeline must be triggered by the dev repo (cross-project trigger)"
         echo "with IMAGE_TAG and IMAGE_VERSION set. If this was triggered by a direct"
@@ -176,13 +176,13 @@ update-image-tags:
     - git add kubernetes/overlays/staging/kustomization.yaml
     - 'git commit -m "ci: update staging image tag to ${IMAGE_VERSION} [skip ci] - Source: ${SOURCE_COMMIT}" || echo "No changes to commit"'
     - |
-      # ── Push: prefer GITLAB_API_TOKEN, fall back to CI_JOB_TOKEN ──
+      # â”€â”€ Push: prefer GITLAB_API_TOKEN, fall back to CI_JOB_TOKEN â”€â”€
       # CI_JOB_TOKEN requires: Settings > Repository > "Allow CI job token to push"
       # GITLAB_API_TOKEN: project/group token with write_repository scope
       if [ -n "$GITLAB_API_TOKEN" ]; then
         PUSH_URL="https://oauth2:${GITLAB_API_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
       else
-        echo "⚠️  GITLAB_API_TOKEN not set — falling back to CI_JOB_TOKEN"
+        echo "âš ï¸  GITLAB_API_TOKEN not set â€” falling back to CI_JOB_TOKEN"
         echo "   If push fails with 403, enable 'Allow CI job token to push'"
         echo "   in Settings > Repository, or set GITLAB_API_TOKEN variable"
         PUSH_URL="https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
@@ -194,20 +194,20 @@ update-image-tags:
   allow_failure: false
 
 # =============================================================================
-# STAGE 3a: ENSURE STAGING — Trigger infra repo to bring staging cluster up
+# STAGE 3a: ENSURE STAGING â€” Trigger infra repo to bring staging cluster up
 # =============================================================================
 # Cross-project trigger: fires the infra repo pipeline with ENSURE_UP=true
 # and TARGET_ENV=staging. The infra repo handles all three scenarios:
-#   1. Cluster running with nodes   → exit 0 (instant)
-#   2. Cluster exists, 0 nodes      → scale up
-#   3. Cluster doesn't exist at all → full terraform apply (ensure-apply)
+#   1. Cluster running with nodes   â†’ exit 0 (instant)
+#   2. Cluster exists, 0 nodes      â†’ scale up
+#   3. Cluster doesn't exist at all â†’ full terraform apply (ensure-apply)
 #
-# strategy: depend → this CD pipeline WAITS until the infra pipeline finishes.
+# strategy: depend â†’ this CD pipeline WAITS until the infra pipeline finishes.
 # If the infra pipeline fails, this job fails, blocking the deploy.
 #
 # REQUIRED CI/CD VARIABLES:
-#   INFRA_PROJECT_ID    — GitLab project ID for yr4-projectinfrarepo
-#   INFRA_TRIGGER_TOKEN — Pipeline trigger token created in the infra repo
+#   INFRA_PROJECT_ID    â€” GitLab project ID for yr4-projectinfrarepo
+#   INFRA_TRIGGER_TOKEN â€” Pipeline trigger token created in the infra repo
 #                         (Settings > CI/CD > Pipeline trigger tokens)
 
 trigger-infra-staging:
@@ -230,19 +230,19 @@ trigger-infra-staging:
 wait-staging-ready:
   stage: ensure-staging
   image:
-    name: $CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/amazon/aws-cli:2.22.0
+    name: amazon/aws-cli:2.22.0
     entrypoint: [""]
   needs:
     - trigger-infra-staging
   script:
     - |
-      echo "═══════════════════════════════════════════════════════════════"
+      echo "â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
       echo "  Verifying STAGING cluster readiness after infra trigger"
-      echo "═══════════════════════════════════════════════════════════════"
+      echo "â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
 
       # Confirm cluster exists (should always pass after infra pipeline)
       if ! aws eks describe-cluster --name $STAGING_CLUSTER_NAME --region $AWS_DEFAULT_REGION > /dev/null 2>&1; then
-        echo "❌ Staging cluster still does not exist after infra trigger."
+        echo "âŒ Staging cluster still does not exist after infra trigger."
         echo "   Check the infra repo pipeline for errors."
         exit 1
       fi
@@ -256,18 +256,18 @@ wait-staging-ready:
         --output text 2>/dev/null || echo "0")
 
       if [ "$DESIRED" = "0" ] || [ "$DESIRED" = "None" ]; then
-        echo "❌ Staging nodes still at 0 after infra trigger."
+        echo "âŒ Staging nodes still at 0 after infra trigger."
         exit 1
       fi
 
-      echo "✅ Staging cluster ready — $DESIRED node(s) running."
+      echo "âœ… Staging cluster ready â€” $DESIRED node(s) running."
   rules:
     - if: $IMAGE_VERSION
       when: always
   allow_failure: false
 
 # =============================================================================
-# STAGE 3b: INSTALL CLUSTER ADD-ONS — cert-manager, ESO, NGINX Ingress
+# STAGE 3b: INSTALL CLUSTER ADD-ONS â€” cert-manager, ESO, NGINX Ingress
 # =============================================================================
 # Installs required Helm charts before deploying the application. Uses
 # "helm upgrade --install" so it's idempotent (safe on re-runs).
@@ -276,7 +276,7 @@ wait-staging-ready:
 install-addons-staging:
   stage: deploy-staging
   image:
-    name: $CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/amazon/aws-cli:2.22.0
+    name: amazon/aws-cli:2.22.0
     entrypoint: [""]
   needs:
     - wait-staging-ready
@@ -290,9 +290,9 @@ install-addons-staging:
     - aws eks update-kubeconfig --name $STAGING_CLUSTER_NAME --region $AWS_DEFAULT_REGION
   script:
     - |
-      echo "═══════════════════════════════════════════════════════════════"
+      echo "â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
       echo "  Installing cluster add-ons for STAGING"
-      echo "═══════════════════════════════════════════════════════════════"
+      echo "â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
 
       # Look up IAM role ARNs (created by Terraform)
       ESO_ROLE_ARN=$(aws iam get-role \
@@ -309,7 +309,7 @@ install-addons-staging:
         --set crds.enabled=true \
         --wait --timeout 300s
 
-      # 2. External Secrets Operator (syncs AWS Secrets Manager → K8s Secrets)
+      # 2. External Secrets Operator (syncs AWS Secrets Manager â†’ K8s Secrets)
       echo "--- Installing External Secrets Operator ---"
       helm repo add external-secrets https://charts.external-secrets.io
       helm repo update external-secrets
@@ -329,20 +329,20 @@ install-addons-staging:
         --wait --timeout 300s
 
       echo ""
-      echo "✅ All staging add-ons installed successfully"
+      echo "âœ… All staging add-ons installed successfully"
   rules:
     - if: $IMAGE_VERSION
       when: always
   allow_failure: false
 
 # =============================================================================
-# STAGE 3b: DEPLOY STAGING — kubectl apply + rollout verification
+# STAGE 3b: DEPLOY STAGING â€” kubectl apply + rollout verification
 # =============================================================================
 
 deploy-staging:
   stage: deploy-staging
   image:
-    name: $CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/amazon/aws-cli:2.22.0
+    name: amazon/aws-cli:2.22.0
     entrypoint: [""]
   needs:
     - install-addons-staging
@@ -353,10 +353,10 @@ deploy-staging:
     # Configure kubeconfig for the staging EKS cluster
     - aws eks update-kubeconfig --name $STAGING_CLUSTER_NAME --region $AWS_DEFAULT_REGION
   script:
-    - echo "═══════════════════════════════════════════════════════════════"
+    - echo "â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
     - echo "  Deploying to STAGING via kubectl apply"
     - 'echo "  Image version: ${IMAGE_VERSION}"'
-    - echo "═══════════════════════════════════════════════════════════════"
+    - echo "â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
     - kubectl create namespace $STAGING_NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
     - kubectl apply -k kubernetes/overlays/staging
     - |
@@ -373,18 +373,18 @@ deploy-staging:
           -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
         if [ -n "$LB_HOST" ]; then
           echo "STAGING_URL=http://$LB_HOST" > staging-deploy.env
-          echo "✅ Staging URL: http://$LB_HOST"
+          echo "âœ… Staging URL: http://$LB_HOST"
           break
         fi
-        echo "  Attempt $i/30 — waiting for LB provisioning..."
+        echo "  Attempt $i/30 â€” waiting for LB provisioning..."
         sleep 10
       done
       if [ -z "$LB_HOST" ]; then
-        echo "⚠️  LoadBalancer hostname not available yet (may still be provisioning)"
+        echo "âš ï¸  LoadBalancer hostname not available yet (may still be provisioning)"
         echo "STAGING_URL=" > staging-deploy.env
       fi
     - echo ""
-    - echo "✅ Staging deployment complete"
+    - echo "âœ… Staging deployment complete"
   artifacts:
     reports:
       dotenv: staging-deploy.env
@@ -394,7 +394,7 @@ deploy-staging:
   allow_failure: false
 
 # =============================================================================
-# STAGE 4: STAGING TESTS — E2E, load tests, smoke tests
+# STAGE 4: STAGING TESTS â€” E2E, load tests, smoke tests
 # =============================================================================
 #
 # All three jobs run in parallel against the staging environment.
@@ -403,15 +403,15 @@ deploy-staging:
 
 smoke-tests-staging:
   stage: staging-tests
-  image: $CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/alpine:latest
+  image: alpine:latest
   needs:
     - deploy-staging
   before_script:
     - apk add --no-cache curl
   script:
-    - echo "═══════════════════════════════════════════════════════════════"
-    - echo "  Smoke Tests — Staging Health Checks"
-    - echo "═══════════════════════════════════════════════════════════════"
+    - echo "â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
+    - echo "  Smoke Tests â€” Staging Health Checks"
+    - echo "â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
     - |
       FAILED=0
       SERVICES_TO_CHECK="auth-service user-bl-service user-db-access-service job-bl-service job-db-access-service customer-bl-service customer-db-access-service admin-bl-service frontend"
@@ -420,19 +420,19 @@ smoke-tests-staging:
         HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
           "${STAGING_URL}/api/${SVC}/health" 2>/dev/null || echo "000")
         if [ "$HTTP_CODE" = "200" ]; then
-          echo "✅ ($HTTP_CODE)"
+          echo "âœ… ($HTTP_CODE)"
         else
-          echo "❌ ($HTTP_CODE)"
+          echo "âŒ ($HTTP_CODE)"
           FAILED=$((FAILED + 1))
         fi
       done
 
       echo ""
       if [ "$FAILED" -gt 0 ]; then
-        echo "❌ $FAILED service(s) failed health check"
+        echo "âŒ $FAILED service(s) failed health check"
         exit 1
       else
-        echo "✅ All services healthy"
+        echo "âœ… All services healthy"
       fi
   rules:
     - if: $IMAGE_VERSION
@@ -443,7 +443,7 @@ smoke-tests-staging:
 # PLAYWRIGHT E2E TESTS (Staging)
 # ---------------------------------------------------------------------------
 # Runs browser-based end-to-end tests against the staging environment.
-# Tests live in tests/e2e/ (to be created — see CD_PLAN.md Phase 4).
+# Tests live in tests/e2e/ (to be created â€” see CD_PLAN.md Phase 4).
 #
 # TODO: Add Playwright test suite covering critical user journeys:
 #   - Login / logout / token refresh
@@ -458,15 +458,15 @@ playwright-e2e-staging:
   needs:
     - deploy-staging
   before_script:
-    - npm ci --prefix tests/e2e || echo "⚠️  No package.json yet — Playwright tests not configured"
+    - npm ci --prefix tests/e2e || echo "âš ï¸  No package.json yet â€” Playwright tests not configured"
   script:
-    - echo "═══════════════════════════════════════════════════════════════"
-    - echo "  🎭 Playwright E2E Tests — Staging"
-    - echo "═══════════════════════════════════════════════════════════════"
+    - echo "â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
+    - echo "  ðŸŽ­ Playwright E2E Tests â€” Staging"
+    - echo "â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
     - 'echo "  Target: ${STAGING_URL}"'
-    - echo "⚠️  PLACEHOLDER — Playwright E2E tests not yet implemented"
+    - echo "âš ï¸  PLACEHOLDER â€” Playwright E2E tests not yet implemented"
     - echo "  See CD_PLAN.md Phase 4 for implementation steps"
-    - 'echo "⏭️  Skipping (allow_failure: true until tests are written)"'
+    - 'echo "â­ï¸  Skipping (allow_failure: true until tests are written)"'
   artifacts:
     when: always
     paths:
@@ -483,30 +483,30 @@ playwright-e2e-staging:
 # ---------------------------------------------------------------------------
 # Runs load/performance tests against the staging environment to verify
 # the deployment can handle expected traffic before promoting to production.
-# Test scripts live in tests/k6/ (to be created — see CD_PLAN.md Phase 4).
+# Test scripts live in tests/k6/ (to be created â€” see CD_PLAN.md Phase 4).
 #
 # TODO: Add k6 test scenarios:
 #   - Baseline: 10 VUs for 1 minute (health check)
-#   - Ramp-up:  1 → 50 VUs over 3 minutes (normal load)
-#   - Spike:    50 → 100 VUs for 1 minute (burst traffic)
+#   - Ramp-up:  1 â†’ 50 VUs over 3 minutes (normal load)
+#   - Spike:    50 â†’ 100 VUs for 1 minute (burst traffic)
 #   - Thresholds: p95 < 500ms, error rate < 1%
 # ---------------------------------------------------------------------------
 
 k6-load-tests-staging:
   stage: staging-tests
   image:
-    name: $CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/grafana/k6:latest
+    name: grafana/k6:latest
     entrypoint: [""]
   needs:
     - deploy-staging
   script:
-    - echo "═══════════════════════════════════════════════════════════════"
-    - echo "  📊 Grafana k6 Load Tests — Staging"
-    - echo "═══════════════════════════════════════════════════════════════"
+    - echo "â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
+    - echo "  ðŸ“Š Grafana k6 Load Tests â€” Staging"
+    - echo "â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
     - 'echo "  Target: ${STAGING_URL}"'
-    - echo "⚠️  PLACEHOLDER — Grafana k6 load tests not yet implemented"
+    - echo "âš ï¸  PLACEHOLDER â€” Grafana k6 load tests not yet implemented"
     - echo "  See CD_PLAN.md Phase 4 for implementation steps"
-    - 'echo "⏭️  Skipping (allow_failure: true until tests are written)"'
+    - 'echo "â­ï¸  Skipping (allow_failure: true until tests are written)"'
   artifacts:
     when: always
     paths:
@@ -518,7 +518,7 @@ k6-load-tests-staging:
   allow_failure: true   # Soft gate until k6 tests are implemented
 
 # =============================================================================
-# STAGE 5: PROMOTE — Manual approval to deploy to production
+# STAGE 5: PROMOTE â€” Manual approval to deploy to production
 # =============================================================================
 #
 # Same manual gate pattern as the dev repo's trigger-deploy stage.
@@ -527,7 +527,7 @@ k6-load-tests-staging:
 
 promote-to-production:
   stage: promote
-  image: $CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/alpine:latest
+  image: alpine:latest
   needs:
     - smoke-tests-staging
     - playwright-e2e-staging
@@ -535,9 +535,9 @@ promote-to-production:
   before_script:
     - apk add --no-cache git sed
   script:
-    - echo "═══════════════════════════════════════════════════════════════"
+    - echo "â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
     - echo "  Promoting ${IMAGE_VERSION} to PRODUCTION"
-    - echo "═══════════════════════════════════════════════════════════════"
+    - echo "â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
     - |
       cd kubernetes/overlays/production
       sed -i "s|newTag:.*|newTag: ${IMAGE_VERSION}|" kustomization.yaml
@@ -547,23 +547,23 @@ promote-to-production:
     - git add kubernetes/overlays/production/kustomization.yaml
     - 'git commit -m "ci: promote ${IMAGE_VERSION} to production [skip ci] - Source: ${SOURCE_COMMIT}" || echo "No changes to commit"'
     - |
-      # ── Push: prefer GITLAB_API_TOKEN, fall back to CI_JOB_TOKEN ──
+      # â”€â”€ Push: prefer GITLAB_API_TOKEN, fall back to CI_JOB_TOKEN â”€â”€
       if [ -n "$GITLAB_API_TOKEN" ]; then
         PUSH_URL="https://oauth2:${GITLAB_API_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
       else
-        echo "⚠️  GITLAB_API_TOKEN not set — falling back to CI_JOB_TOKEN"
+        echo "âš ï¸  GITLAB_API_TOKEN not set â€” falling back to CI_JOB_TOKEN"
         PUSH_URL="https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
       fi
       git push "$PUSH_URL" HEAD:main
     - echo ""
-    - echo "✅ Production overlay updated — kubectl deploy will proceed next"
+    - echo "âœ… Production overlay updated â€” kubectl deploy will proceed next"
   rules:
     - if: $IMAGE_VERSION
       when: manual
       allow_failure: false
 
 # =============================================================================
-# STAGE 6a: ENSURE PRODUCTION — Trigger infra repo to bring production cluster up
+# STAGE 6a: ENSURE PRODUCTION â€” Trigger infra repo to bring production cluster up
 # =============================================================================
 # Same cross-project trigger pattern as staging. Fires after manual promotion
 # is approved. The infra repo creates/scales the production cluster, and the
@@ -586,18 +586,18 @@ trigger-infra-production:
 wait-production-ready:
   stage: ensure-production
   image:
-    name: $CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/amazon/aws-cli:2.22.0
+    name: amazon/aws-cli:2.22.0
     entrypoint: [""]
   needs:
     - trigger-infra-production
   script:
     - |
-      echo "═══════════════════════════════════════════════════════════════"
+      echo "â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
       echo "  Verifying PRODUCTION cluster readiness after infra trigger"
-      echo "═══════════════════════════════════════════════════════════════"
+      echo "â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
 
       if ! aws eks describe-cluster --name $PROD_CLUSTER_NAME --region $AWS_DEFAULT_REGION > /dev/null 2>&1; then
-        echo "❌ Production cluster still does not exist after infra trigger."
+        echo "âŒ Production cluster still does not exist after infra trigger."
         echo "   Check the infra repo pipeline for errors."
         exit 1
       fi
@@ -610,24 +610,24 @@ wait-production-ready:
         --output text 2>/dev/null || echo "0")
 
       if [ "$DESIRED" = "0" ] || [ "$DESIRED" = "None" ]; then
-        echo "❌ Production nodes still at 0 after infra trigger."
+        echo "âŒ Production nodes still at 0 after infra trigger."
         exit 1
       fi
 
-      echo "✅ Production cluster ready — $DESIRED node(s) running."
+      echo "âœ… Production cluster ready â€” $DESIRED node(s) running."
   rules:
     - if: $IMAGE_VERSION
       when: always
   allow_failure: false
 
 # =============================================================================
-# STAGE 6b: INSTALL CLUSTER ADD-ONS — cert-manager, ESO, NGINX Ingress (PROD)
+# STAGE 6b: INSTALL CLUSTER ADD-ONS â€” cert-manager, ESO, NGINX Ingress (PROD)
 # =============================================================================
 
 install-addons-production:
   stage: deploy-prod
   image:
-    name: $CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/amazon/aws-cli:2.22.0
+    name: amazon/aws-cli:2.22.0
     entrypoint: [""]
   needs:
     - wait-production-ready
@@ -638,9 +638,9 @@ install-addons-production:
     - aws eks update-kubeconfig --name $PROD_CLUSTER_NAME --region $AWS_DEFAULT_REGION
   script:
     - |
-      echo "═══════════════════════════════════════════════════════════════"
+      echo "â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
       echo "  Installing cluster add-ons for PRODUCTION"
-      echo "═══════════════════════════════════════════════════════════════"
+      echo "â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
 
       ESO_ROLE_ARN=$(aws iam get-role \
         --role-name yr4-project-production-eso-role \
@@ -676,20 +676,20 @@ install-addons-production:
         --wait --timeout 300s
 
       echo ""
-      echo "✅ All production add-ons installed successfully"
+      echo "âœ… All production add-ons installed successfully"
   rules:
     - if: $IMAGE_VERSION
       when: always
   allow_failure: false
 
 # =============================================================================
-# STAGE 6b: DEPLOY PRODUCTION — kubectl apply + rollout verification
+# STAGE 6b: DEPLOY PRODUCTION â€” kubectl apply + rollout verification
 # =============================================================================
 
 deploy-production:
   stage: deploy-prod
   image:
-    name: $CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/amazon/aws-cli:2.22.0
+    name: amazon/aws-cli:2.22.0
     entrypoint: [""]
   needs:
     - install-addons-production
@@ -698,10 +698,10 @@ deploy-production:
     - chmod +x kubectl && mv kubectl /usr/local/bin/
     - aws eks update-kubeconfig --name $PROD_CLUSTER_NAME --region $AWS_DEFAULT_REGION
   script:
-    - echo "═══════════════════════════════════════════════════════════════"
+    - echo "â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
     - echo "  Deploying to PRODUCTION via kubectl apply"
     - 'echo "  Image version: ${IMAGE_VERSION}"'
-    - echo "═══════════════════════════════════════════════════════════════"
+    - echo "â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
     - kubectl create namespace $PROD_NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
     - kubectl apply -k kubernetes/overlays/production
     - |
@@ -718,18 +718,18 @@ deploy-production:
           -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
         if [ -n "$LB_HOST" ]; then
           echo "PROD_URL=http://$LB_HOST" > production-deploy.env
-          echo "✅ Production URL: http://$LB_HOST"
+          echo "âœ… Production URL: http://$LB_HOST"
           break
         fi
-        echo "  Attempt $i/30 — waiting for LB provisioning..."
+        echo "  Attempt $i/30 â€” waiting for LB provisioning..."
         sleep 10
       done
       if [ -z "$LB_HOST" ]; then
-        echo "⚠️  LoadBalancer hostname not available yet"
+        echo "âš ï¸  LoadBalancer hostname not available yet"
         echo "PROD_URL=" > production-deploy.env
       fi
     - echo ""
-    - echo "✅ Production deployment complete"
+    - echo "âœ… Production deployment complete"
   artifacts:
     reports:
       dotenv: production-deploy.env
@@ -739,20 +739,20 @@ deploy-production:
   allow_failure: false
 
 # =============================================================================
-# STAGE 7: PRODUCTION VALIDATION — Post-deploy smoke tests
+# STAGE 7: PRODUCTION VALIDATION â€” Post-deploy smoke tests
 # =============================================================================
 
 smoke-tests-production:
   stage: prod-validation
-  image: $CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/alpine:latest
+  image: alpine:latest
   needs:
     - deploy-production
   before_script:
     - apk add --no-cache curl
   script:
-    - echo "═══════════════════════════════════════════════════════════════"
-    - echo "  Production Smoke Tests — Health Checks"
-    - echo "═══════════════════════════════════════════════════════════════"
+    - echo "â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
+    - echo "  Production Smoke Tests â€” Health Checks"
+    - echo "â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
     - |
       FAILED=0
       SERVICES_TO_CHECK="auth-service user-bl-service user-db-access-service job-bl-service job-db-access-service customer-bl-service customer-db-access-service admin-bl-service frontend"
@@ -761,20 +761,20 @@ smoke-tests-production:
         HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
           "${PROD_URL}/api/${SVC}/health" 2>/dev/null || echo "000")
         if [ "$HTTP_CODE" = "200" ]; then
-          echo "✅ ($HTTP_CODE)"
+          echo "âœ… ($HTTP_CODE)"
         else
-          echo "❌ ($HTTP_CODE)"
+          echo "âŒ ($HTTP_CODE)"
           FAILED=$((FAILED + 1))
         fi
       done
 
       echo ""
       if [ "$FAILED" -gt 0 ]; then
-        echo "❌ $FAILED service(s) failed health check in production"
-        echo "⚠️  ACTION REQUIRED: Check deployment logs and kubectl rollout status"
+        echo "âŒ $FAILED service(s) failed health check in production"
+        echo "âš ï¸  ACTION REQUIRED: Check deployment logs and kubectl rollout status"
         exit 1
       else
-        echo "✅ All production services healthy"
+        echo "âœ… All production services healthy"
       fi
   rules:
     - if: $IMAGE_VERSION
@@ -782,11 +782,11 @@ smoke-tests-production:
   allow_failure: false
 
 # =============================================================================
-# STAGE 8: NOTIFY — Deploy result notification
+# STAGE 8: NOTIFY â€” Deploy result notification
 # =============================================================================
 
 # =============================================================================
-# STAGE 9: TEARDOWN — Scale down staging after successful production deploy
+# STAGE 9: TEARDOWN â€” Scale down staging after successful production deploy
 # =============================================================================
 # Once production is validated, staging is no longer needed. Scale its nodes
 # to 0 to save costs. The EKS control plane remains (~$0.10/hr) so it can
@@ -797,15 +797,15 @@ smoke-tests-production:
 teardown-staging:
   stage: teardown
   image:
-    name: $CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/amazon/aws-cli:2.22.0
+    name: amazon/aws-cli:2.22.0
     entrypoint: [""]
   needs:
     - smoke-tests-production
   script:
     - |
-      echo "═══════════════════════════════════════════════════════════════"
-      echo "  Tearing down STAGING — production deploy validated"
-      echo "═══════════════════════════════════════════════════════════════"
+      echo "â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
+      echo "  Tearing down STAGING â€” production deploy validated"
+      echo "â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
 
       echo "Scaling staging node group to 0 nodes..."
       aws eks update-nodegroup-config \
@@ -814,7 +814,7 @@ teardown-staging:
         --region $AWS_DEFAULT_REGION \
         --scaling-config desiredSize=0,minSize=0,maxSize=3
 
-      echo "✅ Staging nodes scaled to 0."
+      echo "âœ… Staging nodes scaled to 0."
       echo "   Staging cluster control plane still running (~$0.10/hr)."
       echo "   To fully destroy, run 'destroy-staging' in the infra repo."
   rules:
@@ -823,20 +823,20 @@ teardown-staging:
   allow_failure: true
 
 # =============================================================================
-# STAGE 10: NOTIFY — Deploy result notification
+# STAGE 10: NOTIFY â€” Deploy result notification
 # =============================================================================
 
 notify-success:
   stage: notify
-  image: $CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/alpine:latest
+  image: alpine:latest
   needs:
     - smoke-tests-production
   before_script:
     - apk add --no-cache curl
   script:
-    - echo "═══════════════════════════════════════════════════════════════"
-    - echo "  ✅ DEPLOYMENT SUCCESSFUL"
-    - echo "═══════════════════════════════════════════════════════════════"
+    - echo "â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
+    - echo "  âœ… DEPLOYMENT SUCCESSFUL"
+    - echo "â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
     - echo ""
     - 'echo "  Environment:  Production"'
     - 'echo "  Version:      ${IMAGE_VERSION}"'
@@ -846,7 +846,7 @@ notify-success:
     # TODO: Add Slack/Teams/webhook notification
     # - |
     #   curl -X POST "$SLACK_WEBHOOK_URL" -H "Content-Type: application/json" \
-    #     -d "{\"text\": \"✅ Production deploy complete — version ${IMAGE_VERSION}\"}"
+    #     -d "{\"text\": \"âœ… Production deploy complete â€” version ${IMAGE_VERSION}\"}"
   rules:
     - if: $IMAGE_VERSION
       when: on_success
@@ -854,15 +854,15 @@ notify-success:
 
 notify-failure:
   stage: notify
-  image: $CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/alpine:latest
+  image: alpine:latest
   needs:
     - smoke-tests-production
   before_script:
     - apk add --no-cache curl
   script:
-    - echo "═══════════════════════════════════════════════════════════════"
-    - echo "  ❌ DEPLOYMENT FAILED"
-    - echo "═══════════════════════════════════════════════════════════════"
+    - echo "â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
+    - echo "  âŒ DEPLOYMENT FAILED"
+    - echo "â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•"
     - echo ""
     - 'echo "  Environment:  Production"'
     - 'echo "  Version:      ${IMAGE_VERSION}"'
@@ -880,15 +880,15 @@ notify-failure:
 # =============================================================================
 #
 # Manual-trigger jobs for controlling EKS node groups via AWS CLI.
-# These are independent of the deploy flow — use them from the GitLab UI.
+# These are independent of the deploy flow â€” use them from the GitLab UI.
 #
-# Typical workflow (Option C — separate clusters):
-#   1. scale-up-staging    → bring staging nodes up
-#   2. (pipeline deploys)  → validate in staging
-#   3. scale-up-production → bring production nodes up
-#   4. (pipeline deploys)  → canary rollout to production
-#   5. scale-down-staging  → staging no longer needed (auto after prod deploy)
-#   6. (after demo/use)    → scale-down-production
+# Typical workflow (Option C â€” separate clusters):
+#   1. scale-up-staging    â†’ bring staging nodes up
+#   2. (pipeline deploys)  â†’ validate in staging
+#   3. scale-up-production â†’ bring production nodes up
+#   4. (pipeline deploys)  â†’ canary rollout to production
+#   5. scale-down-staging  â†’ staging no longer needed (auto after prod deploy)
+#   6. (after demo/use)    â†’ scale-down-production
 #
 # EKS control plane (~$0.10/hr) still runs when nodes=0.
 # To fully destroy a cluster, use 'destroy-staging' or 'destroy-production'
@@ -897,7 +897,7 @@ notify-failure:
 manual-scale-up-staging:
   stage: manual-ops
   image:
-    name: $CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/amazon/aws-cli:2.22.0
+    name: amazon/aws-cli:2.22.0
     entrypoint: [""]
   script:
     - |
@@ -913,7 +913,7 @@ manual-scale-up-staging:
         --cluster-name $STAGING_CLUSTER_NAME \
         --nodegroup-name $STAGING_NODE_GROUP \
         --region $AWS_DEFAULT_REGION
-      echo "✅ Staging scaled UP"
+      echo "âœ… Staging scaled UP"
   rules:
     - when: manual
   allow_failure: true
@@ -921,7 +921,7 @@ manual-scale-up-staging:
 manual-scale-down-staging:
   stage: manual-ops
   image:
-    name: $CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/amazon/aws-cli:2.22.0
+    name: amazon/aws-cli:2.22.0
     entrypoint: [""]
   script:
     - |
@@ -931,7 +931,7 @@ manual-scale-down-staging:
         --nodegroup-name $STAGING_NODE_GROUP \
         --region $AWS_DEFAULT_REGION \
         --scaling-config desiredSize=0,minSize=0,maxSize=3
-      echo "✅ Staging scaled DOWN"
+      echo "âœ… Staging scaled DOWN"
   rules:
     - when: manual
   allow_failure: true
@@ -939,7 +939,7 @@ manual-scale-down-staging:
 manual-scale-up-production:
   stage: manual-ops
   image:
-    name: $CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/amazon/aws-cli:2.22.0
+    name: amazon/aws-cli:2.22.0
     entrypoint: [""]
   script:
     - |
@@ -955,7 +955,7 @@ manual-scale-up-production:
         --cluster-name $PROD_CLUSTER_NAME \
         --nodegroup-name $PROD_NODE_GROUP \
         --region $AWS_DEFAULT_REGION
-      echo "✅ Production scaled UP"
+      echo "âœ… Production scaled UP"
   rules:
     - when: manual
   allow_failure: true
@@ -963,7 +963,7 @@ manual-scale-up-production:
 manual-scale-down-production:
   stage: manual-ops
   image:
-    name: $CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/amazon/aws-cli:2.22.0
+    name: amazon/aws-cli:2.22.0
     entrypoint: [""]
   script:
     - |
@@ -973,7 +973,7 @@ manual-scale-down-production:
         --nodegroup-name $PROD_NODE_GROUP \
         --region $AWS_DEFAULT_REGION \
         --scaling-config desiredSize=0,minSize=0,maxSize=5
-      echo "✅ Production scaled DOWN"
+      echo "âœ… Production scaled DOWN"
   rules:
     - when: manual
   allow_failure: true
