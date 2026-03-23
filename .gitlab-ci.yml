@@ -15,7 +15,7 @@
 #   - Staging:    Auto-deploy, canary rollout, full test suite before promotion
 #   - Production: Manual gate, conservative canary rollout, post-deploy smoke tests
 #
-# Infrastructure:
+# Infrastructure:t
 #   - AWS EKS (managed via Terraform in infra repo)
 #   - Direct kubectl/kustomize deployments from pipeline
 #   - RDS PostgreSQL + ElastiCache Redis (AWS-managed, Terraform-provisioned)
