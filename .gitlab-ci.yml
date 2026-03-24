@@ -82,7 +82,7 @@ validate-manifests:
   stage: validate
   image: alpine:latest
   before_script:
-    - apk add --no-cache curl bash
+    - apk add --no-cache curl bash tar gzip
     # Install kustomize
     - curl -sL https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.4.1/kustomize_v5.4.1_linux_amd64.tar.gz | tar xz -C /usr/local/bin/
     # Install kubeconform
@@ -281,6 +281,8 @@ install-addons-staging:
   needs:
     - wait-staging-ready
   before_script:
+    # aws-cli image is minimal — install tar/gzip needed by Helm installer
+    - yum install -y tar gzip
     # Install kubectl
     - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
     - chmod +x kubectl && mv kubectl /usr/local/bin/
@@ -369,7 +371,7 @@ deploy-staging:
       echo ""
       echo "Waiting for LoadBalancer external hostname..."
       for i in $(seq 1 30); do
-        LB_HOST=$(kubectl get svc staging-nginx-gateway -n $STAGING_NAMESPACE \
+        LB_HOST=$(kubectl get svc nginx-gateway -n $STAGING_NAMESPACE \
           -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
         if [ -n "$LB_HOST" ]; then
           echo "STAGING_URL=http://$LB_HOST" > staging-deploy.env
@@ -413,6 +415,10 @@ smoke-tests-staging:
     - echo "  Smoke Tests — Staging Health Checks"
     - echo "═══════════════════════════════════════════════════════════════"
     - |
+      if [ -z "$STAGING_URL" ]; then
+        echo "❌ STAGING_URL is empty — LoadBalancer hostname not provisioned"
+        exit 1
+      fi
       FAILED=0
       SERVICES_TO_CHECK="auth-service user-bl-service user-db-access-service job-bl-service job-db-access-service customer-bl-service customer-db-access-service admin-bl-service frontend"
       for SVC in $SERVICES_TO_CHECK; do
@@ -632,6 +638,7 @@ install-addons-production:
   needs:
     - wait-production-ready
   before_script:
+    - yum install -y tar gzip
     - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
     - chmod +x kubectl && mv kubectl /usr/local/bin/
     - curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | VERIFY_CHECKSUM=false bash
@@ -714,7 +721,7 @@ deploy-production:
       echo ""
       echo "Waiting for LoadBalancer external hostname..."
       for i in $(seq 1 30); do
-        LB_HOST=$(kubectl get svc prod-nginx-gateway -n $PROD_NAMESPACE \
+        LB_HOST=$(kubectl get svc nginx-gateway -n $PROD_NAMESPACE \
           -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
         if [ -n "$LB_HOST" ]; then
           echo "PROD_URL=http://$LB_HOST" > production-deploy.env
@@ -754,6 +761,10 @@ smoke-tests-production:
     - echo "  Production Smoke Tests — Health Checks"
     - echo "═══════════════════════════════════════════════════════════════"
     - |
+      if [ -z "$PROD_URL" ]; then
+        echo "❌ PROD_URL is empty — LoadBalancer hostname not provisioned"
+        exit 1
+      fi
       FAILED=0
       SERVICES_TO_CHECK="auth-service user-bl-service user-db-access-service job-bl-service job-db-access-service customer-bl-service customer-db-access-service admin-bl-service frontend"
       for SVC in $SERVICES_TO_CHECK; do
