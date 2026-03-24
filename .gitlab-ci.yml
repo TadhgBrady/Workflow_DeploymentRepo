@@ -326,9 +326,17 @@ install-addons-staging:
       echo "--- Installing NGINX Ingress Controller ---"
       helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
       helm repo update ingress-nginx
+      # First clean up any failed release to avoid 'UPGRADE FAILED' on retry
+      helm status ingress-nginx -n ingress-nginx 2>/dev/null \
+        && STATUS=$(helm status ingress-nginx -n ingress-nginx -o json | grep -o '"status":"[^"]*"' | head -1) \
+        || STATUS=""
+      if echo "$STATUS" | grep -q 'failed\|pending-'; then
+        echo "  Previous release in bad state ($STATUS) — rolling back..."
+        helm rollback ingress-nginx 0 -n ingress-nginx 2>/dev/null || helm uninstall ingress-nginx -n ingress-nginx 2>/dev/null || true
+      fi
       helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
         --namespace ingress-nginx --create-namespace \
-        --wait --timeout 600s
+        --atomic --timeout 900s
 
       echo ""
       echo "✅ All staging add-ons installed successfully"
@@ -678,9 +686,16 @@ install-addons-production:
       echo "--- Installing NGINX Ingress Controller ---"
       helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
       helm repo update ingress-nginx
+      helm status ingress-nginx -n ingress-nginx 2>/dev/null \
+        && STATUS=$(helm status ingress-nginx -n ingress-nginx -o json | grep -o '"status":"[^"]*"' | head -1) \
+        || STATUS=""
+      if echo "$STATUS" | grep -q 'failed\|pending-'; then
+        echo "  Previous release in bad state ($STATUS) — rolling back..."
+        helm rollback ingress-nginx 0 -n ingress-nginx 2>/dev/null || helm uninstall ingress-nginx -n ingress-nginx 2>/dev/null || true
+      fi
       helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
         --namespace ingress-nginx --create-namespace \
-        --wait --timeout 600s
+        --atomic --timeout 900s
 
       echo ""
       echo "✅ All production add-ons installed successfully"
