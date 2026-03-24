@@ -190,7 +190,7 @@ update-image-tags:
       git push "$PUSH_URL" HEAD:main
   rules:
     - if: $IMAGE_VERSION
-      when: always
+      when: on_success
   allow_failure: false
 
 # =============================================================================
@@ -263,7 +263,7 @@ wait-staging-ready:
       echo "✅ Staging cluster ready — $DESIRED node(s) running."
   rules:
     - if: $IMAGE_VERSION
-      when: always
+      when: on_success
   allow_failure: false
 
 # =============================================================================
@@ -328,13 +328,13 @@ install-addons-staging:
       helm repo update ingress-nginx
       helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
         --namespace ingress-nginx --create-namespace \
-        --wait --timeout 300s
+        --wait --timeout 600s
 
       echo ""
       echo "✅ All staging add-ons installed successfully"
   rules:
     - if: $IMAGE_VERSION
-      when: always
+      when: on_success
   allow_failure: false
 
 # =============================================================================
@@ -392,7 +392,7 @@ deploy-staging:
       dotenv: staging-deploy.env
   rules:
     - if: $IMAGE_VERSION
-      when: always
+      when: on_success
   allow_failure: false
 
 # =============================================================================
@@ -442,7 +442,7 @@ smoke-tests-staging:
       fi
   rules:
     - if: $IMAGE_VERSION
-      when: always
+      when: on_success
   allow_failure: false
 
 # ---------------------------------------------------------------------------
@@ -680,7 +680,7 @@ install-addons-production:
       helm repo update ingress-nginx
       helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
         --namespace ingress-nginx --create-namespace \
-        --wait --timeout 300s
+        --wait --timeout 600s
 
       echo ""
       echo "✅ All production add-ons installed successfully"
