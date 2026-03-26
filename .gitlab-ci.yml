@@ -99,7 +99,7 @@ validate-manifests:
     - |
       for ENV in staging production; do
         echo "── Validating overlay: $ENV ──"
-        kustomize build kubernetes/overlays/$ENV | kubeconform -strict -summary -skip ClusterIssuer
+        kustomize build kubernetes/overlays/$ENV | kubeconform -strict -summary -skip ClusterIssuer -skip ClusterSecretStore -skip ExternalSecret
       done
     - echo ""
     - echo "✅ All Kubernetes manifests are valid"
