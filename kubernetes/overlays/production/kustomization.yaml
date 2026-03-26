@@ -6,6 +6,7 @@ namespace: year4-project
 # Reference the base configuration
 resources:
   - ../../base
+  - external-secrets.yaml
 
 # Production-specific configuration
 labels:

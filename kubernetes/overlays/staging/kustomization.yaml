@@ -6,6 +6,7 @@ namespace: year4-project-staging
 # Reference the base configuration
 resources:
   - ../../base
+  - external-secrets.yaml
   - migration-job.yaml
 
 # Staging-specific configuration
