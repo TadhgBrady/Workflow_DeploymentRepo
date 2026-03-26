@@ -55,6 +55,11 @@ variables:
   # AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
   AWS_DEFAULT_REGION: eu-west-1
 
+  # Runner checkout hardening: avoid stale shallow clone metadata on shared runners.
+  GIT_STRATEGY: clone
+  GIT_CLEAN_FLAGS: -ffdx
+  GIT_DEPTH: "0"
+
   # -- Cluster (separate EKS clusters per environment) --
   STAGING_CLUSTER_NAME: "yr4-project-staging-eks"
   STAGING_NODE_GROUP: "yr4-project-staging-eks-nodes"
