@@ -322,6 +322,7 @@ install-addons-staging:
       helm repo update external-secrets
       helm upgrade --install external-secrets external-secrets/external-secrets \
         --namespace external-secrets --create-namespace \
+        --set installCRDs=true \
         --set serviceAccount.create=true \
         --set serviceAccount.name=external-secrets-sa \
         --set "serviceAccount.annotations.eks\.amazonaws\.com/role-arn=$ESO_ROLE_ARN" \
@@ -351,9 +352,13 @@ deploy-staging:
   needs:
     - install-addons-staging
   before_script:
+    # aws-cli image is minimal — install tar/gzip needed by Helm installer
+    - yum install -y tar gzip
     # Install kubectl
     - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
     - chmod +x kubectl && mv kubectl /usr/local/bin/
+    # Install Helm (fallback addon installation if install-addons-staging was skipped)
+    - curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | VERIFY_CHECKSUM=false bash
     # Configure kubeconfig for the staging EKS cluster
     - aws eks update-kubeconfig --name $STAGING_CLUSTER_NAME --region $AWS_DEFAULT_REGION
   script:
@@ -361,6 +366,38 @@ deploy-staging:
     - echo "  Deploying to STAGING via kubectl apply"
     - 'echo "  Image version: ${IMAGE_VERSION}"'
     - echo "═══════════════════════════════════════════════════════════════"
+    # Ensure ESO is installed (fallback if install-addons-staging was skipped/retried)
+    - |
+      if ! kubectl get crd externalsecrets.external-secrets.io > /dev/null 2>&1; then
+        echo "⚠️  ESO CRDs not found — installing External Secrets Operator as fallback..."
+        helm repo add external-secrets https://charts.external-secrets.io
+        helm repo update external-secrets
+        ESO_ROLE_ARN=$(aws iam get-role --role-name yr4-project-staging-eso-role \
+          --query 'Role.Arn' --output text 2>/dev/null || echo "")
+        HELM_ARGS="--namespace external-secrets --create-namespace --set installCRDs=true --wait --timeout 300s"
+        if [ -n "$ESO_ROLE_ARN" ]; then
+          HELM_ARGS="$HELM_ARGS --set serviceAccount.create=true --set serviceAccount.name=external-secrets-sa"
+          HELM_ARGS="$HELM_ARGS --set serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn=$ESO_ROLE_ARN"
+        fi
+        helm upgrade --install external-secrets external-secrets/external-secrets $HELM_ARGS
+        echo "✅ ESO installed"
+      else
+        echo "✅ ESO CRDs already available"
+      fi
+    # Ensure cert-manager is installed (fallback)
+    - |
+      if ! kubectl get crd certificates.cert-manager.io > /dev/null 2>&1; then
+        echo "⚠️  cert-manager CRDs not found — installing as fallback..."
+        helm repo add jetstack https://charts.jetstack.io
+        helm repo update jetstack
+        helm upgrade --install cert-manager jetstack/cert-manager \
+          --namespace cert-manager --create-namespace \
+          --set crds.enabled=true \
+          --wait --timeout 300s
+        echo "✅ cert-manager installed"
+      else
+        echo "✅ cert-manager CRDs already available"
+      fi
     - kubectl create namespace $STAGING_NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
     - kubectl apply -k kubernetes/overlays/staging
     - |
