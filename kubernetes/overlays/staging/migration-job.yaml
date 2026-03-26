@@ -1,0 +1,33 @@
+# Alembic migration Job — runs once before services start
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migration-runner
+  labels:
+    app: migration-runner
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app: migration-runner
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: migration-runner
+          image: bencev04/4th-year-proj-tadgh-bence:migration-runner-latest
+          imagePullPolicy: Always
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: db-credentials
+                  key: DATABASE_URL
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"

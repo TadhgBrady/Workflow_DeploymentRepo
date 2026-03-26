@@ -15,7 +15,7 @@ spec:
         app: nginx-gateway
       annotations:
         prometheus.io/scrape: "true"
-        prometheus.io/port: "80"
+        prometheus.io/port: "8080"
         prometheus.io/path: "/metrics"
     spec:
       serviceAccountName: nginx-gateway-sa
@@ -38,7 +38,7 @@ spec:
       - name: nginx
         image: nginx:1.25-alpine
         ports:
-        - containerPort: 80
+        - containerPort: 8080
         volumeMounts:
         - name: nginx-config
           mountPath: /etc/nginx/nginx.conf

@@ -222,7 +222,7 @@ trigger-infra-staging:
     TARGET_ENV: "staging"
   rules:
     - if: $IMAGE_VERSION
-      when: manual
+      when: on_success
       allow_failure: false
 
 # After the infra pipeline completes, do a quick readiness check to confirm
@@ -322,21 +322,10 @@ install-addons-staging:
         --set "serviceAccount.annotations.eks\.amazonaws\.com/role-arn=$ESO_ROLE_ARN" \
         --wait --timeout 300s
 
-      # 3. NGINX Ingress Controller (routes external traffic)
-      echo "--- Installing NGINX Ingress Controller ---"
-      helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
-      helm repo update ingress-nginx
-      # First clean up any failed release to avoid 'UPGRADE FAILED' on retry
-      helm status ingress-nginx -n ingress-nginx 2>/dev/null \
-        && STATUS=$(helm status ingress-nginx -n ingress-nginx -o json | grep -o '"status":"[^"]*"' | head -1) \
-        || STATUS=""
-      if echo "$STATUS" | grep -q 'failed\|pending-'; then
-        echo "  Previous release in bad state ($STATUS) — rolling back..."
-        helm rollback ingress-nginx 0 -n ingress-nginx 2>/dev/null || helm uninstall ingress-nginx -n ingress-nginx 2>/dev/null || true
-      fi
-      helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
-        --namespace ingress-nginx --create-namespace \
-        --atomic --timeout 900s
+      # 3. NGINX Ingress Controller — SKIPPED for staging
+      # Staging uses nginx-gateway LoadBalancer directly (no Ingress resource needed).
+      # The ingress-nginx controller is only installed for production (TLS via cert-manager).
+      echo "--- Skipping NGINX Ingress Controller (not needed for staging) ---"
 
       echo ""
       echo "✅ All staging add-ons installed successfully"
@@ -369,6 +358,16 @@ deploy-staging:
     - echo "═══════════════════════════════════════════════════════════════"
     - kubectl create namespace $STAGING_NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
     - kubectl apply -k kubernetes/overlays/staging
+    - |
+      echo "Waiting for ExternalSecrets to sync from AWS Secrets Manager..."
+      kubectl wait --for=condition=SecretSynced=True externalsecret \
+        --all -n $STAGING_NAMESPACE --timeout=120s || {
+          echo "⚠️  ExternalSecret sync timed out — checking status..."
+          kubectl get externalsecrets -n $STAGING_NAMESPACE
+          kubectl describe externalsecrets -n $STAGING_NAMESPACE
+          exit 1
+        }
+      echo "✅ All ExternalSecrets synced"
     - |
       echo "Waiting for deployments to become ready..."
       for DEPLOY in $(kubectl get deployments -n $STAGING_NAMESPACE -o name); do

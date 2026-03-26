@@ -108,26 +108,10 @@ data:
             ''      close;
         }
 
-        # Default server (reject unknown hosts)
+        # Main server (accepts any hostname)
         server {
-            listen 80 default_server;
+            listen 8080 default_server;
             server_name _;
-
-            location = /health {
-                access_log off;
-                default_type application/json;
-                return 200 '{"status":"healthy","service":"nginx-gateway","version":"1.0.0"}';
-            }
-
-            location / {
-                return 444;
-            }
-        }
-
-        # Main server
-        server {
-            listen 80;
-            server_name localhost;
 
             limit_conn conn_limit 100;
 
