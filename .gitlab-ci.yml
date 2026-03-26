@@ -402,8 +402,8 @@ deploy-staging:
     - kubectl apply -k kubernetes/overlays/staging
     - |
       echo "Waiting for ExternalSecrets to sync from AWS Secrets Manager..."
-      kubectl wait --for=condition=SecretSynced=True externalsecret \
-        --all -n $STAGING_NAMESPACE --timeout=120s || {
+      kubectl wait --for=condition=Ready=True externalsecret \
+        --all -n $STAGING_NAMESPACE --timeout=180s || {
           echo "⚠️  ExternalSecret sync timed out — checking status..."
           kubectl get externalsecrets -n $STAGING_NAMESPACE
           kubectl describe externalsecrets -n $STAGING_NAMESPACE
