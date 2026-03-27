@@ -443,6 +443,9 @@ deploy-staging:
         echo "ℹ️  IMAGE_VERSION not set — deploying with -latest tags"
       fi
     - kubectl create namespace $STAGING_NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
+    - |
+      # Job pod template is immutable; recreate migration job on each deploy.
+      kubectl delete job migration-runner -n $STAGING_NAMESPACE --ignore-not-found=true
     # Clean up stuck pods from previous failed deployments to free CPU
     - |
       echo "Cleaning up stuck pods from previous deployments..."
@@ -892,7 +895,7 @@ deploy-production:
     - |
       if [ -n "$IMAGE_VERSION" ] && [ "$IMAGE_VERSION" != "latest" ]; then
         echo "📌 Pinning production images to version: $IMAGE_VERSION"
-        for f in kubernetes/base/*-deployment.y*ml; do
+        for f in kubernetes/base/*-deployment.y*ml kubernetes/base/migration-job.yaml; do
           [ -f "$f" ] || continue
           if grep -q "bencev04/4th-year-proj-tadgh-bence:.*-latest" "$f" 2>/dev/null; then
             sed -i "s|bencev04/4th-year-proj-tadgh-bence:\(.*\)-latest|bencev04/4th-year-proj-tadgh-bence:\\1-${IMAGE_VERSION}|g" "$f"
@@ -904,6 +907,9 @@ deploy-production:
         echo "ℹ️  IMAGE_VERSION not set — deploying with -latest tags"
       fi
     - kubectl create namespace $PROD_NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
+    - |
+      # Job pod template is immutable; recreate migration job on each deploy.
+      kubectl delete job migration-runner -n $PROD_NAMESPACE --ignore-not-found=true
     - kubectl apply -k kubernetes/overlays/production
     - |
       echo "Waiting for deployments to become ready..."
