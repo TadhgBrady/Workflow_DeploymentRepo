@@ -173,13 +173,18 @@ update-image-tags:
         exit 1
       fi
     - |
+      # ── Update version label in staging overlay for GitOps tracking ──
+      # NOTE: Kustomize 'images:' with newTag cannot handle per-service tags
+      # (all services share bencev04/4th-year-proj-tadgh-bence with different
+      # tag prefixes like auth-service-latest, admin-bl-service-latest).
+      # Actual image pinning happens in deploy-staging via sed.
       cd kubernetes/overlays/staging
-      sed -i "s|newTag:.*|newTag: ${IMAGE_VERSION}|" kustomization.yaml
+      sed -i "s|app.kubernetes.io/version: .*|app.kubernetes.io/version: \"${IMAGE_VERSION}\"|" kustomization.yaml
       cd "$CI_PROJECT_DIR"
     - git config user.email "cd-pipeline@gitlab.ci"
     - git config user.name "CD Pipeline"
     - git add kubernetes/overlays/staging/kustomization.yaml
-    - 'git commit -m "ci: update staging image tag to ${IMAGE_VERSION} [skip ci] - Source: ${SOURCE_COMMIT}" || echo "No changes to commit"'
+    - 'git commit -m "ci: update staging version to ${IMAGE_VERSION} [skip ci] - Source: ${SOURCE_COMMIT}" || echo "No changes to commit"'
     - |
       # ── Push: prefer GITLAB_API_TOKEN, fall back to CI_JOB_TOKEN ──
       # CI_JOB_TOKEN requires: Settings > Repository > "Allow CI job token to push"
@@ -398,6 +403,21 @@ deploy-staging:
       else
         echo "✅ cert-manager CRDs already available"
       fi
+    # ── Pin images to exact version when triggered by dev repo ──
+    - |
+      if [ -n "$IMAGE_VERSION" ] && [ "$IMAGE_VERSION" != "latest" ]; then
+        echo "📌 Pinning images to version: $IMAGE_VERSION"
+        for f in kubernetes/base/*-deployment.y*ml kubernetes/overlays/staging/migration-job.yaml; do
+          [ -f "$f" ] || continue
+          if grep -q "bencev04/4th-year-proj-tadgh-bence:.*-latest" "$f" 2>/dev/null; then
+            sed -i "s|bencev04/4th-year-proj-tadgh-bence:\(.*\)-latest|bencev04/4th-year-proj-tadgh-bence:\\1-${IMAGE_VERSION}|g" "$f"
+            echo "  ✅ $(basename $f)"
+          fi
+        done
+        echo ""
+      else
+        echo "ℹ️  IMAGE_VERSION not set — deploying with -latest tags"
+      fi
     - kubectl create namespace $STAGING_NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
     - kubectl apply -k kubernetes/overlays/staging
     - |
@@ -412,10 +432,34 @@ deploy-staging:
       echo "✅ All ExternalSecrets synced"
     - |
       echo "Waiting for deployments to become ready..."
+      FAILED_DEPLOYS=""
       for DEPLOY in $(kubectl get deployments -n $STAGING_NAMESPACE -o name); do
         echo "  Waiting for $DEPLOY..."
-        kubectl rollout status $DEPLOY -n $STAGING_NAMESPACE --timeout=300s
+        kubectl rollout status $DEPLOY -n $STAGING_NAMESPACE --timeout=300s || {
+          DEPLOY_NAME=$(echo $DEPLOY | sed 's|deployment.apps/||')
+          echo "❌ $DEPLOY rollout failed — gathering diagnostics..."
+          echo "── Pod status ──"
+          kubectl get pods -n $STAGING_NAMESPACE -l app=$DEPLOY_NAME -o wide 2>/dev/null || true
+          echo "── Recent events ──"
+          kubectl get events -n $STAGING_NAMESPACE --sort-by=.lastTimestamp --field-selector involvedObject.kind=Pod 2>/dev/null | grep "$DEPLOY_NAME" | tail -15 || true
+          echo "── Container logs (last 30 lines) ──"
+          kubectl logs -n $STAGING_NAMESPACE -l app=$DEPLOY_NAME --tail=30 --all-containers 2>/dev/null || true
+          echo ""
+          FAILED_DEPLOYS="$FAILED_DEPLOYS $DEPLOY_NAME"
+        }
       done
+      if [ -n "$FAILED_DEPLOYS" ]; then
+        echo ""
+        echo "❌ FAILED DEPLOYMENTS:$FAILED_DEPLOYS"
+        echo ""
+        echo "Diagnostics above should indicate the root cause."
+        echo "Common issues:"
+        echo "  • ImagePullBackOff → image tag doesn't exist on Docker Hub"
+        echo "  • CrashLoopBackOff → container crashes on startup (check logs above)"
+        echo "  • Pending → not enough cluster resources (CPU/memory)"
+        echo "  • health probe failures → service not responding on expected port/path"
+        exit 1
+      fi
     - |
       echo ""
       echo "Waiting for LoadBalancer external hostname..."
@@ -804,14 +848,48 @@ deploy-production:
       else
         echo "✅ cert-manager CRDs already available"
       fi
+    # ── Pin images to exact version when triggered by dev repo ──
+    - |
+      if [ -n "$IMAGE_VERSION" ] && [ "$IMAGE_VERSION" != "latest" ]; then
+        echo "📌 Pinning production images to version: $IMAGE_VERSION"
+        for f in kubernetes/base/*-deployment.y*ml; do
+          [ -f "$f" ] || continue
+          if grep -q "bencev04/4th-year-proj-tadgh-bence:.*-latest" "$f" 2>/dev/null; then
+            sed -i "s|bencev04/4th-year-proj-tadgh-bence:\(.*\)-latest|bencev04/4th-year-proj-tadgh-bence:\\1-${IMAGE_VERSION}|g" "$f"
+            echo "  ✅ $(basename $f)"
+          fi
+        done
+        echo ""
+      else
+        echo "ℹ️  IMAGE_VERSION not set — deploying with -latest tags"
+      fi
     - kubectl create namespace $PROD_NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
     - kubectl apply -k kubernetes/overlays/production
     - |
       echo "Waiting for deployments to become ready..."
+      FAILED_DEPLOYS=""
       for DEPLOY in $(kubectl get deployments -n $PROD_NAMESPACE -o name); do
         echo "  Waiting for $DEPLOY..."
-        kubectl rollout status $DEPLOY -n $PROD_NAMESPACE --timeout=300s
+        kubectl rollout status $DEPLOY -n $PROD_NAMESPACE --timeout=300s || {
+          DEPLOY_NAME=$(echo $DEPLOY | sed 's|deployment.apps/||')
+          echo "❌ $DEPLOY rollout failed — gathering diagnostics..."
+          echo "── Pod status ──"
+          kubectl get pods -n $PROD_NAMESPACE -l app=$DEPLOY_NAME -o wide 2>/dev/null || true
+          echo "── Recent events ──"
+          kubectl get events -n $PROD_NAMESPACE --sort-by=.lastTimestamp --field-selector involvedObject.kind=Pod 2>/dev/null | grep "$DEPLOY_NAME" | tail -15 || true
+          echo "── Container logs (last 30 lines) ──"
+          kubectl logs -n $PROD_NAMESPACE -l app=$DEPLOY_NAME --tail=30 --all-containers 2>/dev/null || true
+          echo ""
+          FAILED_DEPLOYS="$FAILED_DEPLOYS $DEPLOY_NAME"
+        }
       done
+      if [ -n "$FAILED_DEPLOYS" ]; then
+        echo ""
+        echo "❌ FAILED DEPLOYMENTS:$FAILED_DEPLOYS"
+        echo ""
+        echo "Diagnostics above should indicate the root cause."
+        exit 1
+      fi
     - |
       echo ""
       echo "Waiting for LoadBalancer external hostname..."
