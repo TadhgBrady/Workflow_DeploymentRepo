@@ -172,6 +172,10 @@ update-image-tags:
         echo "push, those variables are not available."
         exit 1
       fi
+      # Guard: catch unexpanded variable references (bridge job bug)
+      case "$IMAGE_VERSION" in
+        *'$'*) echo "❌ IMAGE_VERSION contains literal dollar sign: $IMAGE_VERSION"; echo "   Bridge job did not expand the variable. Fix trigger-deploy in dev repo."; exit 1 ;;
+      esac
     - |
       # ── Update version label in staging overlay for GitOps tracking ──
       # NOTE: Kustomize 'images:' with newTag cannot handle per-service tags
