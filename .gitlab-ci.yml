@@ -182,6 +182,9 @@ update-image-tags:
       # (all services share bencev04/4th-year-proj-tadgh-bence with different
       # tag prefixes like auth-service-latest, admin-bl-service-latest).
       # Actual image pinning happens in deploy-staging via sed.
+      # Rebase onto latest main first to avoid non-fast-forward push failures.
+      git fetch origin main
+      git checkout -B main origin/main
       cd kubernetes/overlays/staging
       sed -i "s|app.kubernetes.io/version: .*|app.kubernetes.io/version: \"${IMAGE_VERSION}\"|" kustomization.yaml
       cd "$CI_PROJECT_DIR"
@@ -201,7 +204,24 @@ update-image-tags:
         echo "   in Settings > Repository, or set GITLAB_API_TOKEN variable"
         PUSH_URL="https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
       fi
-      git push "$PUSH_URL" HEAD:main
+
+      # Retry on non-fast-forward races from parallel pipelines.
+      # The change is deterministic (set version label), so rebase-and-retry is safe.
+      for ATTEMPT in 1 2 3; do
+        if git push "$PUSH_URL" HEAD:main; then
+          echo "✅ Push succeeded on attempt $ATTEMPT"
+          break
+        fi
+
+        if [ "$ATTEMPT" -eq 3 ]; then
+          echo "❌ Push failed after 3 attempts (likely sustained write race)."
+          exit 1
+        fi
+
+        echo "⚠️  Push rejected (non-fast-forward). Rebasing on latest main and retrying..."
+        git fetch "$PUSH_URL" main
+        git rebase FETCH_HEAD
+      done
   rules:
     - if: $IMAGE_VERSION
       when: on_success
