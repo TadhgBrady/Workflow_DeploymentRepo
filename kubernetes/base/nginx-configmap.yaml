@@ -238,6 +238,13 @@ data:
                 return 200 '{"status":"healthy","service":"nginx-gateway","version":"1.0.0"}';
             }
 
+            location = /favicon.ico {
+                proxy_pass http://frontend/static/favicon.svg;
+                expires 7d;
+                add_header Cache-Control "public, immutable";
+                add_header X-Content-Type-Options "nosniff" always;
+            }
+
             # Static assets
             location /static/ {
                 proxy_pass http://frontend;

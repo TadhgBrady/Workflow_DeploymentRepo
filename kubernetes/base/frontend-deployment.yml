@@ -29,15 +29,15 @@ spec:
             name: app-config
         env:
         - name: USER_BL_SERVICE_URL
-          value: "http://user-bl-service:8004"
+          value: "http://user-bl-service"
         - name: CUSTOMER_BL_SERVICE_URL
-          value: "http://customer-bl-service:8007"
+          value: "http://customer-bl-service"
         - name: JOB_BL_SERVICE_URL
-          value: "http://job-bl-service:8006"
+          value: "http://job-bl-service"
         - name: AUTH_SERVICE_URL
-          value: "http://auth-service:8005"
+          value: "http://auth-service"
         - name: ADMIN_BL_SERVICE_URL
-          value: "http://admin-bl-service:8008"
+          value: "http://admin-bl-service"
         - name: GOOGLE_MAPS_BROWSER_KEY
           valueFrom:
             secretKeyRef:
