@@ -11,7 +11,7 @@ resources:
 labels:
   - pairs:
       app.kubernetes.io/name: year4-project
-      app.kubernetes.io/version: "fa0b30cf"
+      app.kubernetes.io/version: "94d110d3"
       environment: development
       managed-by: kustomize
 
