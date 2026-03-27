@@ -5,11 +5,12 @@
 # Triggered by the dev repo CI pipeline (trigger-deploy stage) via GitLab webhook.
 # Receives: IMAGE_TAG, IMAGE_VERSION, SOURCE_COMMIT, SOURCE_BRANCH
 #
-# Pipeline Architecture (11 stages):
+# Pipeline Architecture (12 stages):
 #
 #   validate → update-tags → ensure-staging (triggers infra repo) → deploy-staging
-#     → staging-tests → promote → ensure-production (triggers infra repo) → deploy-prod
-#       → prod-validation → teardown → notify
+#     → staging-tests → destroy-staging (triggers infra repo) → promote
+#       → ensure-production (triggers infra repo) → deploy-prod → prod-validation
+#         → notify
 #
 # Environments:
 #   - Staging:    Auto-deploy, canary rollout, full test suite before promotion
@@ -22,7 +23,7 @@
 #   - External Secrets Operator for secrets from AWS Secrets Manager
 #
 # Scale-up/down jobs at the bottom allow bringing staging or production
-# infrastructure up and down independently via Terraform to minimise cost.
+# infrastructure up and down independently when needed.
 #
 # =============================================================================
 
@@ -32,11 +33,11 @@ stages:
   - ensure-staging      # Scale up staging cluster (or trigger infra pipeline)
   - deploy-staging      # kubectl apply staging, rollout verification
   - staging-tests       # Playwright E2E, Grafana k6 load tests, smoke tests
+  - destroy-staging     # Fully destroy staging infra via infra repo before prod
   - promote             # Manual gate — approve promotion to production
   - ensure-production   # Scale up production cluster (or trigger infra pipeline)
   - deploy-prod         # kubectl apply production, rollout verification
   - prod-validation     # Post-deploy smoke tests & health verification
-  - teardown            # Tear down staging after successful prod deploy
   - notify              # Slack/webhook notification of deploy result
   - manual-ops          # Manual scale-up / scale-down jobs (independent)
 
@@ -753,7 +754,29 @@ k6-load-tests-staging:
   allow_failure: true   # Soft gate until k6 tests are implemented
 
 # =============================================================================
-# STAGE 5: PROMOTE — Manual approval to deploy to production
+# STAGE 5: DESTROY STAGING — Fully tear down staging before production
+# =============================================================================
+# Uses the infra repo destroy job so the EKS cluster, VPC, security groups,
+# and IAM resources are removed rather than only scaling nodes to zero.
+
+trigger-destroy-staging:
+  stage: destroy-staging
+  needs:
+    - smoke-tests-staging
+    - playwright-e2e-staging
+    - k6-load-tests-staging
+  trigger:
+    project: finalproject/Prototypes/yr4-projectinfrarepo
+    strategy: depend
+  variables:
+    DESTROY_ENV: "staging"
+  rules:
+    - if: $IMAGE_VERSION
+      when: manual
+      allow_failure: false
+
+# =============================================================================
+# STAGE 6: PROMOTE — Manual approval to deploy to production
 # =============================================================================
 #
 # Same manual gate pattern as the dev repo's trigger-deploy stage.
@@ -764,9 +787,7 @@ promote-to-production:
   stage: promote
   image: alpine:latest
   needs:
-    - smoke-tests-staging
-    - playwright-e2e-staging
-    - k6-load-tests-staging
+    - trigger-destroy-staging
   before_script:
     - apk add --no-cache git sed
   script:
@@ -798,7 +819,7 @@ promote-to-production:
       allow_failure: false
 
 # =============================================================================
-# STAGE 6a: ENSURE PRODUCTION — Trigger infra repo to bring production cluster up
+# STAGE 7a: ENSURE PRODUCTION — Trigger infra repo to bring production cluster up
 # =============================================================================
 # Same cross-project trigger pattern as staging. Fires after manual promotion
 # is approved. The infra repo creates/scales the production cluster, and the
@@ -856,7 +877,7 @@ wait-production-ready:
   allow_failure: false
 
 # =============================================================================
-# STAGE 6b: INSTALL CLUSTER ADD-ONS — cert-manager, ESO, NGINX Ingress (PROD)
+# STAGE 7b: INSTALL CLUSTER ADD-ONS — cert-manager, ESO, NGINX Ingress (PROD)
 # =============================================================================
 
 install-addons-production:
@@ -1202,44 +1223,7 @@ smoke-tests-production:
 # =============================================================================
 
 # =============================================================================
-# STAGE 9: TEARDOWN — Scale down staging after successful production deploy
-# =============================================================================
-# Once production is validated, staging is no longer needed. Scale its nodes
-# to 0 to save costs. The EKS control plane remains (~$0.10/hr) so it can
-# be quickly brought back up on the next deployment.
-#
-# To fully destroy the staging cluster, use 'destroy-staging' in the infra repo.
-
-teardown-staging:
-  stage: teardown
-  image:
-    name: amazon/aws-cli:2.22.0
-    entrypoint: [""]
-  needs:
-    - smoke-tests-production
-  script:
-    - |
-      echo "═══════════════════════════════════════════════════════════════"
-      echo "  Tearing down STAGING — production deploy validated"
-      echo "═══════════════════════════════════════════════════════════════"
-
-      echo "Scaling staging node group to 0 nodes..."
-      aws eks update-nodegroup-config \
-        --cluster-name $STAGING_CLUSTER_NAME \
-        --nodegroup-name $STAGING_NODE_GROUP \
-        --region $AWS_DEFAULT_REGION \
-        --scaling-config desiredSize=0,minSize=0,maxSize=3
-
-      echo "✅ Staging nodes scaled to 0."
-      echo "   Staging cluster control plane still running (~$0.10/hr)."
-      echo "   To fully destroy, run 'destroy-staging' in the infra repo."
-  rules:
-    - if: $IMAGE_VERSION
-      when: on_success
-  allow_failure: true
-
-# =============================================================================
-# STAGE 10: NOTIFY — Deploy result notification
+# STAGE 9: NOTIFY — Deploy result notification
 # =============================================================================
 
 notify-success:
