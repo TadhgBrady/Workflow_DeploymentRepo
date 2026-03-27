@@ -506,19 +506,31 @@ deploy-staging:
     - |
       echo ""
       echo "Waiting for LoadBalancer external hostname..."
-      for i in $(seq 1 30); do
+      for i in $(seq 1 60); do
         LB_HOST=$(kubectl get svc nginx-gateway -n $STAGING_NAMESPACE \
           -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+        LB_IP=$(kubectl get svc nginx-gateway -n $STAGING_NAMESPACE \
+          -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+
         if [ -n "$LB_HOST" ]; then
           echo "STAGING_URL=http://$LB_HOST" > staging-deploy.env
           echo "✅ Staging URL: http://$LB_HOST"
           break
         fi
-        echo "  Attempt $i/30 — waiting for LB provisioning..."
+
+        if [ -n "$LB_IP" ]; then
+          echo "STAGING_URL=http://$LB_IP" > staging-deploy.env
+          echo "✅ Staging URL: http://$LB_IP"
+          break
+        fi
+
+        echo "  Attempt $i/60 — waiting for LB provisioning..."
         sleep 10
       done
-      if [ -z "$LB_HOST" ]; then
+      if [ -z "$LB_HOST" ] && [ -z "$LB_IP" ]; then
         echo "⚠️  LoadBalancer hostname not available yet (may still be provisioning)"
+        kubectl get svc nginx-gateway -n $STAGING_NAMESPACE -o wide || true
+        kubectl describe svc nginx-gateway -n $STAGING_NAMESPACE || true
         echo "STAGING_URL=" > staging-deploy.env
       fi
     - echo ""
@@ -939,19 +951,31 @@ deploy-production:
     - |
       echo ""
       echo "Waiting for LoadBalancer external hostname..."
-      for i in $(seq 1 30); do
+      for i in $(seq 1 60); do
         LB_HOST=$(kubectl get svc nginx-gateway -n $PROD_NAMESPACE \
           -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+        LB_IP=$(kubectl get svc nginx-gateway -n $PROD_NAMESPACE \
+          -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+
         if [ -n "$LB_HOST" ]; then
           echo "PROD_URL=http://$LB_HOST" > production-deploy.env
           echo "✅ Production URL: http://$LB_HOST"
           break
         fi
-        echo "  Attempt $i/30 — waiting for LB provisioning..."
+
+        if [ -n "$LB_IP" ]; then
+          echo "PROD_URL=http://$LB_IP" > production-deploy.env
+          echo "✅ Production URL: http://$LB_IP"
+          break
+        fi
+
+        echo "  Attempt $i/60 — waiting for LB provisioning..."
         sleep 10
       done
-      if [ -z "$LB_HOST" ]; then
+      if [ -z "$LB_HOST" ] && [ -z "$LB_IP" ]; then
         echo "⚠️  LoadBalancer hostname not available yet"
+        kubectl get svc nginx-gateway -n $PROD_NAMESPACE -o wide || true
+        kubectl describe svc nginx-gateway -n $PROD_NAMESPACE || true
         echo "PROD_URL=" > production-deploy.env
       fi
     - echo ""
