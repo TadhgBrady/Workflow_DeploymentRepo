@@ -423,7 +423,23 @@ deploy-staging:
         echo "ℹ️  IMAGE_VERSION not set — deploying with -latest tags"
       fi
     - kubectl create namespace $STAGING_NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
+    # Clean up stuck pods from previous failed deployments to free CPU
+    - |
+      echo "Cleaning up stuck pods from previous deployments..."
+      kubectl delete pods -n $STAGING_NAMESPACE --field-selector=status.phase!=Running --ignore-not-found 2>/dev/null || true
+      # Scale down all deployments to 0 first to free resources for clean redeploy
+      for dep in $(kubectl get deploy -n $STAGING_NAMESPACE -o name 2>/dev/null); do
+        kubectl scale $dep -n $STAGING_NAMESPACE --replicas=0 2>/dev/null || true
+      done
+      echo "  Waiting for pods to terminate..."
+      kubectl wait --for=delete pod --all -n $STAGING_NAMESPACE --timeout=60s 2>/dev/null || true
     - kubectl apply -k kubernetes/overlays/staging
+    # Force ESO to re-sync secrets from AWS (picks up any recent secret value changes)
+    - |
+      echo "Forcing ExternalSecrets to re-sync..."
+      for es in $(kubectl get externalsecret -n $STAGING_NAMESPACE -o name 2>/dev/null); do
+        kubectl annotate $es -n $STAGING_NAMESPACE force-sync="$(date +%s)" --overwrite 2>/dev/null || true
+      done
     - |
       echo "Waiting for ExternalSecrets to sync from AWS Secrets Manager..."
       kubectl wait --for=condition=Ready=True externalsecret \

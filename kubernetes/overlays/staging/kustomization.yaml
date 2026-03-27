@@ -51,6 +51,7 @@ replicas:
 
 # Service type patch - use LoadBalancer for staging (cloud access)
 # Ingress resource excluded — staging uses nginx-gateway LoadBalancer directly
+# Recreate strategy — avoids 2x pods during rollout on small staging cluster
 patches:
   - path: nginx-service-patch.yaml
   - target:
@@ -62,6 +63,16 @@ patches:
       kind: Ingress
       metadata:
         name: api-ingress
+  - target:
+      kind: Deployment
+    patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: unused
+      spec:
+        strategy:
+          type: Recreate
 
 # ── Generated ConfigMaps ────────────────────────────────────────
 generatorOptions:
