@@ -264,11 +264,14 @@ trigger-infra-staging:
 # nodes are actually in Ready state before kubectl tries to deploy.
 wait-staging-ready:
   stage: ensure-staging
-  image:
-    name: amazon/aws-cli:2.22.0
-    entrypoint: [""]
+  image: alpine:latest
   needs:
     - trigger-infra-staging
+  before_script:
+    - apk add --no-cache curl bash python3 py3-pip
+    - pip3 install --break-system-packages awscli
+    - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
+    - chmod +x kubectl && mv kubectl /usr/local/bin/
   script:
     - |
       echo "═══════════════════════════════════════════════════════════════"
@@ -295,7 +298,43 @@ wait-staging-ready:
         exit 1
       fi
 
-      echo "✅ Staging cluster ready — $DESIRED node(s) running."
+      echo "✅ Staging node group ready — $DESIRED node(s) desired."
+
+      # Wait for K8s API to become reachable (up to 10 minutes)
+      aws eks update-kubeconfig --name $STAGING_CLUSTER_NAME --region $AWS_DEFAULT_REGION
+
+      echo "Waiting for Kubernetes API to become reachable..."
+      API_ENDPOINT=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')
+      echo "  API endpoint: $API_ENDPOINT"
+
+      for ATTEMPT in $(seq 1 40); do
+        if kubectl --request-timeout=15s get --raw=/readyz >/dev/null 2>&1; then
+          echo "✅ Kubernetes API is reachable (attempt $ATTEMPT/40)"
+          exit 0
+        fi
+        if [ "$ATTEMPT" -eq 1 ] || [ "$((ATTEMPT % 5))" -eq 0 ]; then
+          echo "  Diagnostic (attempt $ATTEMPT/40):"
+          kubectl --request-timeout=10s get --raw=/readyz 2>&1 || true
+        else
+          echo "  ⚠️  API not reachable yet (attempt $ATTEMPT/40), retrying in 15s..."
+        fi
+        sleep 15
+      done
+
+      echo "❌ Kubernetes API not reachable after 10 minutes"
+      echo ""
+      echo "Diagnostics:"
+      echo "── Cluster status ──"
+      aws eks describe-cluster --name $STAGING_CLUSTER_NAME --region $AWS_DEFAULT_REGION \
+        --query 'cluster.{Status:status,Endpoint:endpoint,PlatformVersion:platformVersion}' --output table || true
+      echo "── Node group status ──"
+      aws eks describe-nodegroup --cluster-name $STAGING_CLUSTER_NAME --nodegroup-name $STAGING_NODE_GROUP --region $AWS_DEFAULT_REGION \
+        --query 'nodegroup.{Status:status,DesiredSize:scalingConfig.desiredSize,Health:health}' --output table || true
+      echo "── DNS resolution ──"
+      nslookup $(echo $API_ENDPOINT | sed 's|https://||') 2>&1 || echo "DNS resolution failed"
+      echo "── curl to API endpoint ──"
+      curl -sk --connect-timeout 10 --max-time 15 "${API_ENDPOINT}/readyz" 2>&1 | head -20 || echo "curl failed"
+      exit 1
   rules:
     - if: $IMAGE_VERSION
       when: on_success
@@ -310,20 +349,19 @@ wait-staging-ready:
 
 install-addons-staging:
   stage: deploy-staging
-  image:
-    name: amazon/aws-cli:2.22.0
-    entrypoint: [""]
+  image: alpine:latest
   resource_group: staging-cluster-addons
   needs:
     - wait-staging-ready
   before_script:
-    # aws-cli image is minimal — install tar/gzip needed by Helm installer
-    - yum install -y tar gzip
+    - apk add --no-cache curl bash tar gzip python3 py3-pip
+    - pip3 install --break-system-packages awscli
     # Install kubectl
     - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
     - chmod +x kubectl && mv kubectl /usr/local/bin/
-    # Install Helm (openssl not available in aws-cli image, skip checksum)
-    - curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | VERIFY_CHECKSUM=false bash
+    # Install Helm (direct binary download)
+    - curl -sL "https://get.helm.sh/helm-v3.17.0-linux-amd64.tar.gz" | tar xz -C /tmp
+    - mv /tmp/linux-amd64/helm /usr/local/bin/
     # Configure kubeconfig (retry for transient AWS API/DNS issues)
     - |
       for ATTEMPT in 1 2 3; do
@@ -366,13 +404,22 @@ install-addons-staging:
         TRY=1
         while [ "$TRY" -le "$ATTEMPTS" ]; do
           if kubectl --request-timeout=15s get --raw=/readyz >/dev/null 2>&1; then
+            echo "✅ Kubernetes API reachable (attempt ${TRY}/${ATTEMPTS})"
             return 0
           fi
-          echo "⚠️  Kubernetes API not reachable yet (attempt ${TRY}/${ATTEMPTS}), retrying in ${DELAY}s..."
+          # Show actual error every 5th attempt for diagnostics
+          if [ "$((TRY % 5))" -eq 0 ]; then
+            echo "⚠️  Kubernetes API not reachable (attempt ${TRY}/${ATTEMPTS}) — error:"
+            kubectl --request-timeout=10s get --raw=/readyz 2>&1 || true
+          else
+            echo "⚠️  Kubernetes API not reachable yet (attempt ${TRY}/${ATTEMPTS}), retrying in ${DELAY}s..."
+          fi
           sleep "$DELAY"
           TRY=$((TRY + 1))
         done
         echo "❌ Kubernetes API not reachable after ${ATTEMPTS} checks"
+        echo "── Final diagnostic ──"
+        kubectl --request-timeout=10s cluster-info 2>&1 || true
         return 1
       }
 
@@ -390,7 +437,7 @@ install-addons-staging:
         esac
       }
 
-      wait_for_k8s_api 12 10
+      wait_for_k8s_api 30 15
 
       # Look up IAM role ARNs (created by Terraform)
       ESO_ROLE_ARN=$(aws iam get-role \
@@ -438,19 +485,18 @@ install-addons-staging:
 
 deploy-staging:
   stage: deploy-staging
-  image:
-    name: amazon/aws-cli:2.22.0
-    entrypoint: [""]
+  image: alpine:latest
   needs:
     - install-addons-staging
   before_script:
-    # aws-cli image is minimal — install tar/gzip needed by Helm installer
-    - yum install -y tar gzip
+    - apk add --no-cache curl bash tar gzip python3 py3-pip sed
+    - pip3 install --break-system-packages awscli
     # Install kubectl
     - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
     - chmod +x kubectl && mv kubectl /usr/local/bin/
-    # Install Helm (fallback addon installation if install-addons-staging was skipped)
-    - curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | VERIFY_CHECKSUM=false bash
+    # Install Helm (direct binary download — fallback addon installation)
+    - curl -sL "https://get.helm.sh/helm-v3.17.0-linux-amd64.tar.gz" | tar xz -C /tmp
+    - mv /tmp/linux-amd64/helm /usr/local/bin/
     # Configure kubeconfig for the staging EKS cluster
     - aws eks update-kubeconfig --name $STAGING_CLUSTER_NAME --region $AWS_DEFAULT_REGION
   script:
@@ -841,11 +887,14 @@ trigger-infra-production:
 
 wait-production-ready:
   stage: ensure-production
-  image:
-    name: amazon/aws-cli:2.22.0
-    entrypoint: [""]
+  image: alpine:latest
   needs:
     - trigger-infra-production
+  before_script:
+    - apk add --no-cache curl bash python3 py3-pip
+    - pip3 install --break-system-packages awscli
+    - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
+    - chmod +x kubectl && mv kubectl /usr/local/bin/
   script:
     - |
       echo "═══════════════════════════════════════════════════════════════"
@@ -870,7 +919,43 @@ wait-production-ready:
         exit 1
       fi
 
-      echo "✅ Production cluster ready — $DESIRED node(s) running."
+      echo "✅ Production node group ready — $DESIRED node(s) desired."
+
+      # Wait for K8s API to become reachable (up to 10 minutes)
+      aws eks update-kubeconfig --name $PROD_CLUSTER_NAME --region $AWS_DEFAULT_REGION
+
+      echo "Waiting for Kubernetes API to become reachable..."
+      API_ENDPOINT=$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}')
+      echo "  API endpoint: $API_ENDPOINT"
+
+      for ATTEMPT in $(seq 1 40); do
+        if kubectl --request-timeout=15s get --raw=/readyz >/dev/null 2>&1; then
+          echo "✅ Kubernetes API is reachable (attempt $ATTEMPT/40)"
+          exit 0
+        fi
+        if [ "$ATTEMPT" -eq 1 ] || [ "$((ATTEMPT % 5))" -eq 0 ]; then
+          echo "  Diagnostic (attempt $ATTEMPT/40):"
+          kubectl --request-timeout=10s get --raw=/readyz 2>&1 || true
+        else
+          echo "  ⚠️  API not reachable yet (attempt $ATTEMPT/40), retrying in 15s..."
+        fi
+        sleep 15
+      done
+
+      echo "❌ Kubernetes API not reachable after 10 minutes"
+      echo ""
+      echo "Diagnostics:"
+      echo "── Cluster status ──"
+      aws eks describe-cluster --name $PROD_CLUSTER_NAME --region $AWS_DEFAULT_REGION \
+        --query 'cluster.{Status:status,Endpoint:endpoint,PlatformVersion:platformVersion}' --output table || true
+      echo "── Node group status ──"
+      aws eks describe-nodegroup --cluster-name $PROD_CLUSTER_NAME --nodegroup-name $PROD_NODE_GROUP --region $AWS_DEFAULT_REGION \
+        --query 'nodegroup.{Status:status,DesiredSize:scalingConfig.desiredSize,Health:health}' --output table || true
+      echo "── DNS resolution ──"
+      nslookup $(echo $API_ENDPOINT | sed 's|https://||') 2>&1 || echo "DNS resolution failed"
+      echo "── curl to API endpoint ──"
+      curl -sk --connect-timeout 10 --max-time 15 "${API_ENDPOINT}/readyz" 2>&1 | head -20 || echo "curl failed"
+      exit 1
   rules:
     - if: $IMAGE_VERSION
       when: on_success
@@ -882,17 +967,17 @@ wait-production-ready:
 
 install-addons-production:
   stage: deploy-prod
-  image:
-    name: amazon/aws-cli:2.22.0
-    entrypoint: [""]
+  image: alpine:latest
   resource_group: production-cluster-addons
   needs:
     - wait-production-ready
   before_script:
-    - yum install -y tar gzip
+    - apk add --no-cache curl bash tar gzip python3 py3-pip
+    - pip3 install --break-system-packages awscli
     - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
     - chmod +x kubectl && mv kubectl /usr/local/bin/
-    - curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | VERIFY_CHECKSUM=false bash
+    - curl -sL "https://get.helm.sh/helm-v3.17.0-linux-amd64.tar.gz" | tar xz -C /tmp
+    - mv /tmp/linux-amd64/helm /usr/local/bin/
     - |
       for ATTEMPT in 1 2 3; do
         if aws eks update-kubeconfig --name $PROD_CLUSTER_NAME --region $AWS_DEFAULT_REGION; then
@@ -934,13 +1019,21 @@ install-addons-production:
         TRY=1
         while [ "$TRY" -le "$ATTEMPTS" ]; do
           if kubectl --request-timeout=15s get --raw=/readyz >/dev/null 2>&1; then
+            echo "✅ Kubernetes API reachable (attempt ${TRY}/${ATTEMPTS})"
             return 0
           fi
-          echo "⚠️  Kubernetes API not reachable yet (attempt ${TRY}/${ATTEMPTS}), retrying in ${DELAY}s..."
+          if [ "$((TRY % 5))" -eq 0 ]; then
+            echo "⚠️  Kubernetes API not reachable (attempt ${TRY}/${ATTEMPTS}) — error:"
+            kubectl --request-timeout=10s get --raw=/readyz 2>&1 || true
+          else
+            echo "⚠️  Kubernetes API not reachable yet (attempt ${TRY}/${ATTEMPTS}), retrying in ${DELAY}s..."
+          fi
           sleep "$DELAY"
           TRY=$((TRY + 1))
         done
         echo "❌ Kubernetes API not reachable after ${ATTEMPTS} checks"
+        echo "── Final diagnostic ──"
+        kubectl --request-timeout=10s cluster-info 2>&1 || true
         return 1
       }
 
@@ -958,7 +1051,7 @@ install-addons-production:
         esac
       }
 
-      wait_for_k8s_api 12 10
+      wait_for_k8s_api 30 15
 
       ESO_ROLE_ARN=$(aws iam get-role \
         --role-name yr4-project-production-eso-role \
@@ -1015,19 +1108,18 @@ install-addons-production:
 
 deploy-production:
   stage: deploy-prod
-  image:
-    name: amazon/aws-cli:2.22.0
-    entrypoint: [""]
+  image: alpine:latest
   needs:
     - install-addons-production
   before_script:
-    # aws-cli image is minimal — install tar/gzip needed by Helm installer
-    - yum install -y tar gzip
+    - apk add --no-cache curl bash tar gzip python3 py3-pip sed
+    - pip3 install --break-system-packages awscli
     # Install kubectl
     - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
     - chmod +x kubectl && mv kubectl /usr/local/bin/
-    # Install Helm (fallback addon installation if install-addons-production was skipped)
-    - curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | VERIFY_CHECKSUM=false bash
+    # Install Helm (direct binary download — fallback addon installation)
+    - curl -sL "https://get.helm.sh/helm-v3.17.0-linux-amd64.tar.gz" | tar xz -C /tmp
+    - mv /tmp/linux-amd64/helm /usr/local/bin/
     # Configure kubeconfig for the production EKS cluster
     - aws eks update-kubeconfig --name $PROD_CLUSTER_NAME --region $AWS_DEFAULT_REGION
   script:
