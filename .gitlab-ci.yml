@@ -724,11 +724,11 @@ smoke-tests-staging:
 
       check_url "gateway-health" "${STAGING_URL}/health" "200" || FAILED=$((FAILED + 1))
       check_url "frontend-root" "${STAGING_URL}/" "200,301,302" || FAILED=$((FAILED + 1))
-      check_url "auth-route-prefix" "${STAGING_URL}/api/v1/auth" "200,401,405" || FAILED=$((FAILED + 1))
+      check_url "auth-login-endpoint" "${STAGING_URL}/api/v1/auth/login" "200,400,401,405,422" || FAILED=$((FAILED + 1))
       check_url "users-route-prefix" "${STAGING_URL}/api/v1/users" "200,401,405" || FAILED=$((FAILED + 1))
       check_url "jobs-route-prefix" "${STAGING_URL}/api/v1/jobs" "200,401,405" || FAILED=$((FAILED + 1))
       check_url "customers-route-prefix" "${STAGING_URL}/api/v1/customers" "200,401,405" || FAILED=$((FAILED + 1))
-      check_url "admin-route-prefix" "${STAGING_URL}/api/v1/admin" "200,401,405" || FAILED=$((FAILED + 1))
+      check_url "admin-organizations-endpoint" "${STAGING_URL}/api/v1/admin/organizations" "200,401,403,405" || FAILED=$((FAILED + 1))
 
       echo ""
       if [ "$FAILED" -gt 0 ]; then
@@ -1327,11 +1327,11 @@ smoke-tests-production:
 
       check_url "gateway-health" "${PROD_URL}/health" "200" || FAILED=$((FAILED + 1))
       check_url "frontend-root" "${PROD_URL}/" "200,301,302" || FAILED=$((FAILED + 1))
-      check_url "auth-route-prefix" "${PROD_URL}/api/v1/auth" "200,401,405" || FAILED=$((FAILED + 1))
+      check_url "auth-login-endpoint" "${PROD_URL}/api/v1/auth/login" "200,400,401,405,422" || FAILED=$((FAILED + 1))
       check_url "users-route-prefix" "${PROD_URL}/api/v1/users" "200,401,405" || FAILED=$((FAILED + 1))
       check_url "jobs-route-prefix" "${PROD_URL}/api/v1/jobs" "200,401,405" || FAILED=$((FAILED + 1))
       check_url "customers-route-prefix" "${PROD_URL}/api/v1/customers" "200,401,405" || FAILED=$((FAILED + 1))
-      check_url "admin-route-prefix" "${PROD_URL}/api/v1/admin" "200,401,405" || FAILED=$((FAILED + 1))
+      check_url "admin-organizations-endpoint" "${PROD_URL}/api/v1/admin/organizations" "200,401,403,405" || FAILED=$((FAILED + 1))
 
       echo ""
       if [ "$FAILED" -gt 0 ]; then
