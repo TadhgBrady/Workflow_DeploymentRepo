@@ -826,12 +826,83 @@ k6-load-tests-staging:
 # Uses the infra repo destroy job so the EKS cluster, VPC, security groups,
 # and IAM resources are removed rather than only scaling nodes to zero.
 
-trigger-destroy-staging:
+cleanup-staging-loadbalancers:
   stage: destroy-staging
+  image: alpine:latest
   needs:
     - smoke-tests-staging
     - playwright-e2e-staging
     - k6-load-tests-staging
+  before_script:
+    - apk add --no-cache curl bash python3 py3-pip
+    - pip3 install --break-system-packages awscli
+    - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
+    - chmod +x kubectl && mv kubectl /usr/local/bin/
+  script:
+    - |
+      set -eu
+      echo "═══════════════════════════════════════════════════════════════"
+      echo "  Pre-destroy cleanup (staging): release cloud load balancers"
+      echo "═══════════════════════════════════════════════════════════════"
+
+      if ! aws eks describe-cluster --name "$STAGING_CLUSTER_NAME" --region "$AWS_DEFAULT_REGION" > /dev/null 2>&1; then
+        echo "ℹ️  Staging cluster does not exist. Nothing to clean up."
+        exit 0
+      fi
+
+      aws eks update-kubeconfig --name "$STAGING_CLUSTER_NAME" --region "$AWS_DEFAULT_REGION"
+
+      if kubectl get svc nginx-gateway -n "$STAGING_NAMESPACE" > /dev/null 2>&1; then
+        echo "Deleting staging nginx-gateway service to release external load balancer..."
+        kubectl delete svc nginx-gateway -n "$STAGING_NAMESPACE" --wait=true --timeout=180s || true
+      else
+        echo "ℹ️  nginx-gateway service not found in staging namespace."
+      fi
+
+      VPC_ID=$(aws eks describe-cluster --name "$STAGING_CLUSTER_NAME" --region "$AWS_DEFAULT_REGION" \
+        --query 'cluster.resourcesVpcConfig.vpcId' --output text)
+      echo "Staging VPC: $VPC_ID"
+
+      echo "Cleaning any remaining ALB/NLB in staging VPC..."
+      for ARN in $(aws elbv2 describe-load-balancers --region "$AWS_DEFAULT_REGION" \
+        --query "LoadBalancers[?VpcId=='$VPC_ID'].LoadBalancerArn" --output text); do
+        [ -n "$ARN" ] || continue
+        echo "  Deleting ELBv2: $ARN"
+        aws elbv2 delete-load-balancer --region "$AWS_DEFAULT_REGION" --load-balancer-arn "$ARN" || true
+      done
+
+      echo "Cleaning any remaining Classic ELB in staging VPC..."
+      for NAME in $(aws elb describe-load-balancers --region "$AWS_DEFAULT_REGION" \
+        --query "LoadBalancerDescriptions[?VPCId=='$VPC_ID'].LoadBalancerName" --output text); do
+        [ -n "$NAME" ] || continue
+        echo "  Deleting Classic ELB: $NAME"
+        aws elb delete-load-balancer --region "$AWS_DEFAULT_REGION" --load-balancer-name "$NAME" || true
+      done
+
+      echo "Waiting up to 5 minutes for ELB network interfaces to drain..."
+      for ATTEMPT in $(seq 1 30); do
+        ENI_COUNT=$(aws ec2 describe-network-interfaces --region "$AWS_DEFAULT_REGION" \
+          --filters "Name=vpc-id,Values=$VPC_ID" \
+          --query "length(NetworkInterfaces[?RequesterManaged==\`true\` && contains(Description, 'ELB')])" \
+          --output text)
+        if [ "$ENI_COUNT" = "0" ]; then
+          echo "✅ No ELB-managed ENIs remain in staging VPC."
+          exit 0
+        fi
+        echo "  ELB-managed ENIs still present: $ENI_COUNT (attempt $ATTEMPT/30), waiting 10s..."
+        sleep 10
+      done
+
+      echo "⚠️  Timed out waiting for ELB ENIs to drain. Continuing; infra destroy will retry dependency cleanup."
+  rules:
+    - if: $IMAGE_VERSION
+      when: manual
+      allow_failure: false
+
+trigger-destroy-staging:
+  stage: destroy-staging
+  needs:
+    - cleanup-staging-loadbalancers
   trigger:
     project: finalproject/Prototypes/yr4-projectinfrarepo
     strategy: depend
