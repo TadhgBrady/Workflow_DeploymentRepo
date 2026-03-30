@@ -852,11 +852,15 @@ cleanup-staging-loadbalancers:
 
       aws eks update-kubeconfig --name "$STAGING_CLUSTER_NAME" --region "$AWS_DEFAULT_REGION"
 
-      if kubectl get svc nginx-gateway -n "$STAGING_NAMESPACE" > /dev/null 2>&1; then
-        echo "Deleting staging nginx-gateway service to release external load balancer..."
-        kubectl delete svc nginx-gateway -n "$STAGING_NAMESPACE" --wait=true --timeout=180s || true
+      LB_SERVICES=$(kubectl get svc -n "$STAGING_NAMESPACE" -o jsonpath='{range .items[?(@.spec.type=="LoadBalancer")]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)
+      if [ -n "$LB_SERVICES" ]; then
+        echo "Deleting LoadBalancer services in staging namespace to release cloud load balancers..."
+        for SVC in $LB_SERVICES; do
+          echo "  Deleting service: $SVC"
+          kubectl delete svc "$SVC" -n "$STAGING_NAMESPACE" --wait=true --timeout=180s || true
+        done
       else
-        echo "ℹ️  nginx-gateway service not found in staging namespace."
+        echo "ℹ️  No LoadBalancer services found in staging namespace."
       fi
 
       VPC_ID=$(aws eks describe-cluster --name "$STAGING_CLUSTER_NAME" --region "$AWS_DEFAULT_REGION" \
@@ -879,8 +883,8 @@ cleanup-staging-loadbalancers:
         aws elb delete-load-balancer --region "$AWS_DEFAULT_REGION" --load-balancer-name "$NAME" || true
       done
 
-      echo "Waiting up to 5 minutes for ELB network interfaces to drain..."
-      for ATTEMPT in $(seq 1 30); do
+      echo "Waiting up to 15 minutes for ELB network interfaces to drain..."
+      for ATTEMPT in $(seq 1 90); do
         ENI_COUNT=$(aws ec2 describe-network-interfaces --region "$AWS_DEFAULT_REGION" \
           --filters "Name=vpc-id,Values=$VPC_ID" \
           --query "length(NetworkInterfaces[?RequesterManaged==\`true\` && contains(Description, 'ELB')])" \
@@ -889,11 +893,25 @@ cleanup-staging-loadbalancers:
           echo "✅ No ELB-managed ENIs remain in staging VPC."
           exit 0
         fi
-        echo "  ELB-managed ENIs still present: $ENI_COUNT (attempt $ATTEMPT/30), waiting 10s..."
+        if [ "$ATTEMPT" -eq 1 ] || [ "$((ATTEMPT % 12))" -eq 0 ]; then
+          echo "  ELB-managed ENIs still present: $ENI_COUNT (attempt $ATTEMPT/90)"
+        fi
         sleep 10
       done
 
-      echo "⚠️  Timed out waiting for ELB ENIs to drain. Continuing; infra destroy will retry dependency cleanup."
+      echo "❌ Timed out waiting for ELB ENIs to drain from staging VPC."
+      echo "Diagnostics:"
+      aws ec2 describe-network-interfaces --region "$AWS_DEFAULT_REGION" \
+        --filters "Name=vpc-id,Values=$VPC_ID" \
+        --query "NetworkInterfaces[?RequesterManaged==\`true\` && contains(Description, 'ELB')].{Id:NetworkInterfaceId,Status:Status,Description:Description,Subnet:SubnetId}" \
+        --output table || true
+      aws elbv2 describe-load-balancers --region "$AWS_DEFAULT_REGION" \
+        --query "LoadBalancers[?VpcId=='$VPC_ID'].{Name:LoadBalancerName,Type:Type,State:State.Code}" \
+        --output table || true
+      aws elb describe-load-balancers --region "$AWS_DEFAULT_REGION" \
+        --query "LoadBalancerDescriptions[?VPCId=='$VPC_ID'].{Name:LoadBalancerName,Scheme:Scheme}" \
+        --output table || true
+      exit 1
   rules:
     - if: $IMAGE_VERSION
       when: manual
