@@ -453,10 +453,18 @@ install-addons-staging:
       echo "--- Installing cert-manager ---"
       retry_cmd 4 10 helm repo add jetstack https://charts.jetstack.io
       retry_cmd 4 10 helm repo update jetstack
-      retry_cmd 4 20 helm upgrade --install cert-manager jetstack/cert-manager \
+      clear_pending_helm_release cert-manager cert-manager
+      if ! retry_cmd 6 30 helm upgrade --install cert-manager jetstack/cert-manager \
+        --version 1.14.7 \
         --namespace cert-manager --create-namespace \
         --set crds.enabled=true \
-        --wait --timeout 300s
+        --set startupapicheck.timeout=10m \
+        --wait --timeout 900s; then
+        echo "❌ cert-manager install failed after retries. Diagnostics:"
+        kubectl get pods -n cert-manager -o wide || true
+        kubectl get events -n cert-manager --sort-by=.lastTimestamp | tail -50 || true
+        exit 1
+      fi
 
       # 2. External Secrets Operator (syncs AWS Secrets Manager → K8s Secrets)
       echo "--- Installing External Secrets Operator ---"
