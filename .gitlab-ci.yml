@@ -954,7 +954,7 @@ trigger-destroy-staging:
     DESTROY_ENV: "staging"
   rules:
     - if: $IMAGE_VERSION
-      when: manual
+      when: on_success
       allow_failure: false
 
 # =============================================================================
