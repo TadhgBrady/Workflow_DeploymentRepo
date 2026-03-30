@@ -300,6 +300,10 @@ wait-staging-ready:
 
       echo "✅ Staging node group ready — $DESIRED node(s) desired."
 
+      # Show which IAM identity this job is using (helps debug auth issues)
+      echo "── IAM identity for this job ──"
+      aws sts get-caller-identity --output table || echo "⚠️  Could not determine caller identity"
+
       # Wait for K8s API to become reachable (up to 10 minutes)
       aws eks update-kubeconfig --name $STAGING_CLUSTER_NAME --region $AWS_DEFAULT_REGION
 
