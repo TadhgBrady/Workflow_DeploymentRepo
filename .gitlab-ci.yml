@@ -64,6 +64,7 @@ variables:
   # -- Cluster (separate EKS clusters per environment) --
   STAGING_CLUSTER_NAME: "yr4-project-staging-eks"
   STAGING_NODE_GROUP: "yr4-project-staging-eks-nodes"
+  STAGING_MONITOR_PRINCIPAL_ARN: "arn:aws:iam::156041414798:user/BENCE_PC"
   PROD_CLUSTER_NAME: "yr4-project-production-eks"
   PROD_NODE_GROUP: "yr4-project-production-eks-nodes"
   STAGING_NAMESPACE: "year4-project-staging"
@@ -300,6 +301,46 @@ wait-staging-ready:
 
       echo "✅ Staging node group ready — $DESIRED node(s) desired."
 
+      # Ensure local monitor IAM principal keeps access after cluster recreate.
+      if [ -n "$STAGING_MONITOR_PRINCIPAL_ARN" ]; then
+        echo "Ensuring EKS access entry for monitor principal: $STAGING_MONITOR_PRINCIPAL_ARN"
+        ENTRY_EXISTS=$(aws eks list-access-entries \
+          --cluster-name $STAGING_CLUSTER_NAME \
+          --region $AWS_DEFAULT_REGION \
+          --query "contains(accessEntries, '$STAGING_MONITOR_PRINCIPAL_ARN')" \
+          --output text 2>/dev/null || echo "False")
+
+        if [ "$ENTRY_EXISTS" != "True" ]; then
+          aws eks create-access-entry \
+            --cluster-name $STAGING_CLUSTER_NAME \
+            --principal-arn "$STAGING_MONITOR_PRINCIPAL_ARN" \
+            --region $AWS_DEFAULT_REGION
+          echo "✅ Created access entry for monitor principal"
+        else
+          echo "✅ Access entry already exists for monitor principal"
+        fi
+
+        ADMIN_POLICY_ARN="arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+        HAS_ADMIN_POLICY=$(aws eks list-associated-access-policies \
+          --cluster-name $STAGING_CLUSTER_NAME \
+          --principal-arn "$STAGING_MONITOR_PRINCIPAL_ARN" \
+          --region $AWS_DEFAULT_REGION \
+          --query "contains(associatedAccessPolicies[].policyArn, '$ADMIN_POLICY_ARN')" \
+          --output text 2>/dev/null || echo "False")
+
+        if [ "$HAS_ADMIN_POLICY" != "True" ]; then
+          aws eks associate-access-policy \
+            --cluster-name $STAGING_CLUSTER_NAME \
+            --principal-arn "$STAGING_MONITOR_PRINCIPAL_ARN" \
+            --policy-arn "$ADMIN_POLICY_ARN" \
+            --access-scope type=cluster \
+            --region $AWS_DEFAULT_REGION
+          echo "✅ Associated cluster-admin policy for monitor principal"
+        else
+          echo "✅ Monitor principal already has cluster-admin policy"
+        fi
+      fi
+
       # Show which IAM identity this job is using (helps debug auth issues)
       echo "── IAM identity for this job ──"
       aws sts get-caller-identity --output table || echo "⚠️  Could not determine caller identity"
@@ -454,12 +495,15 @@ install-addons-staging:
       retry_cmd 4 10 helm repo add jetstack https://charts.jetstack.io
       retry_cmd 4 10 helm repo update jetstack
       clear_pending_helm_release cert-manager cert-manager
+      # Pre-install CRDs to avoid startupapicheck deadlock on fresh clusters
+      echo "  Applying cert-manager CRDs..."
+      retry_cmd 4 15 kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.7/cert-manager.crds.yaml
       if ! retry_cmd 6 30 helm upgrade --install cert-manager jetstack/cert-manager \
         --version 1.14.7 \
         --namespace cert-manager --create-namespace \
         --set crds.enabled=true \
-        --set startupapicheck.timeout=10m \
-        --wait --timeout 900s; then
+        --set startupapicheck.enabled=false \
+        --wait --timeout 300s; then
         echo "❌ cert-manager install failed after retries. Diagnostics:"
         kubectl get pods -n cert-manager -o wide || true
         kubectl get events -n cert-manager --sort-by=.lastTimestamp | tail -50 || true
@@ -1206,9 +1250,15 @@ install-addons-production:
       echo "--- Installing cert-manager ---"
       retry_cmd 4 10 helm repo add jetstack https://charts.jetstack.io
       retry_cmd 4 10 helm repo update jetstack
+      clear_pending_helm_release cert-manager cert-manager
+      # Pre-install CRDs to avoid startupapicheck deadlock on fresh clusters
+      echo "  Applying cert-manager CRDs..."
+      retry_cmd 4 15 kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.7/cert-manager.crds.yaml
       retry_cmd 4 20 helm upgrade --install cert-manager jetstack/cert-manager \
+        --version 1.14.7 \
         --namespace cert-manager --create-namespace \
         --set crds.enabled=true \
+        --set startupapicheck.enabled=false \
         --wait --timeout 300s
 
       # 2. External Secrets Operator
