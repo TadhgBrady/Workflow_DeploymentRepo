@@ -699,15 +699,41 @@ smoke-tests-staging:
         echo "❌ STAGING_URL is empty — LoadBalancer hostname not provisioned"
         exit 1
       fi
+
+      # Wait for the LoadBalancer to become reachable before running checks.
+      # The deploy job only waits for the LB hostname to appear; DNS propagation
+      # and ELB target-group health checks can take another 30-90 seconds.
+      echo "  Waiting for staging LoadBalancer to become reachable..."
+      WARMUP_ATTEMPTS=18
+      WARMUP_DONE=0
+      for i in $(seq 1 $WARMUP_ATTEMPTS); do
+        WARMUP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${STAGING_URL}/health" 2>/dev/null) || true
+        if [ -n "$WARMUP_CODE" ] && [ "$WARMUP_CODE" != "000" ]; then
+          echo "  ✅ LoadBalancer reachable (HTTP $WARMUP_CODE) after $((i * 10))s"
+          WARMUP_DONE=1
+          break
+        fi
+        echo "  Attempt $i/$WARMUP_ATTEMPTS — not reachable yet (code: ${WARMUP_CODE:-000}), retrying in 10s..."
+        sleep 10
+      done
+      if [ "$WARMUP_DONE" -eq 0 ]; then
+        echo "❌ LoadBalancer did not become reachable within $((WARMUP_ATTEMPTS * 10))s"
+        echo "  URL: ${STAGING_URL}/health"
+        exit 1
+      fi
+
       FAILED=0
       # NGINX gateway exposes /health and route prefixes (/api/v1/*), not /api/{service}/health.
       # Probe stable public endpoints to avoid false negatives from invalid paths.
+      # Note: curl always populates %{http_code} (000 on failure); do NOT use || echo "000"
+      # as that would double the output string and break the equality check.
       check_url() {
         NAME="$1"
         URL="$2"
         EXPECTED="$3"
         echo -n "  Checking $NAME... "
-        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$URL" 2>/dev/null || echo "000")
+        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "$URL" 2>/dev/null) || true
+        HTTP_CODE="${HTTP_CODE:-000}"
         OLDIFS=$IFS
         IFS=','
         for CODE in $EXPECTED; do
