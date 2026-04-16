@@ -833,70 +833,8 @@ smoke-tests-staging:
 #   - Admin panel access
 # ---------------------------------------------------------------------------
 
-playwright-e2e-staging:
-  stage: staging-tests
-  image: mcr.microsoft.com/playwright:v1.42.0-jammy
-  needs:
-    - deploy-staging
-  before_script:
-    - npm ci --prefix tests/e2e || echo "⚠️  No package.json yet — Playwright tests not configured"
-  script:
-    - echo "═══════════════════════════════════════════════════════════════"
-    - echo "  🎭 Playwright E2E Tests — Staging"
-    - echo "═══════════════════════════════════════════════════════════════"
-    - 'echo "  Target: ${STAGING_URL}"'
-    - echo "⚠️  PLACEHOLDER — Playwright E2E tests not yet implemented"
-    - echo "  See CD_PLAN.md Phase 4 for implementation steps"
-    - 'echo "⏭️  Skipping (allow_failure: true until tests are written)"'
-  artifacts:
-    when: always
-    paths:
-      - tests/e2e/test-results/
-      - tests/e2e/playwright-report/
-    expire_in: 7 days
-  rules:
-    - if: $IMAGE_VERSION
-      when: always
-  allow_failure: true   # Soft gate until Playwright tests are implemented
-
-# ---------------------------------------------------------------------------
-# GRAFANA K6 LOAD TESTS (Staging)
-# ---------------------------------------------------------------------------
-# Runs load/performance tests against the staging environment to verify
-# the deployment can handle expected traffic before promoting to production.
-# Test scripts live in tests/k6/ (to be created — see CD_PLAN.md Phase 4).
-#
-# TODO: Add k6 test scenarios:
-#   - Baseline: 10 VUs for 1 minute (health check)
-#   - Ramp-up:  1 → 50 VUs over 3 minutes (normal load)
-#   - Spike:    50 → 100 VUs for 1 minute (burst traffic)
-#   - Thresholds: p95 < 500ms, error rate < 1%
-# ---------------------------------------------------------------------------
-
-k6-load-tests-staging:
-  stage: staging-tests
-  image:
-    name: grafana/k6:latest
-    entrypoint: [""]
-  needs:
-    - deploy-staging
-  script:
-    - echo "═══════════════════════════════════════════════════════════════"
-    - echo "  📊 Grafana k6 Load Tests — Staging"
-    - echo "═══════════════════════════════════════════════════════════════"
-    - 'echo "  Target: ${STAGING_URL}"'
-    - echo "⚠️  PLACEHOLDER — Grafana k6 load tests not yet implemented"
-    - echo "  See CD_PLAN.md Phase 4 for implementation steps"
-    - 'echo "⏭️  Skipping (allow_failure: true until tests are written)"'
-  artifacts:
-    when: always
-    paths:
-      - k6-results.json
-    expire_in: 7 days
-  rules:
-    - if: $IMAGE_VERSION
-      when: always
-  allow_failure: true   # Soft gate until k6 tests are implemented
+# NOTE: Playwright E2E and k6 load test jobs removed (placeholders).
+# Re-add when test scripts are ready. See CD_PLAN.md Phase 4.
 
 # =============================================================================
 # STAGE 5: DESTROY STAGING — Fully tear down staging before production
@@ -909,8 +847,6 @@ cleanup-staging-loadbalancers:
   image: alpine:latest
   needs:
     - smoke-tests-staging
-    - playwright-e2e-staging
-    - k6-load-tests-staging
   before_script:
     - apk add --no-cache curl bash python3 py3-pip
     - pip3 install --break-system-packages awscli
@@ -1595,86 +1531,78 @@ notify-failure:
 # To fully destroy a cluster, use 'destroy-staging' or 'destroy-production'
 # in the infrastructure repo.
 
-manual-scale-up-staging:
+.scale_up_base:
   stage: manual-ops
   image:
     name: amazon/aws-cli:2.22.0
     entrypoint: [""]
   script:
     - |
-      echo "Scaling STAGING node group to 2 nodes..."
+      echo "Scaling ${ENV_LABEL} node group to ${DESIRED_SIZE} nodes..."
       aws eks update-nodegroup-config \
-        --cluster-name $STAGING_CLUSTER_NAME \
-        --nodegroup-name $STAGING_NODE_GROUP \
+        --cluster-name ${TARGET_CLUSTER} \
+        --nodegroup-name ${TARGET_NODE_GROUP} \
         --region $AWS_DEFAULT_REGION \
-        --scaling-config desiredSize=2,minSize=0,maxSize=3
+        --scaling-config desiredSize=${DESIRED_SIZE},minSize=0,maxSize=${MAX_SIZE}
 
-      echo "Waiting for staging nodes..."
+      echo "Waiting for ${ENV_LABEL} nodes..."
       aws eks wait nodegroup-active \
-        --cluster-name $STAGING_CLUSTER_NAME \
-        --nodegroup-name $STAGING_NODE_GROUP \
+        --cluster-name ${TARGET_CLUSTER} \
+        --nodegroup-name ${TARGET_NODE_GROUP} \
         --region $AWS_DEFAULT_REGION
-      echo "✅ Staging scaled UP"
+      echo "✅ ${ENV_LABEL} scaled UP"
   rules:
     - when: manual
   allow_failure: true
+
+.scale_down_base:
+  stage: manual-ops
+  image:
+    name: amazon/aws-cli:2.22.0
+    entrypoint: [""]
+  script:
+    - |
+      echo "Scaling ${ENV_LABEL} node group to 0 nodes..."
+      aws eks update-nodegroup-config \
+        --cluster-name ${TARGET_CLUSTER} \
+        --nodegroup-name ${TARGET_NODE_GROUP} \
+        --region $AWS_DEFAULT_REGION \
+        --scaling-config desiredSize=0,minSize=0,maxSize=${MAX_SIZE}
+      echo "✅ ${ENV_LABEL} scaled DOWN"
+  rules:
+    - when: manual
+  allow_failure: true
+
+manual-scale-up-staging:
+  extends: .scale_up_base
+  variables:
+    TARGET_CLUSTER: ${STAGING_CLUSTER_NAME}
+    TARGET_NODE_GROUP: ${STAGING_NODE_GROUP}
+    DESIRED_SIZE: "2"
+    MAX_SIZE: "3"
+    ENV_LABEL: STAGING
 
 manual-scale-down-staging:
-  stage: manual-ops
-  image:
-    name: amazon/aws-cli:2.22.0
-    entrypoint: [""]
-  script:
-    - |
-      echo "Scaling STAGING node group to 0 nodes..."
-      aws eks update-nodegroup-config \
-        --cluster-name $STAGING_CLUSTER_NAME \
-        --nodegroup-name $STAGING_NODE_GROUP \
-        --region $AWS_DEFAULT_REGION \
-        --scaling-config desiredSize=0,minSize=0,maxSize=3
-      echo "✅ Staging scaled DOWN"
-  rules:
-    - when: manual
-  allow_failure: true
+  extends: .scale_down_base
+  variables:
+    TARGET_CLUSTER: ${STAGING_CLUSTER_NAME}
+    TARGET_NODE_GROUP: ${STAGING_NODE_GROUP}
+    MAX_SIZE: "3"
+    ENV_LABEL: STAGING
 
 manual-scale-up-production:
-  stage: manual-ops
-  image:
-    name: amazon/aws-cli:2.22.0
-    entrypoint: [""]
-  script:
-    - |
-      echo "Scaling PRODUCTION node group to 3 nodes..."
-      aws eks update-nodegroup-config \
-        --cluster-name $PROD_CLUSTER_NAME \
-        --nodegroup-name $PROD_NODE_GROUP \
-        --region $AWS_DEFAULT_REGION \
-        --scaling-config desiredSize=3,minSize=0,maxSize=5
-
-      echo "Waiting for production nodes..."
-      aws eks wait nodegroup-active \
-        --cluster-name $PROD_CLUSTER_NAME \
-        --nodegroup-name $PROD_NODE_GROUP \
-        --region $AWS_DEFAULT_REGION
-      echo "✅ Production scaled UP"
-  rules:
-    - when: manual
-  allow_failure: true
+  extends: .scale_up_base
+  variables:
+    TARGET_CLUSTER: ${PROD_CLUSTER_NAME}
+    TARGET_NODE_GROUP: ${PROD_NODE_GROUP}
+    DESIRED_SIZE: "3"
+    MAX_SIZE: "5"
+    ENV_LABEL: PRODUCTION
 
 manual-scale-down-production:
-  stage: manual-ops
-  image:
-    name: amazon/aws-cli:2.22.0
-    entrypoint: [""]
-  script:
-    - |
-      echo "Scaling PRODUCTION node group to 0 nodes..."
-      aws eks update-nodegroup-config \
-        --cluster-name $PROD_CLUSTER_NAME \
-        --nodegroup-name $PROD_NODE_GROUP \
-        --region $AWS_DEFAULT_REGION \
-        --scaling-config desiredSize=0,minSize=0,maxSize=5
-      echo "✅ Production scaled DOWN"
-  rules:
-    - when: manual
-  allow_failure: true
+  extends: .scale_down_base
+  variables:
+    TARGET_CLUSTER: ${PROD_CLUSTER_NAME}
+    TARGET_NODE_GROUP: ${PROD_NODE_GROUP}
+    MAX_SIZE: "5"
+    ENV_LABEL: PRODUCTION
