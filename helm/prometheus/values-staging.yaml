@@ -1,0 +1,246 @@
+replicaCount: 2
+
+image:
+  repository: prom/prometheus
+  tag: "v2.50.1"
+  pullPolicy: IfNotPresent
+
+nameOverride: prometheus
+fullnameOverride: prometheus
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: prometheus
+
+rbac:
+  create: true
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "9090"
+
+podSecurityContext:
+  runAsUser: 65534
+  runAsGroup: 65534
+  fsGroup: 65534
+
+securityContext:
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 65534
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 500m
+    memory: 512Mi
+
+persistence:
+  enabled: true
+  storageClass: "gp2"
+  accessMode: ReadWriteOnce
+  size: 50Gi
+  mountPath: /prometheus
+
+nodeSelector: {}
+
+tolerations:
+  - key: node-role.kubernetes.io/master
+    operator: Exists
+    effect: NoSchedule
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values:
+                  - prometheus
+          topologyKey: kubernetes.io/hostname
+
+config:
+  global:
+    scrape_interval: 30s
+    evaluation_interval: 30s
+    external_labels:
+      cluster: "aws-staging"
+      environment: "staging"
+      region: "eu-west-1"
+
+  alerting:
+    alertmanagers:
+      - static_configs:
+          - targets:
+            - "prometheus-alertmanager:9093"
+
+  rule_files:
+    - "/etc/prometheus/alert-rules.yaml"
+
+  scrape_configs:
+    - job_name: "prometheus"
+      static_configs:
+        - targets: ["localhost:9090"]
+
+    - job_name: "kubernetes-apiservers"
+      kubernetes_sd_configs:
+        - role: endpoints
+      scheme: https
+      tls_config:
+        ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+      relabel_configs:
+        - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+          action: keep
+          regex: default;kubernetes;https
+
+    - job_name: "kubernetes-nodes"
+      kubernetes_sd_configs:
+        - role: node
+      scheme: https
+      tls_config:
+        ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+      relabel_configs:
+        - action: labelmap
+          regex: __meta_kubernetes_node_label_(.+)
+        - target_label: __address__
+          replacement: kubernetes.default.svc:443
+        - source_labels: [__meta_kubernetes_node_name]
+          regex: (.+)
+          target_label: __metrics_path__
+          replacement: /api/v1/nodes/${1}/proxy/metrics
+
+    - job_name: "kubernetes-pods"
+      kubernetes_sd_configs:
+        - role: pod
+      relabel_configs:
+        - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+          action: keep
+          regex: "true"
+        - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+          action: replace
+          target_label: __metrics_path__
+          regex: (.+)
+        - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+          action: replace
+          regex: ([^:]+)(?::\d+)?;(\d+)
+          replacement: $1:$2
+          target_label: __address__
+        - action: labelmap
+          regex: __meta_kubernetes_pod_label_(.+)
+        - source_labels: [__meta_kubernetes_namespace]
+          action: replace
+          target_label: kubernetes_namespace
+        - source_labels: [__meta_kubernetes_pod_name]
+          action: replace
+          target_label: kubernetes_pod_name
+
+    - job_name: "fluent-bit"
+      kubernetes_sd_configs:
+        - role: pod
+          namespaces:
+            names:
+              - elastic-system
+      relabel_configs:
+        - source_labels: [__meta_kubernetes_pod_label_app]
+          action: keep
+          regex: "fluent-bit"
+        - source_labels: [__meta_kubernetes_pod_ip]
+          target_label: __address__
+          replacement: $1:2020
+        - source_labels: [__meta_kubernetes_namespace]
+          target_label: kubernetes_namespace
+        - source_labels: [__meta_kubernetes_pod_name]
+          target_label: kubernetes_pod_name
+
+    - job_name: "node-exporter"
+      kubernetes_sd_configs:
+        - role: pod
+          namespaces:
+            names:
+              - monitoring
+      relabel_configs:
+        - source_labels: [__meta_kubernetes_pod_label_app]
+          action: keep
+          regex: "node-exporter"
+        - source_labels: [__meta_kubernetes_pod_ip]
+          target_label: __address__
+          replacement: $1:9100
+        - source_labels: [__meta_kubernetes_pod_name]
+          target_label: kubernetes_pod_name
+
+    - job_name: "kube-state-metrics"
+      kubernetes_sd_configs:
+        - role: endpoints
+      relabel_configs:
+        - source_labels: [__meta_kubernetes_service_label_app_kubernetes_io_name]
+          action: keep
+          regex: "kube-state-metrics"
+
+alertRules:
+  - alert: HighErrorRateKubelet
+    expr: rate(kubelet_node_name{job="kubernetes-nodes"}[5m]) > 0.05
+    for: 5m
+    labels:
+      severity: warning
+      component: kubernetes
+    annotations:
+      summary: "High error rate on {{ $labels.node }}"
+      description: "Node {{ $labels.node }} has high error rate (>5%)"
+
+  - alert: FluentBitHighErrors
+    expr: rate(fluentbit_output_errors_total[5m]) > 10
+    for: 5m
+    labels:
+      severity: warning
+      component: logging
+    annotations:
+      summary: "Fluent Bit high error rate"
+      description: "Fluent Bit is experiencing {{ $value }} errors/sec"
+
+  - alert: PodEndingPhase
+    expr: kube_pod_status_phase{phase=~"Failed|Unknown"} == 1
+    for: 5m
+    labels:
+      severity: warning
+      component: pods
+    annotations:
+      summary: "Pod in {{ $labels.phase }} phase"
+      description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} is in {{ $labels.phase }} phase"
+
+  - alert: NodeNotReady
+    expr: kube_node_status_condition{condition="Ready",status="true"} == 0
+    for: 5m
+    labels:
+      severity: critical
+      component: nodes
+    annotations:
+      summary: "Node {{ $labels.node }} is not ready"
+      description: "Node {{ $labels.node }} has been unready for more than 5 minutes"
+
+  - alert: HighMemoryUsage
+    expr: (sum(container_memory_usage_bytes) by (pod) / sum(container_spec_memory_limit_bytes) by (pod)) > 0.9
+    for: 5m
+    labels:
+      severity: warning
+      component: containers
+    annotations:
+      summary: "High memory usage in pod {{ $labels.pod }}"
+      description: "Pod {{ $labels.pod }} is using >90% of memory limit"
+
+  - alert: HighCPUUsage
+    expr: (rate(container_cpu_usage_seconds_total[5m])) > 0.8
+    for: 5m
+    labels:
+      severity: warning
+      component: containers
+    annotations:
+      summary: "High CPU usage in pod {{ $labels.pod }}"
+      description: "Pod {{ $labels.pod }} is using >80% CPU"

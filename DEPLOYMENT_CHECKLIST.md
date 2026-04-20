@@ -269,7 +269,72 @@ fields kubernetes.labels.app
 
 ### Phase 6: Set Up Monitoring & Alarms 🚨
 
-**Create alerts for anomalies:**
+**Deploy Prometheus metrics collection and Grafana dashboards:**
+
+**6.1: Deploy Prometheus (Development)**
+```bash
+# Create monitoring namespace
+kubectl create namespace monitoring
+
+# Deploy Prometheus
+helm install prometheus ./helm/prometheus \
+  -f helm/prometheus/values-dev.yaml \
+  -n monitoring
+
+# Verify
+kubectl get pods -n monitoring -l app=prometheus
+kubectl port-forward -n monitoring svc/prometheus 9090:9090
+# Check http://localhost:9090 - should show targets
+```
+
+**6.2: Deploy Grafana (Development)**
+```bash
+# Deploy Grafana
+helm install grafana ./helm/grafana \
+  -f helm/grafana/values-dev.yaml \
+  -n monitoring
+
+# Verify
+kubectl port-forward -n monitoring svc/grafana 3000:3000
+# Visit http://localhost:3000 (admin/changeme)
+# Verify dashboards appear
+```
+
+**6.3: Verify Metrics Collection**
+```bash
+# Check if Fluent Bit metrics are scraped
+kubectl port-forward -n monitoring svc/prometheus 9090:9090
+
+# In another terminal, query:
+curl 'http://localhost:9090/api/v1/query?query=fluentbit_uptime'
+
+# Should return metrics from Fluent Bit pods
+```
+
+**6.4: Deploy to AWS EKS (Staging)**
+```bash
+# Switch to staging cluster
+aws eks update-kubeconfig --name year4-project-staging --region eu-west-1
+
+# Create namespace and deploy
+kubectl create namespace monitoring
+
+helm install prometheus ./helm/prometheus \
+  -f helm/prometheus/values-staging.yaml \
+  -n monitoring
+
+helm install grafana ./helm/grafana \
+  -f helm/grafana/values-staging.yaml \
+  -n monitoring
+
+# Verify both 2 replicas running
+kubectl get pods -n monitoring
+kubectl logs -n monitoring -l app=prometheus --tail=20
+```
+
+**6.5: Set Up CloudWatch Metric Filters (Optional)**
+
+For additional alerts beyond Prometheus:
 
 ```bash
 # Create metric filter for errors

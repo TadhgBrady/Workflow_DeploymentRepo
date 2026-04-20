@@ -1,0 +1,131 @@
+replicaCount: 1
+
+image:
+  repository: grafana/grafana
+  tag: "10.2.2"
+  pullPolicy: IfNotPresent
+
+nameOverride: grafana
+fullnameOverride: grafana
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: grafana
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "3000"
+
+podSecurityContext:
+  runAsUser: 472
+  runAsGroup: 472
+  fsGroup: 472
+
+securityContext:
+  readOnlyRootFilesystem: false
+  runAsNonRoot: true
+  runAsUser: 472
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+persistence:
+  enabled: true
+  storageClass: "standard"
+  accessMode: ReadWriteOnce
+  size: 5Gi
+  mountPath: /var/lib/grafana
+
+nodeSelector: {}
+
+tolerations:
+  - key: node-role.kubernetes.io/master
+    operator: Exists
+    effect: NoSchedule
+
+affinity: {}
+
+adminUser: admin
+adminPassword: "changeme"  # Change in production!
+
+env:
+  GF_SECURITY_ADMIN_USER: admin
+  GF_SECURITY_ADMIN_PASSWORD: changeme
+  GF_INSTALL_PLUGINS: ""
+  GF_PATHS_PROVISIONING: /etc/grafana/provisioning
+  GF_SERVER_PROTOCOL: http
+  GF_AUTH_ANONYMOUS_ENABLED: "false"
+
+config:
+  # Datasources configuration
+  datasources:
+    - name: Prometheus
+      type: prometheus
+      url: http://prometheus:9090
+      access: proxy
+      isDefault: true
+      interval: 30s
+      scrape_interval: 1m
+
+  # Dashboard definitions
+  dashboards:
+    - title: "Year 4 Cluster Overview"
+      uid: "cluster-overview"
+      panels:
+        - title: "Cluster CPU Usage"
+          targets:
+            - expr: 'sum(rate(container_cpu_usage_seconds_total{pod!=""}[5m])) by (pod)'
+        - title: "Cluster Memory Usage"
+          targets:
+            - expr: 'sum(container_memory_usage_bytes{pod!=""}) by (pod)'
+        - title: "Pod Count by Namespace"
+          targets:
+            - expr: 'count by (namespace) (kube_pod_info)'
+
+    - title: "Fluent Bit Monitoring"
+      uid: "fluent-bit-monitoring"
+      panels:
+        - title: "Fluent Bit Records/sec"
+          targets:
+            - expr: 'rate(fluentbit_input_records_total[5m])'
+        - title: "Fluent Bit Errors/sec"
+          targets:
+            - expr: 'rate(fluentbit_output_errors_total[5m])'
+        - title: "Fluent Bit Retries"
+          targets:
+            - expr: 'rate(fluentbit_output_retries_total[5m])'
+        - title: "Fluent Bit Uptime"
+          targets:
+            - expr: 'fluentbit_uptime / 60 / 60'
+
+    - title: "Node Metrics"
+      uid: "node-metrics"
+      panels:
+        - title: "Node CPU Usage %"
+          targets:
+            - expr: '(1 - avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m]))) * 100'
+        - title: "Node Memory Available %"
+          targets:
+            - expr: '(node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100'
+        - title: "Root Disk Usage %"
+          targets:
+            - expr: '(1 - (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"})) * 100'
+
+    - title: "Pod Status"
+      uid: "pod-status"
+      panels:
+        - title: "Pod Restarts"
+          targets:
+            - expr: 'increase(kube_pod_container_status_restarts_total[1h])'
+        - title: "Pod Phase Distribution"
+          targets:
+            - expr: 'count by (phase) (kube_pod_status_phase)'
+        - title: "Pods by Namespace"
+          targets:
+            - expr: 'count by (namespace) (kube_pod_info)'

@@ -1,0 +1,70 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "prometheus.fullname" . }}-config
+  labels:
+    {{- include "prometheus.labels" . | nindent 4 }}
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: {{ .Values.config.global.scrape_interval }}
+      evaluation_interval: {{ .Values.config.global.evaluation_interval }}
+      external_labels:
+        {{- range $key, $value := .Values.config.global.external_labels }}
+        {{ $key }}: {{ $value | quote }}
+        {{- end }}
+
+    alerting:
+      alertmanagers:
+        {{- range .Values.config.alerting.alertmanagers }}
+        - static_configs:
+            {{- toYaml .static_configs | nindent 12 }}
+        {{- end }}
+
+    rule_files:
+      {{- toYaml .Values.config.rule_files | nindent 6 }}
+
+    scrape_configs:
+      {{- range .Values.config.scrape_configs }}
+      - job_name: {{ .job_name | quote }}
+        {{- if .static_configs }}
+        static_configs:
+          {{- toYaml .static_configs | nindent 10 }}
+        {{- end }}
+        {{- if .kubernetes_sd_configs }}
+        kubernetes_sd_configs:
+          {{- toYaml .kubernetes_sd_configs | nindent 10 }}
+        {{- end }}
+        {{- if .scheme }}
+        scheme: {{ .scheme }}
+        {{- end }}
+        {{- if .tls_config }}
+        tls_config:
+          {{- toYaml .tls_config | nindent 10 }}
+        {{- end }}
+        {{- if .bearer_token_file }}
+        bearer_token_file: {{ .bearer_token_file }}
+        {{- end }}
+        {{- if .relabel_configs }}
+        relabel_configs:
+          {{- toYaml .relabel_configs | nindent 10 }}
+        {{- end }}
+        {{- if .scrape_interval }}
+        scrape_interval: {{ .scrape_interval }}
+        {{- end }}
+      {{- end }}
+
+  alert-rules.yaml: |
+    groups:
+      - name: year4-project-alerts
+        interval: {{ .Values.config.global.evaluation_interval }}
+        rules:
+          {{- range .Values.config.alertRules }}
+          - alert: {{ .alert }}
+            expr: {{ .expr }}
+            for: {{ .for }}
+            labels:
+              {{- toYaml .labels | nindent 14 }}
+            annotations:
+              {{- toYaml .annotations | nindent 14 }}
+          {{- end }}

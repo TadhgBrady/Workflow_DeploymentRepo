@@ -1,0 +1,173 @@
+replicaCount: 3
+
+image:
+  repository: grafana/grafana
+  tag: "10.2.2"
+  pullPolicy: IfNotPresent
+
+nameOverride: grafana
+fullnameOverride: grafana
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: grafana
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "3000"
+
+podSecurityContext:
+  runAsUser: 472
+  runAsGroup: 472
+  fsGroup: 472
+
+securityContext:
+  readOnlyRootFilesystem: false
+  runAsNonRoot: true
+  runAsUser: 472
+
+resources:
+  limits:
+    cpu: 2000m
+    memory: 2Gi
+  requests:
+    cpu: 500m
+    memory: 512Mi
+
+persistence:
+  enabled: true
+  storageClass: "gp3"
+  accessMode: ReadWriteOnce
+  size: 50Gi
+  mountPath: /var/lib/grafana
+
+nodeSelector:
+  workload: monitoring
+
+tolerations:
+  - key: node-role.kubernetes.io/master
+    operator: Exists
+    effect: NoSchedule
+  - key: workload
+    operator: Equal
+    value: monitoring
+    effect: NoSchedule
+
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+            - key: app
+              operator: In
+              values:
+                - grafana
+        topologyKey: kubernetes.io/hostname
+
+adminUser: admin
+adminPassword: "changeme"  # USE AWS SECRETS MANAGER IN PROD!
+
+env:
+  GF_SECURITY_ADMIN_USER: admin
+  GF_SECURITY_ADMIN_PASSWORD: changeme
+  GF_INSTALL_PLUGINS: ""
+  GF_PATHS_PROVISIONING: /etc/grafana/provisioning
+  GF_SERVER_PROTOCOL: http
+  GF_AUTH_ANONYMOUS_ENABLED: "false"
+  GF_USERS_ALLOW_SIGN_UP: "false"
+  GF_SECURITY_DISABLE_INITIAL_ADMIN_CREATION: "false"
+
+config:
+  datasources:
+    - name: Prometheus
+      type: prometheus
+      url: http://prometheus:9090
+      access: proxy
+      isDefault: true
+      interval: 1m
+      scrape_interval: 5m
+      editable: false
+
+  dashboards:
+    - title: "Production Cluster Overview"
+      uid: "prod-cluster-overview"
+      refresh: 30s
+      panels:
+        - title: "Cluster CPU Usage %"
+          targets:
+            - expr: 'sum(rate(container_cpu_usage_seconds_total{pod!=""}[5m])) / sum(container_spec_cpu_quota{pod!=""}) * 100'
+        - title: "Cluster Memory Usage %"
+          targets:
+            - expr: 'sum(container_memory_usage_bytes{pod!=""}) / sum(container_spec_memory_limit_bytes{pod!=""}) * 100'
+        - title: "Network In (MB/s)"
+          targets:
+            - expr: 'sum(rate(container_network_receive_bytes_total[5m])) / 1024 / 1024'
+        - title: "Network Out (MB/s)"
+          targets:
+            - expr: 'sum(rate(container_network_transmit_bytes_total[5m])) / 1024 / 1024'
+
+    - title: "Fluent Bit - Production"
+      uid: "prod-fluent-bit"
+      refresh: 1m
+      panels:
+        - title: "Input Records/sec"
+          targets:
+            - expr: 'rate(fluentbit_input_records_total[5m])'
+        - title: "Success Rate %"
+          targets:
+            - expr: '(1 - (rate(fluentbit_output_errors_total[5m]) / (rate(fluentbit_output_records_total[5m]) + 1))) * 100'
+        - title: "Errors/sec (ALERT if > 10)"
+          targets:
+            - expr: 'rate(fluentbit_output_errors_total[5m])'
+        - title: "Retry Rate"
+          targets:
+            - expr: 'rate(fluentbit_output_retries_total[5m])'
+        - title: "Processor Bytes/sec"
+          targets:
+            - expr: 'rate(fluentbit_processor_bytes[5m])'
+
+    - title: "Infrastructure - Critical Metrics"
+      uid: "prod-infra"
+      refresh: 1m
+      panels:
+        - title: "Node Status"
+          targets:
+            - expr: 'kube_node_status_condition{condition="Ready"}'
+        - title: "Node CPU Usage %"
+          targets:
+            - expr: '(1 - avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m]))) * 100'
+        - title: "Node Memory Usage %"
+          targets:
+            - expr: '100 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes * 100)'
+        - title: "Disk Usage %"
+          targets:
+            - expr: '(1 - (node_filesystem_avail_bytes / node_filesystem_size_bytes)) * 100'
+
+    - title: "Application Health - Production"
+      uid: "prod-app-health"
+      refresh: 2m
+      panels:
+        - title: "Total Pods"
+          targets:
+            - expr: 'count(kube_pod_info)'
+        - title: "Running Pods"
+          targets:
+            - expr: 'count(kube_pod_status_phase{phase="Running"})'
+        - title: "Failed Pods"
+          targets:
+            - expr: 'count(kube_pod_status_phase{phase="Failed"})'
+        - title: "Pod Restart Events (1h)"
+          targets:
+            - expr: 'increase(kube_pod_container_status_restarts_total[1h])'
+
+    - title: "Service Availability"
+      uid: "prod-availability"
+      refresh: 5m
+      panels:
+        - title: "Deployment Ready Replicas %"
+          targets:
+            - expr: '(sum by(deployment) (kube_deployment_status_replicas_updated) / sum by(deployment) (kube_deployment_spec_replicas)) * 100'
+        - title: "StatefulSet Ready Replicas %"
+          targets:
+            - expr: '(sum by(statefulset) (kube_statefulset_status_replicas_ready) / sum by(statefulset) (kube_statefulset_status_replicas)) * 100'
