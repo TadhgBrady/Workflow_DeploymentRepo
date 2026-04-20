@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: year4-project-dev
+data:
+  LOG_LEVEL: "INFO"
+  ENV: "development"
+  DEBUG: "false"
+  SERVER_PORT: "8080"
+  DATABASE_POOL_SIZE: "10"
+  CACHE_TTL: "3600"
+  ELASTICSEARCH_ENABLED: "true"
+  ELASTICSEARCH_INDEX: "app-logs"

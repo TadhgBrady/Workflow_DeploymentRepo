@@ -6,8 +6,8 @@ resources:
   # RBAC Configuration
   - rbac.yaml
 
-  # External Secrets ClusterSecretStore
-  - external-secrets.yaml
+  # External Secrets ClusterSecretStore (disabled for dev - use local secrets instead)
+  # - external-secrets.yaml
   
   # Cert Issuers
   - cert-issuers.yaml

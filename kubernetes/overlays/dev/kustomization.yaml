@@ -5,6 +5,9 @@ namespace: year4-project-dev
 
 # Reference the base configuration
 resources:
+  - namespace.yaml
+  - secrets.yaml
+  - configmap.yaml
   - ../../base
 
 # Development-specific configuration

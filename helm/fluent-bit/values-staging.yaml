@@ -1,0 +1,150 @@
+replicaCount: 2
+image:
+  repository: fluent/fluent-bit
+  tag: "5.0.3"
+  pullPolicy: IfNotPresent
+
+nameOverride: fluent-bit
+fullnameOverride: fluent-bit
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: fluent-bit
+
+rbac:
+  create: true
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "2020"
+  prometheus.io/path: "/api/v1/metrics/prometheus"
+
+podSecurityContext:
+  runAsUser: 0
+  runAsGroup: 0
+  fsGroup: 0
+
+securityContext:
+  privileged: true
+
+resources:
+  limits:
+    cpu: 300m
+    memory: 256Mi
+  requests:
+    cpu: 150m
+    memory: 128Mi
+
+nodeSelector: {}
+tolerations:
+  - key: node-role.kubernetes.io/master
+    operator: Exists
+    effect: NoSchedule
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values:
+                  - fluent-bit
+          topologyKey: kubernetes.io/hostname
+
+config:
+  service: |
+    [SERVICE]
+      Parsers_File parsers.conf
+      Log_Level info
+      Flush 10
+      Daemon off
+      HTTP_Server On
+      HTTP_Listen 0.0.0.0
+      HTTP_Port 2020
+
+  inputs: |
+    [INPUT]
+      Name http
+      Port 9880
+      Listen 0.0.0.0
+      tag healthcheck
+
+    [INPUT]
+      Name tail
+      Path /var/log/containers/*_year4-project-staging_*.log
+      Parser docker
+      Tag app.*
+      Refresh_Interval 5
+      Mem_Buf_Limit 100MB
+      Skip_Long_Lines On
+      DB /var/log/flb-staging.db
+      DB.locking true
+
+  filters: |
+    [FILTER]
+      Name parser
+      Match app.*
+      Key_Name log
+      Parser json
+      Preserve_Key On
+      Parser docker
+      Reserve_Data On
+
+    [FILTER]
+      Name kubernetes
+      Match app.*
+      Kube_URL https://kubernetes.default.svc:443
+      Kube_CA_File /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      Kube_Token_File /var/run/secrets/kubernetes.io/serviceaccount/token
+      Kube_Tag_Prefix app.var.log.containers.
+      Merge_Log On
+      Keep_Log Off
+
+    [FILTER]
+      Name record_modifier
+      Match app.*
+      Record hostname ${HOSTNAME}
+      Record cluster aws-staging
+      Record environment staging
+
+  outputs: |
+    [OUTPUT]
+      Name stdout
+      Match healthcheck
+
+    [OUTPUT]
+      Name cloudwatch_logs
+      Match app.*
+      region eu-west-1
+      log_group_name /aws/eks/year4-project/staging/logs
+      log_stream_prefix fluent-bit-
+      auto_create_group true
+      retry_limit 5
+
+  parsers: |
+    [PARSER]
+      Name docker
+      Format json
+      Time_Key time
+      Time_Format %Y-%m-%dT%H:%M:%S.%L%z
+      Time_Keep On
+      Decode_Field_As escaped_utf8 log
+
+    [PARSER]
+      Name json
+      Format json
+      Time_Key timestamp
+      Time_Format %Y-%m-%dT%H:%M:%S.%L
+      Time_Keep On
+
+    [PARSER]
+      Name regex_app
+      Format regex
+      Regex ^(?<time>[^ ]*) (?<stream>stdout|stderr) (?<source>[^ ]*) (?<log>.*)$
+      Time_Key time
+      Time_Format %Y-%m-%dT%H:%M:%S.%L%z
+      Time_Keep On
