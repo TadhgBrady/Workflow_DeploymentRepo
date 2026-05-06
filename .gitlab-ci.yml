@@ -624,6 +624,8 @@ install-observability-staging:
       kubectl apply -f kubernetes/observability/limitrange-observability.yaml
       kubectl apply -f kubernetes/observability/resourcequota-observability.yaml
 
+      sh scripts/deployment/check-cloudwatch-observability.sh "$STAGING_CLUSTER_NAME"
+
       # Remove stale kube-prometheus-stack admission hook jobs left by failed installs.
       kubectl delete job \
         kube-prometheus-stack-admission-create \
@@ -649,17 +651,19 @@ install-observability-staging:
       fi
       echo "Loki S3 bucket: $LOKI_S3_BUCKET"
 
-      LOKI_ROLE_ARN=$(aws iam get-role \
+      LOKI_ROLE_ARN="${LOKI_ROLE_ARN:-$(aws iam get-role \
         --role-name yr4-project-staging-loki-role \
-        --query 'Role.Arn' --output text)
+        --query 'Role.Arn' --output text)}"
       echo "Loki Role ARN: $LOKI_ROLE_ARN"
 
+      echo "--- Installing kube-prometheus-stack ---"
       helm upgrade --install "$KUBE_PROM_STACK_RELEASE" prometheus-community/kube-prometheus-stack \
         -f helm/kube-prometheus-stack/values-staging.yaml \
         --namespace "$MONITORING_NAMESPACE" --create-namespace \
         --wait --timeout 600s
 
-      helm upgrade --install "$LOKI_RELEASE" grafana/loki \
+      echo "--- Installing Loki ---"
+      if ! helm upgrade --install "$LOKI_RELEASE" grafana/loki \
         -f helm/loki/values-staging.yaml \
         --namespace "$MONITORING_NAMESPACE" --create-namespace \
         --set "serviceAccount.annotations.eks\.amazonaws\.com/role-arn=$LOKI_ROLE_ARN" \
@@ -667,11 +671,19 @@ install-observability-staging:
         --set "loki.storage.bucketNames.ruler=$LOKI_S3_BUCKET" \
         --set "loki.storage.bucketNames.admin=$LOKI_S3_BUCKET" \
         --set "loki.storage.s3.region=$AWS_DEFAULT_REGION" \
-        --wait --timeout 600s
+        --wait --timeout 600s; then
+        echo "❌ Loki install/upgrade failed. Diagnostics:"
+        kubectl get pods -n "$MONITORING_NAMESPACE" -o wide || true
+        kubectl get pvc -n "$MONITORING_NAMESPACE" || true
+        kubectl describe statefulset "$LOKI_RELEASE" -n "$MONITORING_NAMESPACE" || true
+        kubectl describe pod -n "$MONITORING_NAMESPACE" -l "app.kubernetes.io/instance=$LOKI_RELEASE" || true
+        kubectl get events -n "$MONITORING_NAMESPACE" --sort-by=.lastTimestamp | tail -80 || true
+        exit 1
+      fi
 
-      FLUENT_BIT_ROLE_ARN=$(aws iam get-role \
+      FLUENT_BIT_ROLE_ARN="${FLUENT_BIT_ROLE_ARN:-$(aws iam get-role \
         --role-name yr4-project-staging-fluent-bit-role \
-        --query 'Role.Arn' --output text)
+        --query 'Role.Arn' --output text)}"
       echo "Fluent Bit Role ARN: $FLUENT_BIT_ROLE_ARN"
 
       helm upgrade --install "$FLUENT_BIT_RELEASE" helm/fluent-bit \
@@ -1469,9 +1481,11 @@ install-observability-production:
 
       kubectl apply -f kubernetes/observability/storageclass-gp3.yaml
 
-      FLUENT_BIT_ROLE_ARN=$(aws iam get-role \
+      sh scripts/deployment/check-cloudwatch-observability.sh "$PROD_CLUSTER_NAME"
+
+      FLUENT_BIT_ROLE_ARN="${FLUENT_BIT_ROLE_ARN:-$(aws iam get-role \
         --role-name yr4-project-production-fluent-bit-role \
-        --query 'Role.Arn' --output text)
+        --query 'Role.Arn' --output text)}"
       echo "Fluent Bit Role ARN: $FLUENT_BIT_ROLE_ARN"
 
       helm upgrade --install "$FLUENT_BIT_RELEASE" helm/fluent-bit \

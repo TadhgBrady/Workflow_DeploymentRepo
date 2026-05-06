@@ -26,7 +26,11 @@ podSecurityContext:
   fsGroup: 0
 
 securityContext:
-  privileged: true
+  privileged: false
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
 
 state:
   mountPath: /tmp/flb-state

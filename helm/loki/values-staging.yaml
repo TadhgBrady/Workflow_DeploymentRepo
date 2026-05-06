@@ -61,11 +61,13 @@ backend:
   replicas: 0
 
 chunksCache:
-  enabled: true
+  # Staging runs on a small node pool; disable memcached chunks cache to reduce CPU pressure.
+  enabled: false
   allocatedMemory: 256
 
 resultsCache:
-  enabled: true
+  # Staging runs on a small node pool; disable memcached results cache to reduce CPU pressure.
+  enabled: false
   allocatedMemory: 128
 
 gateway:
@@ -86,4 +88,5 @@ test:
   enabled: false
 
 lokiCanary:
-  enabled: true
+  # Disable canary in staging to avoid extra DaemonSet scheduling and Helm wait delays.
+  enabled: false

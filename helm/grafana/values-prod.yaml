@@ -66,17 +66,27 @@ affinity:
         topologyKey: kubernetes.io/hostname
 
 adminUser: admin
-adminPassword: "changeme"  # USE AWS SECRETS MANAGER IN PROD!
+adminPassword: ""
 
 env:
-  GF_SECURITY_ADMIN_USER: admin
-  GF_SECURITY_ADMIN_PASSWORD: changeme
   GF_INSTALL_PLUGINS: ""
   GF_PATHS_PROVISIONING: /etc/grafana/provisioning
   GF_SERVER_PROTOCOL: http
   GF_AUTH_ANONYMOUS_ENABLED: "false"
   GF_USERS_ALLOW_SIGN_UP: "false"
   GF_SECURITY_DISABLE_INITIAL_ADMIN_CREATION: "false"
+
+envValueFrom:
+  - name: GF_SECURITY_ADMIN_USER
+    valueFrom:
+      secretKeyRef:
+        name: grafana-admin
+        key: admin-user
+  - name: GF_SECURITY_ADMIN_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: grafana-admin
+        key: admin-password
 
 config:
   datasources:

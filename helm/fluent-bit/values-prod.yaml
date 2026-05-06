@@ -26,7 +26,11 @@ podSecurityContext:
   fsGroup: 0
 
 securityContext:
-  privileged: true
+  privileged: false
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
 
 state:
   mountPath: /tmp/flb-state
@@ -87,7 +91,7 @@ config:
       Parser cri
       Tag app.*
       Refresh_Interval 10
-      Mem_Buf_Limit 256MB
+      Mem_Buf_Limit 128MB
       Skip_Long_Lines On
       DB /tmp/flb-state/flb-production.db
       DB.locking true

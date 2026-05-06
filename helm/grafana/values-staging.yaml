@@ -37,7 +37,7 @@ resources:
 
 persistence:
   enabled: true
-  storageClass: "gp2"
+  storageClass: "gp3"
   accessMode: ReadWriteOnce
   size: 20Gi
   mountPath: /var/lib/grafana
@@ -73,6 +73,8 @@ env:
   GF_SERVER_PROTOCOL: http
   GF_AUTH_ANONYMOUS_ENABLED: "false"
   GF_USERS_ALLOW_SIGN_UP: "false"
+
+envValueFrom: []
 
 config:
   datasources:
