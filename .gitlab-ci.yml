@@ -582,6 +582,8 @@ install-addons-staging:
         --set "serviceAccount.annotations.eks\.amazonaws\.com/role-arn=$ESO_ROLE_ARN" \
         --wait --timeout 300s
 
+      sh scripts/deployment/ensure-external-secret-store.sh
+
       # 3. NGINX Ingress Controller — SKIPPED for staging
       # Staging uses nginx-gateway LoadBalancer directly (no Ingress resource needed).
       # The ingress-nginx controller is only installed for production (TLS via cert-manager).
@@ -753,11 +755,13 @@ deploy-staging:
         helm repo update external-secrets
         ESO_ROLE_ARN=$(aws iam get-role --role-name yr4-project-staging-eso-role \
           --query 'Role.Arn' --output text 2>/dev/null || echo "")
-        HELM_ARGS="--namespace external-secrets --create-namespace --set installCRDs=true --wait --timeout 300s"
-        if [ -n "$ESO_ROLE_ARN" ]; then
-          HELM_ARGS="$HELM_ARGS --set serviceAccount.create=true --set serviceAccount.name=external-secrets-sa"
-          HELM_ARGS="$HELM_ARGS --set serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn=$ESO_ROLE_ARN"
+        if [ -z "$ESO_ROLE_ARN" ]; then
+          echo "❌ IAM role yr4-project-staging-eso-role was not found; External Secrets cannot access AWS Secrets Manager"
+          exit 1
         fi
+        HELM_ARGS="--namespace external-secrets --create-namespace --set installCRDs=true --wait --timeout 300s"
+        HELM_ARGS="$HELM_ARGS --set serviceAccount.create=true --set serviceAccount.name=external-secrets-sa"
+        HELM_ARGS="$HELM_ARGS --set serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn=$ESO_ROLE_ARN"
         for ATTEMPT in 1 2 3 4 5; do
           if helm upgrade --install external-secrets external-secrets/external-secrets $HELM_ARGS; then
             break
@@ -773,6 +777,7 @@ deploy-staging:
       else
         echo "✅ ESO CRDs already available"
       fi
+      sh scripts/deployment/ensure-external-secret-store.sh
     # Ensure cert-manager is installed (fallback)
     - |
       if ! kubectl get crd certificates.cert-manager.io > /dev/null 2>&1; then
@@ -1437,6 +1442,8 @@ install-addons-production:
         --set "serviceAccount.annotations.eks\.amazonaws\.com/role-arn=$ESO_ROLE_ARN" \
         --wait --timeout 300s
 
+      sh scripts/deployment/ensure-external-secret-store.sh
+
       # 3. NGINX Ingress Controller
       echo "--- Installing NGINX Ingress Controller ---"
       retry_cmd 4 10 helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
@@ -1543,11 +1550,13 @@ deploy-production:
         helm repo update external-secrets
         ESO_ROLE_ARN=$(aws iam get-role --role-name yr4-project-production-eso-role \
           --query 'Role.Arn' --output text 2>/dev/null || echo "")
-        HELM_ARGS="--namespace external-secrets --create-namespace --set installCRDs=true --wait --timeout 300s"
-        if [ -n "$ESO_ROLE_ARN" ]; then
-          HELM_ARGS="$HELM_ARGS --set serviceAccount.create=true --set serviceAccount.name=external-secrets-sa"
-          HELM_ARGS="$HELM_ARGS --set serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn=$ESO_ROLE_ARN"
+        if [ -z "$ESO_ROLE_ARN" ]; then
+          echo "❌ IAM role yr4-project-production-eso-role was not found; External Secrets cannot access AWS Secrets Manager"
+          exit 1
         fi
+        HELM_ARGS="--namespace external-secrets --create-namespace --set installCRDs=true --wait --timeout 300s"
+        HELM_ARGS="$HELM_ARGS --set serviceAccount.create=true --set serviceAccount.name=external-secrets-sa"
+        HELM_ARGS="$HELM_ARGS --set serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn=$ESO_ROLE_ARN"
         for ATTEMPT in 1 2 3 4 5; do
           if helm upgrade --install external-secrets external-secrets/external-secrets $HELM_ARGS; then
             break
@@ -1563,6 +1572,7 @@ deploy-production:
       else
         echo "✅ ESO CRDs already available"
       fi
+      sh scripts/deployment/ensure-external-secret-store.sh
     # Ensure cert-manager is installed (fallback)
     - |
       if ! kubectl get crd certificates.cert-manager.io > /dev/null 2>&1; then
@@ -1597,6 +1607,22 @@ deploy-production:
       # Job pod template is immutable; recreate migration job on each deploy.
       kubectl delete job migration-runner -n $PROD_NAMESPACE --ignore-not-found=true
     - kubectl apply -k kubernetes/overlays/production
+    # Force ESO to re-sync secrets from AWS before checking rollouts
+    - |
+      echo "Forcing ExternalSecrets to re-sync..."
+      for es in $(kubectl get externalsecret -n $PROD_NAMESPACE -o name 2>/dev/null); do
+        kubectl annotate $es -n $PROD_NAMESPACE force-sync="$(date +%s)" --overwrite 2>/dev/null || true
+      done
+    - |
+      echo "Waiting for ExternalSecrets to sync from AWS Secrets Manager..."
+      kubectl wait --for=condition=Ready=True externalsecret \
+        --all -n $PROD_NAMESPACE --timeout=180s || {
+          echo "⚠️  ExternalSecret sync timed out — checking status..."
+          kubectl get externalsecrets -n $PROD_NAMESPACE
+          kubectl describe externalsecrets -n $PROD_NAMESPACE
+          exit 1
+        }
+      echo "✅ All ExternalSecrets synced"
     - |
       echo "Waiting for deployments to become ready..."
       FAILED_DEPLOYS=""
