@@ -60,9 +60,11 @@ prometheus:
 
 prometheusOperator:
   admissionWebhooks:
-    enabled: true
+    # Disable optional admission webhook hooks in staging. The hook jobs can
+    # timeout on the small 2x t3.medium cluster and block observability deploys.
+    enabled: false
     patch:
-      enabled: true
+      enabled: false
   resources:
     requests:
       cpu: 100m
