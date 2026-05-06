@@ -30,7 +30,7 @@ commonAnnotations:
   instrumentation.opentelemetry.io/inject-nodejs: "false"
   instrumentation.opentelemetry.io/inject-python: "false"
 
-# Staging uses 1 replica — 2x t3.medium nodes can't fit 24 pods at 250m CPU each
+# Staging uses 1 replica — keep rollout pressure low on the observability-enabled node group
 replicas:
   - name: auth-service
     count: 1
@@ -62,7 +62,21 @@ replicas:
 # Recreate strategy — avoids 2x pods during rollout on small staging cluster
 patches:
   - path: nginx-service-patch.yaml
-  - path: app-resource-patch.yaml
+  # Keep staging scheduling predictable on the small node group. This inline
+  # JSON6902 patch is compatible with both standalone kustomize and
+  # kubectl apply -k; do not use a multi-document patch file here.
+  - target:
+      kind: Deployment
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
   - target:
       kind: Ingress
       name: api-ingress

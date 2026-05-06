@@ -100,6 +100,9 @@ validate-manifests:
     - curl -sL https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.4.1/kustomize_v5.4.1_linux_amd64.tar.gz | tar xz -C /usr/local/bin/
     # Install kubeconform
     - curl -sL https://github.com/yannh/kubeconform/releases/download/v0.6.4/kubeconform-linux-amd64.tar.gz | tar xz -C /usr/local/bin/
+    # Install kubectl so validation exercises the same embedded Kustomize engine used by deploy jobs.
+    - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
+    - chmod +x kubectl && mv kubectl /usr/local/bin/
   script:
     - echo "═══════════════════════════════════════════════════════════════"
     - echo "  Validating Kubernetes manifests (kubeconform)"
@@ -108,6 +111,8 @@ validate-manifests:
       for ENV in staging production; do
         echo "── Validating overlay: $ENV ──"
         kustomize build kubernetes/overlays/$ENV | kubeconform -strict -summary -skip ClusterIssuer,ClusterSecretStore,ExternalSecret
+        echo "── Validating overlay with kubectl embedded Kustomize: $ENV ──"
+        kubectl kustomize kubernetes/overlays/$ENV > /dev/null
       done
       echo "── Validating observability manifests ──"
       kubeconform -strict -summary -skip ServiceMonitor,PrometheusRule kubernetes/observability/*.yaml
@@ -813,81 +818,26 @@ deploy-staging:
         echo "✅ cert-manager CRDs already available"
       fi
     # ── Pin images to exact version when triggered by dev repo ──
-    - |
-      if [ -n "$IMAGE_VERSION" ] && [ "$IMAGE_VERSION" != "latest" ]; then
-        echo "📌 Pinning images to version: $IMAGE_VERSION"
-        for f in kubernetes/base/*-deployment.y*ml kubernetes/overlays/staging/migration-job.yaml; do
-          [ -f "$f" ] || continue
-          if grep -q "bencev04/4th-year-proj-tadgh-bence:.*-latest" "$f" 2>/dev/null; then
-            sed -i "s|bencev04/4th-year-proj-tadgh-bence:\(.*\)-latest|bencev04/4th-year-proj-tadgh-bence:\\1-${IMAGE_VERSION}|g" "$f"
-            echo "  ✅ $(basename $f)"
-          fi
-        done
-        echo ""
-      else
-        echo "ℹ️  IMAGE_VERSION not set — deploying with -latest tags"
-      fi
+    - sh scripts/deployment/pin-images.sh "$IMAGE_VERSION" kubernetes/base/*-deployment.y*ml kubernetes/overlays/staging/migration-job.yaml
     - kubectl create namespace $STAGING_NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
+    # Validate the exact rendered overlay before any live mutation that could take staging down.
+    - |
+      echo "Validating staging Kustomize overlay with kubectl before apply..."
+      kubectl kustomize kubernetes/overlays/staging > /tmp/staging-rendered.yaml
+      kubectl apply --dry-run=client --validate=false -k kubernetes/overlays/staging > /dev/null
+      sh scripts/deployment/check-cloudwatch-observability.sh "$STAGING_CLUSTER_NAME"
     - |
       # Job pod template is immutable; recreate migration job on each deploy.
       kubectl delete job migration-runner -n $STAGING_NAMESPACE --ignore-not-found=true
-    # Clean up stuck pods from previous failed deployments to free CPU
+    - kubectl apply --dry-run=server -k kubernetes/overlays/staging > /dev/null
+    # Clean up only failed/stale pods from previous deployments. Do not scale healthy deployments to 0.
     - |
-      echo "Cleaning up stuck pods from previous deployments..."
+      echo "Cleaning up non-running pods from previous deployments..."
       kubectl delete pods -n $STAGING_NAMESPACE --field-selector=status.phase!=Running --ignore-not-found 2>/dev/null || true
-      # Scale down all deployments to 0 first to free resources for clean redeploy
-      for dep in $(kubectl get deploy -n $STAGING_NAMESPACE -o name 2>/dev/null); do
-        kubectl scale $dep -n $STAGING_NAMESPACE --replicas=0 2>/dev/null || true
-      done
-      echo "  Waiting for pods to terminate..."
-      kubectl wait --for=delete pod --all -n $STAGING_NAMESPACE --timeout=60s 2>/dev/null || true
     - kubectl apply -k kubernetes/overlays/staging
     # Force ESO to re-sync secrets from AWS (picks up any recent secret value changes)
-    - |
-      echo "Forcing ExternalSecrets to re-sync..."
-      for es in $(kubectl get externalsecret -n $STAGING_NAMESPACE -o name 2>/dev/null); do
-        kubectl annotate $es -n $STAGING_NAMESPACE force-sync="$(date +%s)" --overwrite 2>/dev/null || true
-      done
-    - |
-      echo "Waiting for ExternalSecrets to sync from AWS Secrets Manager..."
-      kubectl wait --for=condition=Ready=True externalsecret \
-        --all -n $STAGING_NAMESPACE --timeout=180s || {
-          echo "⚠️  ExternalSecret sync timed out — checking status..."
-          kubectl get externalsecrets -n $STAGING_NAMESPACE
-          kubectl describe externalsecrets -n $STAGING_NAMESPACE
-          exit 1
-        }
-      echo "✅ All ExternalSecrets synced"
-    - |
-      echo "Waiting for deployments to become ready..."
-      FAILED_DEPLOYS=""
-      for DEPLOY in $(kubectl get deployments -n $STAGING_NAMESPACE -o name); do
-        echo "  Waiting for $DEPLOY..."
-        kubectl rollout status $DEPLOY -n $STAGING_NAMESPACE --timeout=300s || {
-          DEPLOY_NAME=$(echo $DEPLOY | sed 's|deployment.apps/||')
-          echo "❌ $DEPLOY rollout failed — gathering diagnostics..."
-          echo "── Pod status ──"
-          kubectl get pods -n $STAGING_NAMESPACE -l app=$DEPLOY_NAME -o wide 2>/dev/null || true
-          echo "── Recent events ──"
-          kubectl get events -n $STAGING_NAMESPACE --sort-by=.lastTimestamp --field-selector involvedObject.kind=Pod 2>/dev/null | grep "$DEPLOY_NAME" | tail -15 || true
-          echo "── Container logs (last 30 lines) ──"
-          kubectl logs -n $STAGING_NAMESPACE -l app=$DEPLOY_NAME --tail=30 --all-containers 2>/dev/null || true
-          echo ""
-          FAILED_DEPLOYS="$FAILED_DEPLOYS $DEPLOY_NAME"
-        }
-      done
-      if [ -n "$FAILED_DEPLOYS" ]; then
-        echo ""
-        echo "❌ FAILED DEPLOYMENTS:$FAILED_DEPLOYS"
-        echo ""
-        echo "Diagnostics above should indicate the root cause."
-        echo "Common issues:"
-        echo "  • ImagePullBackOff → image tag doesn't exist on Docker Hub"
-        echo "  • CrashLoopBackOff → container crashes on startup (check logs above)"
-        echo "  • Pending → not enough cluster resources (CPU/memory)"
-        echo "  • health probe failures → service not responding on expected port/path"
-        exit 1
-      fi
+    - sh scripts/deployment/sync-external-secrets.sh "$STAGING_NAMESPACE" 180
+    - sh scripts/deployment/wait-deployment-rollout.sh "$STAGING_NAMESPACE" 300
     - |
       echo ""
       echo "Waiting for LoadBalancer external hostname..."
@@ -1608,66 +1558,20 @@ deploy-production:
         echo "✅ cert-manager CRDs already available"
       fi
     # ── Pin images to exact version when triggered by dev repo ──
-    - |
-      if [ -n "$IMAGE_VERSION" ] && [ "$IMAGE_VERSION" != "latest" ]; then
-        echo "📌 Pinning production images to version: $IMAGE_VERSION"
-        for f in kubernetes/base/*-deployment.y*ml kubernetes/base/migration-job.yaml; do
-          [ -f "$f" ] || continue
-          if grep -q "bencev04/4th-year-proj-tadgh-bence:.*-latest" "$f" 2>/dev/null; then
-            sed -i "s|bencev04/4th-year-proj-tadgh-bence:\(.*\)-latest|bencev04/4th-year-proj-tadgh-bence:\\1-${IMAGE_VERSION}|g" "$f"
-            echo "  ✅ $(basename $f)"
-          fi
-        done
-        echo ""
-      else
-        echo "ℹ️  IMAGE_VERSION not set — deploying with -latest tags"
-      fi
+    - sh scripts/deployment/pin-images.sh "$IMAGE_VERSION" kubernetes/base/*-deployment.y*ml
     - kubectl create namespace $PROD_NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
+    - |
+      echo "Validating production Kustomize overlay with kubectl before apply..."
+      kubectl kustomize kubernetes/overlays/production > /tmp/production-rendered.yaml
+      kubectl apply --dry-run=client --validate=false -k kubernetes/overlays/production > /dev/null
     - |
       # Job pod template is immutable; recreate migration job on each deploy.
       kubectl delete job migration-runner -n $PROD_NAMESPACE --ignore-not-found=true
+    - kubectl apply --dry-run=server -k kubernetes/overlays/production > /dev/null
     - kubectl apply -k kubernetes/overlays/production
     # Force ESO to re-sync secrets from AWS before checking rollouts
-    - |
-      echo "Forcing ExternalSecrets to re-sync..."
-      for es in $(kubectl get externalsecret -n $PROD_NAMESPACE -o name 2>/dev/null); do
-        kubectl annotate $es -n $PROD_NAMESPACE force-sync="$(date +%s)" --overwrite 2>/dev/null || true
-      done
-    - |
-      echo "Waiting for ExternalSecrets to sync from AWS Secrets Manager..."
-      kubectl wait --for=condition=Ready=True externalsecret \
-        --all -n $PROD_NAMESPACE --timeout=180s || {
-          echo "⚠️  ExternalSecret sync timed out — checking status..."
-          kubectl get externalsecrets -n $PROD_NAMESPACE
-          kubectl describe externalsecrets -n $PROD_NAMESPACE
-          exit 1
-        }
-      echo "✅ All ExternalSecrets synced"
-    - |
-      echo "Waiting for deployments to become ready..."
-      FAILED_DEPLOYS=""
-      for DEPLOY in $(kubectl get deployments -n $PROD_NAMESPACE -o name); do
-        echo "  Waiting for $DEPLOY..."
-        kubectl rollout status $DEPLOY -n $PROD_NAMESPACE --timeout=300s || {
-          DEPLOY_NAME=$(echo $DEPLOY | sed 's|deployment.apps/||')
-          echo "❌ $DEPLOY rollout failed — gathering diagnostics..."
-          echo "── Pod status ──"
-          kubectl get pods -n $PROD_NAMESPACE -l app=$DEPLOY_NAME -o wide 2>/dev/null || true
-          echo "── Recent events ──"
-          kubectl get events -n $PROD_NAMESPACE --sort-by=.lastTimestamp --field-selector involvedObject.kind=Pod 2>/dev/null | grep "$DEPLOY_NAME" | tail -15 || true
-          echo "── Container logs (last 30 lines) ──"
-          kubectl logs -n $PROD_NAMESPACE -l app=$DEPLOY_NAME --tail=30 --all-containers 2>/dev/null || true
-          echo ""
-          FAILED_DEPLOYS="$FAILED_DEPLOYS $DEPLOY_NAME"
-        }
-      done
-      if [ -n "$FAILED_DEPLOYS" ]; then
-        echo ""
-        echo "❌ FAILED DEPLOYMENTS:$FAILED_DEPLOYS"
-        echo ""
-        echo "Diagnostics above should indicate the root cause."
-        exit 1
-      fi
+    - sh scripts/deployment/sync-external-secrets.sh "$PROD_NAMESPACE" 180
+    - sh scripts/deployment/wait-deployment-rollout.sh "$PROD_NAMESPACE" 300
     - |
       echo ""
       echo "Waiting for LoadBalancer external hostname..."

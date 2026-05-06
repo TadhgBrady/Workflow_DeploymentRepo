@@ -4,11 +4,11 @@
     Locally validate the CD pipeline manifests WITHOUT pushing to GitLab.
 
 .DESCRIPTION
-    Runs the same checks as the CI pipeline (kustomize build + kubeconform)
-    on your local machine. Catches manifest errors in seconds instead of
-    waiting for a remote pipeline run.
+    Runs the same offline checks as the CI pipeline (kustomize build + kubeconform,
+    plus kubectl's embedded Kustomize engine) on your local machine. Catches
+    manifest errors in seconds instead of waiting for a remote pipeline run.
 
-    Requires: kustomize, kubeconform (auto-installs via scoop if missing)
+    Requires: kustomize, kubeconform, kubectl (auto-installs via scoop if missing)
 
 .PARAMETER Overlay
     Which overlay to validate: staging, production, dev, or all (default: all)
@@ -66,6 +66,7 @@ function Test-Tool($Name) {
 $missing = @()
 if (-not (Test-Tool "kustomize")) { $missing += "kustomize" }
 if (-not (Test-Tool "kubeconform")) { $missing += "kubeconform" }
+if (-not (Test-Tool "kubectl")) { $missing += "kubectl" }
 
 if ($missing.Count -gt 0) {
     Write-Host "Missing tools: $($missing -join ', ')" -ForegroundColor Yellow
@@ -81,7 +82,7 @@ if ($missing.Count -gt 0) {
         }
     } else {
         Write-Host "`nInstall manually:" -ForegroundColor Red
-        Write-Host "  scoop install kustomize kubeconform"
+        Write-Host "  scoop install kustomize kubeconform kubectl"
         Write-Host "  # or download from:"
         Write-Host "  # https://github.com/kubernetes-sigs/kustomize/releases"
         Write-Host "  # https://github.com/yannh/kubeconform/releases"
@@ -110,7 +111,7 @@ foreach ($env in $overlays) {
     Write-Host ("-" * 41) -ForegroundColor Cyan
 
     # Step 1: kustomize build
-    Write-Host "`n  [1/3] Running kustomize build..." -ForegroundColor White
+    Write-Host "`n  [1/4] Running kustomize build..." -ForegroundColor White
     try {
         $rendered = kustomize build $overlayPath 2>&1
         if ($LASTEXITCODE -ne 0) {
@@ -131,7 +132,27 @@ foreach ($env in $overlays) {
         continue
     }
 
-    # Step 1b: Simulate image version pinning if requested
+    # Step 1c: Validate with kubectl's embedded Kustomize implementation.
+    # The GitLab deploy jobs use `kubectl apply -k`, not standalone kustomize,
+    # so this catches render compatibility issues without requiring cluster access.
+    Write-Host "`n  [2/4] Running kubectl embedded Kustomize checks..." -ForegroundColor White
+    try {
+        $kubectlRendered = kubectl kustomize $overlayPath 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  FAIL kubectl kustomize failed:" -ForegroundColor Red
+            $kubectlRendered | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
+            $totalErrors++
+            continue
+        }
+
+        Write-Host "  PASS kubectl kustomize succeeded" -ForegroundColor Green
+    } catch {
+        Write-Host "  FAIL kubectl embedded Kustomize check error: $_" -ForegroundColor Red
+        $totalErrors++
+        continue
+    }
+
+    # Optional: simulate image version pinning if requested
     if ($ImageVersion) {
         Write-Host "`n  [*] Simulating image pin: -latest -> -$ImageVersion" -ForegroundColor Yellow
         $renderedText = $renderedText -replace `
@@ -140,7 +161,7 @@ foreach ($env in $overlays) {
     }
 
     # Step 2: kubeconform validation
-    Write-Host "`n  [2/3] Running kubeconform..." -ForegroundColor White
+    Write-Host "`n  [3/4] Running kubeconform..." -ForegroundColor White
     try {
         $conformResult = $renderedText | kubeconform -strict -summary `
             -skip "ClusterIssuer,ClusterSecretStore,ExternalSecret" 2>&1
@@ -160,7 +181,7 @@ foreach ($env in $overlays) {
     }
 
     # Step 3: Check image references
-    Write-Host "`n  [3/3] Checking image references..." -ForegroundColor White
+    Write-Host "`n  [4/4] Checking image references..." -ForegroundColor White
     $images = ($renderedText | Select-String -Pattern "image:\s*(\S+)" -AllMatches).Matches |
         ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
     $customImages = $images | Where-Object { $_ -match "bencev04/" }
@@ -185,7 +206,7 @@ foreach ($env in $overlays) {
 
     # Step 4: Optional dry-run
     if ($DryRun) {
-        Write-Host "`n  [4/4] kubectl dry-run (server)..." -ForegroundColor White
+        Write-Host "`n  [5/5] kubectl dry-run (server)..." -ForegroundColor White
         if (Test-Tool "kubectl") {
             try {
                 $dryResult = $renderedText | kubectl apply --dry-run=server -f - 2>&1
