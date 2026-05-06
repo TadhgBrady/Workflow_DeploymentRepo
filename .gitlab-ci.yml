@@ -77,6 +77,8 @@ variables:
   # INFRA_PROJECT_ID: ""        # GitLab project ID for yr4-projectinfrarepo
   # INFRA_TRIGGER_TOKEN: ""     # Pipeline trigger token for infra repo
   # GITLAB_API_TOKEN: ""        # GitLab personal/project token with API access (for polling)
+  # GITLAB_PUSH_TOKEN: ""       # GitLab personal/project token with write_repository (for GitOps commits)
+  # GITLAB_PUSH_USER: "oauth2"  # Optional token username; use project token username if oauth2 does not work
 
   # -- App URLs --
   # STAGING_URL and PROD_URL are discovered dynamically by deploy jobs
@@ -229,25 +231,44 @@ update-image-tags:
     - git add kubernetes/overlays/staging/kustomization.yaml
     - 'git commit -m "ci: update staging version to ${IMAGE_VERSION} [skip ci] - Source: ${SOURCE_COMMIT}" || echo "No changes to commit"'
     - |
-      # ── Push: prefer GITLAB_API_TOKEN, fall back to CI_JOB_TOKEN ──
-      # CI_JOB_TOKEN requires: Settings > Repository > "Allow CI job token to push"
-      # GITLAB_API_TOKEN: project/group token with write_repository scope
-      if [ -n "$GITLAB_API_TOKEN" ]; then
-        PUSH_URL="https://oauth2:${GITLAB_API_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
+      # Push with a token that can write to this repository.
+      # Prefer GITLAB_PUSH_TOKEN so GITLAB_API_TOKEN can stay API-only for infra polling.
+      if [ -n "$GITLAB_PUSH_TOKEN" ]; then
+        PUSH_USER="${GITLAB_PUSH_USER:-oauth2}"
+        PUSH_URL="https://${PUSH_USER}:${GITLAB_PUSH_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
+      elif [ -n "$GITLAB_API_TOKEN" ]; then
+        echo "WARNING: GITLAB_PUSH_TOKEN is not set; using legacy GITLAB_API_TOKEN for repository push."
+        echo "         This token must have write_repository scope."
+        PUSH_USER="${GITLAB_PUSH_USER:-oauth2}"
+        PUSH_URL="https://${PUSH_USER}:${GITLAB_API_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
       else
-        echo "⚠️  GITLAB_API_TOKEN not set — falling back to CI_JOB_TOKEN"
-        echo "   If push fails with 403, enable 'Allow CI job token to push'"
-        echo "   in Settings > Repository, or set GITLAB_API_TOKEN variable"
+        echo "WARNING: GITLAB_PUSH_TOKEN not set; falling back to CI_JOB_TOKEN."
+        echo "         If push fails, enable CI job-token push for this project"
+        echo "         or set GITLAB_PUSH_TOKEN with write_repository scope."
         PUSH_URL="https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
       fi
 
       # Retry on non-fast-forward races from parallel pipelines.
       # The change is deterministic (set version label), so rebase-and-retry is safe.
       for ATTEMPT in 1 2 3; do
-        if git push "$PUSH_URL" HEAD:main; then
+        PUSH_OUTPUT="$(git push "$PUSH_URL" HEAD:main 2>&1)"
+        PUSH_STATUS=$?
+        echo "$PUSH_OUTPUT"
+
+        if [ "$PUSH_STATUS" -eq 0 ]; then
           echo "✅ Push succeeded on attempt $ATTEMPT"
           break
         fi
+
+        case "$PUSH_OUTPUT" in
+          *"HTTP Basic: Access denied"*|*"Authentication failed"*|*"not allowed to push"*|*"403"*)
+            echo "ERROR: Git push authentication failed."
+            echo "Set GITLAB_PUSH_TOKEN to a non-expired personal/project access token with write_repository scope."
+            echo "If you use a project access token, set GITLAB_PUSH_USER to that token's username if oauth2 is rejected."
+            echo "Alternatively, enable CI_JOB_TOKEN push access for this project and leave GITLAB_PUSH_TOKEN unset."
+            exit "$PUSH_STATUS"
+            ;;
+        esac
 
         if [ "$ATTEMPT" -eq 3 ]; then
           echo "❌ Push failed after 3 attempts (likely sustained write race)."
@@ -255,7 +276,11 @@ update-image-tags:
         fi
 
         echo "⚠️  Push rejected (non-fast-forward). Rebasing on latest main and retrying..."
-        git fetch "$PUSH_URL" main
+        if ! FETCH_OUTPUT="$(git fetch "$PUSH_URL" main 2>&1)"; then
+          echo "$FETCH_OUTPUT"
+          echo "ERROR: Could not fetch latest main before retrying push."
+          exit 1
+        fi
         git rebase FETCH_HEAD
       done
   rules:
@@ -1115,18 +1140,41 @@ promote-to-production:
     - git add kubernetes/overlays/production/kustomization.yaml
     - 'git commit -m "ci: promote ${IMAGE_VERSION} to production [skip ci] - Source: ${SOURCE_COMMIT}" || echo "No changes to commit"'
     - |
-      # ── Push: prefer GITLAB_API_TOKEN, fall back to CI_JOB_TOKEN ──
-      if [ -n "$GITLAB_API_TOKEN" ]; then
-        PUSH_URL="https://oauth2:${GITLAB_API_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
+      # Push with a token that can write to this repository.
+      # Prefer GITLAB_PUSH_TOKEN so GITLAB_API_TOKEN can stay API-only for infra polling.
+      if [ -n "$GITLAB_PUSH_TOKEN" ]; then
+        PUSH_USER="${GITLAB_PUSH_USER:-oauth2}"
+        PUSH_URL="https://${PUSH_USER}:${GITLAB_PUSH_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
+      elif [ -n "$GITLAB_API_TOKEN" ]; then
+        echo "WARNING: GITLAB_PUSH_TOKEN is not set; using legacy GITLAB_API_TOKEN for repository push."
+        echo "         This token must have write_repository scope."
+        PUSH_USER="${GITLAB_PUSH_USER:-oauth2}"
+        PUSH_URL="https://${PUSH_USER}:${GITLAB_API_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
       else
-        echo "⚠️  GITLAB_API_TOKEN not set — falling back to CI_JOB_TOKEN"
+        echo "WARNING: GITLAB_PUSH_TOKEN not set; falling back to CI_JOB_TOKEN."
+        echo "         If push fails, enable CI job-token push for this project"
+        echo "         or set GITLAB_PUSH_TOKEN with write_repository scope."
         PUSH_URL="https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
       fi
       for ATTEMPT in 1 2 3; do
-        if git push "$PUSH_URL" HEAD:main; then
+        PUSH_OUTPUT="$(git push "$PUSH_URL" HEAD:main 2>&1)"
+        PUSH_STATUS=$?
+        echo "$PUSH_OUTPUT"
+
+        if [ "$PUSH_STATUS" -eq 0 ]; then
           echo "✅ Push succeeded on attempt $ATTEMPT"
           break
         fi
+
+        case "$PUSH_OUTPUT" in
+          *"HTTP Basic: Access denied"*|*"Authentication failed"*|*"not allowed to push"*|*"403"*)
+            echo "ERROR: Git push authentication failed."
+            echo "Set GITLAB_PUSH_TOKEN to a non-expired personal/project access token with write_repository scope."
+            echo "If you use a project access token, set GITLAB_PUSH_USER to that token's username if oauth2 is rejected."
+            echo "Alternatively, enable CI_JOB_TOKEN push access for this project and leave GITLAB_PUSH_TOKEN unset."
+            exit "$PUSH_STATUS"
+            ;;
+        esac
 
         if [ "$ATTEMPT" -eq 3 ]; then
           echo "❌ Push failed after 3 attempts (likely sustained write race)."
@@ -1134,7 +1182,11 @@ promote-to-production:
         fi
 
         echo "⚠️  Push rejected (non-fast-forward). Rebasing on latest main and retrying..."
-        git fetch "$PUSH_URL" main
+        if ! FETCH_OUTPUT="$(git fetch "$PUSH_URL" main 2>&1)"; then
+          echo "$FETCH_OUTPUT"
+          echo "ERROR: Could not fetch latest main before retrying push."
+          exit 1
+        fi
         git rebase FETCH_HEAD
       done
     - echo ""
