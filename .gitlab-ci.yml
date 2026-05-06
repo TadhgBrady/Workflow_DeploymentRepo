@@ -251,8 +251,8 @@ update-image-tags:
       # Retry on non-fast-forward races from parallel pipelines.
       # The change is deterministic (set version label), so rebase-and-retry is safe.
       for ATTEMPT in 1 2 3; do
-        PUSH_OUTPUT="$(git push "$PUSH_URL" HEAD:main 2>&1)"
-        PUSH_STATUS=$?
+        PUSH_STATUS=0
+        PUSH_OUTPUT="$(git push "$PUSH_URL" HEAD:main 2>&1)" || PUSH_STATUS=$?
         echo "$PUSH_OUTPUT"
 
         if [ "$PUSH_STATUS" -eq 0 ]; then
@@ -1157,8 +1157,8 @@ promote-to-production:
         PUSH_URL="https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
       fi
       for ATTEMPT in 1 2 3; do
-        PUSH_OUTPUT="$(git push "$PUSH_URL" HEAD:main 2>&1)"
-        PUSH_STATUS=$?
+        PUSH_STATUS=0
+        PUSH_OUTPUT="$(git push "$PUSH_URL" HEAD:main 2>&1)" || PUSH_STATUS=$?
         echo "$PUSH_OUTPUT"
 
         if [ "$PUSH_STATUS" -eq 0 ]; then
