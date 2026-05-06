@@ -621,7 +621,14 @@ install-observability-staging:
       kubectl apply -f kubernetes/observability/storageclass-gp3.yaml
       kubectl apply -f kubernetes/observability/namespace-monitoring.yaml
       kubectl apply -f kubernetes/observability/namespace-logging.yaml
+      kubectl apply -f kubernetes/observability/limitrange-observability.yaml
       kubectl apply -f kubernetes/observability/resourcequota-observability.yaml
+
+      # Remove stale kube-prometheus-stack admission hook jobs left by failed installs.
+      kubectl delete job \
+        kube-prometheus-stack-admission-create \
+        kube-prometheus-stack-admission-patch \
+        -n "$MONITORING_NAMESPACE" --ignore-not-found=true --wait=false
 
       GRAFANA_USER="${GRAFANA_ADMIN_USER:-admin}"
       GRAFANA_PASSWORD="${GRAFANA_ADMIN_PASSWORD:-$(openssl rand -base64 24)}"
