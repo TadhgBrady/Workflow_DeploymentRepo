@@ -65,7 +65,7 @@ spec:
               mountPath: /var/lib/docker/containers
               readOnly: true
             - name: flb-state
-              mountPath: /var/log/flb-state
+              mountPath: {{ .Values.state.mountPath | default "/var/log/flb-state" }}
       volumes:
         - name: config
           configMap:
@@ -78,7 +78,7 @@ spec:
             path: /var/lib/docker/containers
         - name: flb-state
           hostPath:
-            path: /var/lib/flb-state
+            path: {{ .Values.state.hostPath | default "/var/lib/flb-state" }}
             type: DirectoryOrCreate
       terminationGracePeriodSeconds: 10
       {{- with .Values.nodeSelector }}

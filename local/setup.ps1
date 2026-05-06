@@ -62,6 +62,51 @@ function Write-Warn($msg) {
     Write-Host "    [WARN] $msg" -ForegroundColor Yellow
 }
 
+function Invoke-KindLoadImage($Image) {
+    $process = Start-Process -FilePath "kind" `
+        -ArgumentList @("load", "docker-image", $Image, "--name", $CLUSTER_NAME) `
+        -NoNewWindow `
+        -PassThru `
+        -Wait
+    if ($process.ExitCode -ne 0) {
+        Write-Error "Failed to load image into kind: $Image"
+    }
+}
+
+function Invoke-DockerTag($SourceImage, $TargetImage) {
+    docker image inspect $TargetImage *>$null
+    if ($LASTEXITCODE -eq 0) {
+        return
+    }
+
+    docker tag $SourceImage $TargetImage
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Failed to tag image ${SourceImage} as ${TargetImage}"
+    }
+}
+
+function Get-DockerContainerHealth($ContainerName) {
+    $inspectOut = New-TemporaryFile
+    $inspectErr = New-TemporaryFile
+    try {
+        $process = Start-Process -FilePath "docker" `
+            -ArgumentList @("inspect", "--format={{.State.Health.Status}}", $ContainerName) `
+            -NoNewWindow `
+            -PassThru `
+            -Wait `
+            -RedirectStandardOutput $inspectOut.FullName `
+            -RedirectStandardError $inspectErr.FullName
+
+        if ($process.ExitCode -ne 0) {
+            return ""
+        }
+
+        return (Get-Content $inspectOut.FullName -Raw).Trim()
+    } finally {
+        Remove-Item $inspectOut.FullName, $inspectErr.FullName -Force -ErrorAction SilentlyContinue
+    }
+}
+
 # ── Pre-flight checks ──────────────────────────────────────────
 Write-Step "Pre-flight checks"
 
@@ -73,9 +118,22 @@ foreach ($cmd in @("docker", "kubectl", "kind", "kustomize")) {
     }
 }
 
-# Check Docker is running
-docker info *>$null
-if ($LASTEXITCODE -ne 0) {
+# Check Docker is running. Some Docker daemons print benign warnings on stderr.
+$dockerInfoOut = New-TemporaryFile
+$dockerInfoErr = New-TemporaryFile
+try {
+    $dockerInfoProcess = Start-Process -FilePath "docker" `
+        -ArgumentList @("info") `
+        -NoNewWindow `
+        -PassThru `
+        -Wait `
+        -RedirectStandardOutput $dockerInfoOut.FullName `
+        -RedirectStandardError $dockerInfoErr.FullName
+    $dockerInfoExitCode = $dockerInfoProcess.ExitCode
+} finally {
+    Remove-Item $dockerInfoOut.FullName, $dockerInfoErr.FullName -Force -ErrorAction SilentlyContinue
+}
+if ($dockerInfoExitCode -ne 0) {
     Write-Error "Docker is not running. Please start Docker Desktop."
 }
 Write-Ok "All prerequisites found"
@@ -88,7 +146,7 @@ docker compose -f "$LocalDir\docker-compose.infra.yaml" up -d
 Write-Host "    Waiting for PostgreSQL..." -NoNewline
 $retries = 0
 while ($retries -lt 30) {
-    $health = docker inspect --format='{{.State.Health.Status}}' local-k8s-postgres 2>$null
+    $health = Get-DockerContainerHealth "local-k8s-postgres"
     if ($health -eq "healthy") { break }
     Start-Sleep -Seconds 2
     $retries++
@@ -100,7 +158,7 @@ Write-Ok "PostgreSQL ready on port 5434"
 Write-Host "    Waiting for Redis..." -NoNewline
 $retries = 0
 while ($retries -lt 20) {
-    $health = docker inspect --format='{{.State.Health.Status}}' local-k8s-redis 2>$null
+    $health = Get-DockerContainerHealth "local-k8s-redis"
     if ($health -eq "healthy") { break }
     Start-Sleep -Seconds 2
     $retries++
@@ -144,8 +202,17 @@ if ($BuildLocal) {
     $composeImages = docker compose -f "$DevRepo\docker-compose.yml" config --images 2>$null
     foreach ($img in $composeImages) {
         if ($img) {
-            Write-Host "    Loading $img..."
-            kind load docker-image $img --name $CLUSTER_NAME 2>$null
+            $imagesToLoad = @($img)
+            if ($img -like "yr4-projectdevelopmentrepo-*" -and $img -notmatch "[:@]") {
+                $latestImage = "${img}:latest"
+                Invoke-DockerTag $img $latestImage
+                $imagesToLoad += $latestImage
+            }
+
+            foreach ($imageToLoad in $imagesToLoad) {
+                Write-Host "    Loading $imageToLoad..."
+                Invoke-KindLoadImage $imageToLoad
+            }
         }
     }
 } else {
@@ -155,7 +222,7 @@ if ($BuildLocal) {
         Write-Host "    $img" -NoNewline
         docker pull $img 2>$null
         if ($LASTEXITCODE -eq 0) {
-            kind load docker-image $img --name $CLUSTER_NAME 2>$null
+            Invoke-KindLoadImage $img
             Write-Host " [loaded]" -ForegroundColor Green
         } else {
             Write-Host " [not found - will use imagePull]" -ForegroundColor Yellow
@@ -165,7 +232,7 @@ if ($BuildLocal) {
     $nginxImg = "nginx:1.25-alpine"
     Write-Host "    $nginxImg" -NoNewline
     docker pull $nginxImg 2>$null
-    kind load docker-image $nginxImg --name $CLUSTER_NAME 2>$null
+    Invoke-KindLoadImage $nginxImg
     Write-Host " [loaded]" -ForegroundColor Green
 }
 Write-Ok "Images loaded"
@@ -179,6 +246,7 @@ kubectl kustomize $OverlayDir > $null
 if ($LASTEXITCODE -ne 0) { Write-Error "Kustomize validation failed" }
 
 # Apply
+kubectl delete job migration-runner -n $NAMESPACE --ignore-not-found | Out-Host
 kubectl apply -k $OverlayDir
 if ($LASTEXITCODE -ne 0) { Write-Error "kubectl apply failed" }
 Write-Ok "Manifests applied"
@@ -227,6 +295,8 @@ Write-Host "    Useful commands:" -ForegroundColor Gray
 Write-Host "      kubectl get pods -n $NAMESPACE" -ForegroundColor Gray
 Write-Host "      kubectl logs -f deployment/auth-service -n $NAMESPACE" -ForegroundColor Gray
 Write-Host "      kubectl port-forward svc/nginx-gateway 8080:80 -n $NAMESPACE" -ForegroundColor Gray
+Write-Host "      .\local\setup-observability.ps1      # install local Prometheus/Loki/Grafana/Fluent Bit" -ForegroundColor Gray
+Write-Host "      .\local\validate-observability.ps1   # validate local metrics and logs" -ForegroundColor Gray
 Write-Host "      .\local\teardown.ps1   # to clean up" -ForegroundColor Gray
 Write-Host ""
 

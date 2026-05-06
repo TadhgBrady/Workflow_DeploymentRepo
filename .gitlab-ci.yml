@@ -8,9 +8,8 @@
 # Pipeline Architecture (12 stages):
 #
 #   validate → update-tags → ensure-staging (triggers infra repo) → deploy-staging
-#     → staging-tests → destroy-staging (triggers infra repo) → promote
-#       → ensure-production (triggers infra repo) → deploy-prod → prod-validation
-#         → notify
+#     → staging-tests → promote → ensure-production (triggers infra repo)
+#       → deploy-prod → prod-validation → destroy-staging → notify
 #
 # Environments:
 #   - Staging:    Auto-deploy, canary rollout, full test suite before promotion
@@ -33,11 +32,11 @@ stages:
   - ensure-staging      # Scale up staging cluster (or trigger infra pipeline)
   - deploy-staging      # kubectl apply staging, rollout verification
   - staging-tests       # Playwright E2E, Grafana k6 load tests, smoke tests
-  - destroy-staging     # Fully destroy staging infra via infra repo before prod
   - promote             # Manual gate — approve promotion to production
   - ensure-production   # Scale up production cluster (or trigger infra pipeline)
   - deploy-prod         # kubectl apply production, rollout verification
   - prod-validation     # Post-deploy smoke tests & health verification
+  - destroy-staging     # Fully destroy staging infra after production verification
   - notify              # Slack/webhook notification of deploy result
   - manual-ops          # Manual scale-up / scale-down jobs (independent)
 
@@ -69,6 +68,11 @@ variables:
   PROD_NODE_GROUP: "yr4-project-production-eks-nodes"
   STAGING_NAMESPACE: "year4-project-staging"
   PROD_NAMESPACE: "year4-project"
+  MONITORING_NAMESPACE: "monitoring"
+  LOGGING_NAMESPACE: "logging"
+  KUBE_PROM_STACK_RELEASE: "monitoring"
+  LOKI_RELEASE: "loki"
+  FLUENT_BIT_RELEASE: "fluent-bit"
   # -- Infrastructure repo (set in GitLab CI/CD settings as masked variables) --
   # INFRA_PROJECT_ID: ""        # GitLab project ID for yr4-projectinfrarepo
   # INFRA_TRIGGER_TOKEN: ""     # Pipeline trigger token for infra repo
@@ -103,6 +107,8 @@ validate-manifests:
         echo "── Validating overlay: $ENV ──"
         kustomize build kubernetes/overlays/$ENV | kubeconform -strict -summary -skip ClusterIssuer,ClusterSecretStore,ExternalSecret
       done
+      echo "── Validating observability manifests ──"
+      kubeconform -strict -summary -skip ServiceMonitor,PrometheusRule kubernetes/observability/*.yaml
     - echo ""
     - echo "✅ All Kubernetes manifests are valid"
   rules:
@@ -117,22 +123,49 @@ validate-helm:
   image:
     name: alpine/helm:3.14.0
     entrypoint: [""]
-  before_script: []
+  before_script:
+    - helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+    - helm repo add grafana https://grafana.github.io/helm-charts
+    - helm repo update
   script:
     - echo "═══════════════════════════════════════════════════════════════"
     - echo "  Validating Helm templates"
     - echo "═══════════════════════════════════════════════════════════════"
     - |
-      for ENV in dev staging prod; do
-        echo "── helm template: values-${ENV}.yaml ──"
-        helm template year4-project helm/year4-project \
-          -f helm/year4-project/values-${ENV}.yaml \
-          --debug > /dev/null
+      for CHART in year4-project fluent-bit prometheus grafana; do
+        for ENV in dev staging prod; do
+          echo "── helm template: ${CHART} values-${ENV}.yaml ──"
+          helm template "${CHART}" "helm/${CHART}" \
+            -f "helm/${CHART}/values-${ENV}.yaml" \
+            --debug > /dev/null
+        done
       done
+      echo "── helm template: kube-prometheus-stack staging values ──"
+      helm template "$KUBE_PROM_STACK_RELEASE" prometheus-community/kube-prometheus-stack \
+        -f helm/kube-prometheus-stack/values-staging.yaml \
+        --namespace "$MONITORING_NAMESPACE" \
+        --debug > /dev/null
+
+      echo "── helm template: Loki staging values ──"
+      helm template "$LOKI_RELEASE" grafana/loki \
+        -f helm/loki/values-staging.yaml \
+        --namespace "$MONITORING_NAMESPACE" \
+        --debug > /dev/null
     - echo ""
     - echo "✅ All Helm templates render successfully"
   rules:
     - when: always
+  allow_failure: false
+
+validate-image-version:
+  stage: validate
+  image: alpine:latest
+  before_script: []
+  script:
+    - sh scripts/deployment/validate-image-version.sh
+  rules:
+    - if: $IMAGE_VERSION
+      when: on_success
   allow_failure: false
 
 # =============================================================================
@@ -151,6 +184,7 @@ update-image-tags:
   needs:
     - validate-manifests
     - validate-helm
+    - validate-image-version
   before_script:
     - apk add --no-cache git sed
   script:
@@ -535,6 +569,104 @@ install-addons-staging:
       when: on_success
   allow_failure: false
 
+install-observability-staging:
+  stage: deploy-staging
+  image: alpine:latest
+  resource_group: staging-observability
+  needs:
+    - job: install-addons-staging
+      optional: true
+  before_script:
+    - apk add --no-cache curl bash tar gzip python3 py3-pip openssl
+    - pip3 install --break-system-packages awscli
+    - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
+    - chmod +x kubectl && mv kubectl /usr/local/bin/
+    - curl -sL "https://get.helm.sh/helm-v3.17.0-linux-amd64.tar.gz" | tar xz -C /tmp
+    - mv /tmp/linux-amd64/helm /usr/local/bin/
+    - helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+    - helm repo add grafana https://grafana.github.io/helm-charts
+    - helm repo update
+    - aws eks update-kubeconfig --name $STAGING_CLUSTER_NAME --region $AWS_DEFAULT_REGION
+  script:
+    - |
+      echo "═══════════════════════════════════════════════════════════════"
+      echo "  Installing observability foundation for STAGING"
+      echo "═══════════════════════════════════════════════════════════════"
+
+      kubectl apply -f kubernetes/observability/storageclass-gp3.yaml
+      kubectl apply -f kubernetes/observability/namespace-monitoring.yaml
+      kubectl apply -f kubernetes/observability/namespace-logging.yaml
+      kubectl apply -f kubernetes/observability/resourcequota-observability.yaml
+
+      GRAFANA_USER="${GRAFANA_ADMIN_USER:-admin}"
+      GRAFANA_PASSWORD="${GRAFANA_ADMIN_PASSWORD:-$(openssl rand -base64 24)}"
+      kubectl create secret generic grafana-admin \
+        --namespace "$MONITORING_NAMESPACE" \
+        --from-literal=admin-user="$GRAFANA_USER" \
+        --from-literal=admin-password="$GRAFANA_PASSWORD" \
+        --dry-run=client -o yaml | kubectl apply -f -
+
+      if [ -z "${LOKI_S3_BUCKET:-}" ]; then
+        LOKI_S3_BUCKET=$(aws s3api list-buckets \
+          --query 'Buckets[?starts_with(Name, `yr4-project-staging-loki-`)].Name | [0]' \
+          --output text)
+      fi
+      if [ -z "$LOKI_S3_BUCKET" ] || [ "$LOKI_S3_BUCKET" = "None" ]; then
+        echo "❌ LOKI_S3_BUCKET was not provided and no yr4-project-staging-loki-* bucket was found"
+        exit 1
+      fi
+      echo "Loki S3 bucket: $LOKI_S3_BUCKET"
+
+      LOKI_ROLE_ARN=$(aws iam get-role \
+        --role-name yr4-project-staging-loki-role \
+        --query 'Role.Arn' --output text)
+      echo "Loki Role ARN: $LOKI_ROLE_ARN"
+
+      helm upgrade --install "$KUBE_PROM_STACK_RELEASE" prometheus-community/kube-prometheus-stack \
+        -f helm/kube-prometheus-stack/values-staging.yaml \
+        --namespace "$MONITORING_NAMESPACE" --create-namespace \
+        --wait --timeout 600s
+
+      helm upgrade --install "$LOKI_RELEASE" grafana/loki \
+        -f helm/loki/values-staging.yaml \
+        --namespace "$MONITORING_NAMESPACE" --create-namespace \
+        --set "serviceAccount.annotations.eks\.amazonaws\.com/role-arn=$LOKI_ROLE_ARN" \
+        --set "loki.storage.bucketNames.chunks=$LOKI_S3_BUCKET" \
+        --set "loki.storage.bucketNames.ruler=$LOKI_S3_BUCKET" \
+        --set "loki.storage.bucketNames.admin=$LOKI_S3_BUCKET" \
+        --set "loki.storage.s3.region=$AWS_DEFAULT_REGION" \
+        --wait --timeout 600s
+
+      FLUENT_BIT_ROLE_ARN=$(aws iam get-role \
+        --role-name yr4-project-staging-fluent-bit-role \
+        --query 'Role.Arn' --output text)
+      echo "Fluent Bit Role ARN: $FLUENT_BIT_ROLE_ARN"
+
+      helm upgrade --install "$FLUENT_BIT_RELEASE" helm/fluent-bit \
+        -f helm/fluent-bit/values-staging.yaml \
+        --namespace "$LOGGING_NAMESPACE" --create-namespace \
+        --set "serviceAccount.annotations.eks\.amazonaws\.com/role-arn=$FLUENT_BIT_ROLE_ARN" \
+        --wait --timeout 300s
+
+      kubectl rollout status daemonset/$FLUENT_BIT_RELEASE -n "$LOGGING_NAMESPACE" --timeout=180s
+      kubectl apply -f kubernetes/observability/servicemonitor-apps.yaml
+      kubectl apply -f kubernetes/observability/servicemonitor-fluent-bit.yaml
+      kubectl apply -f kubernetes/observability/prometheusrules-staging.yaml
+      kubectl apply -f kubernetes/observability/dashboard-staging-overview.yaml
+      kubectl apply -f kubernetes/observability/dashboard-logging-troubleshooting.yaml
+      kubectl apply -f kubernetes/observability/dashboard-system-metrics.yaml
+
+      kubectl rollout status deployment -l app.kubernetes.io/name=grafana -n "$MONITORING_NAMESPACE" --timeout=300s
+      kubectl get pods -n "$MONITORING_NAMESPACE"
+      kubectl get pods -n "$LOGGING_NAMESPACE"
+      echo "✅ Staging kube-prometheus-stack, Loki, Fluent Bit, and dashboards installed"
+  rules:
+    - if: $IMAGE_VERSION
+      when: on_success
+    - when: manual
+      allow_failure: true
+  allow_failure: false
+
 # =============================================================================
 # STAGE 3b: DEPLOY STAGING — kubectl apply + rollout verification
 # =============================================================================
@@ -543,7 +675,7 @@ deploy-staging:
   stage: deploy-staging
   image: alpine:latest
   needs:
-    - install-addons-staging
+    - install-observability-staging
   before_script:
     - apk add --no-cache curl bash tar gzip python3 py3-pip sed
     - pip3 install --break-system-packages awscli
@@ -837,7 +969,7 @@ smoke-tests-staging:
 # Re-add when test scripts are ready. See CD_PLAN.md Phase 4.
 
 # =============================================================================
-# STAGE 5: DESTROY STAGING — Fully tear down staging before production
+# STAGE 8: DESTROY STAGING — Fully tear down staging after production validation
 # =============================================================================
 # Uses the infra repo destroy job so the EKS cluster, VPC, security groups,
 # and IAM resources are removed rather than only scaling nodes to zero.
@@ -846,7 +978,7 @@ cleanup-staging-loadbalancers:
   stage: destroy-staging
   image: alpine:latest
   needs:
-    - smoke-tests-staging
+    - smoke-tests-production
   before_script:
     - apk add --no-cache curl bash python3 py3-pip
     - pip3 install --break-system-packages awscli
@@ -928,7 +1060,7 @@ cleanup-staging-loadbalancers:
       exit 1
   rules:
     - if: $IMAGE_VERSION
-      when: manual
+      when: on_success
       allow_failure: false
 
 trigger-destroy-staging:
@@ -950,14 +1082,14 @@ trigger-destroy-staging:
 # =============================================================================
 #
 # Same manual gate pattern as the dev repo's trigger-deploy stage.
-# Updates production overlay image tags and commits back to repo.
+# Updates the production overlay version label and commits back to repo.
 # The pipeline waits for manual approval before deploying to production.
 
 promote-to-production:
   stage: promote
   image: alpine:latest
   needs:
-    - trigger-destroy-staging
+    - smoke-tests-staging
   before_script:
     - apk add --no-cache git sed
   script:
@@ -965,8 +1097,18 @@ promote-to-production:
     - echo "  Promoting ${IMAGE_VERSION} to PRODUCTION"
     - echo "═══════════════════════════════════════════════════════════════"
     - |
+      git fetch origin main
+      git checkout -B main origin/main
       cd kubernetes/overlays/production
-      sed -i "s|newTag:.*|newTag: ${IMAGE_VERSION}|" kustomization.yaml
+      if ! grep -q 'app.kubernetes.io/version:' kustomization.yaml; then
+        echo "❌ Production overlay is missing app.kubernetes.io/version label"
+        exit 1
+      fi
+      sed -i "s|app.kubernetes.io/version: .*|app.kubernetes.io/version: \"${IMAGE_VERSION}\"|" kustomization.yaml
+      if ! grep -q "app.kubernetes.io/version: \"${IMAGE_VERSION}\"" kustomization.yaml; then
+        echo "❌ Failed to update production version label"
+        exit 1
+      fi
       cd "$CI_PROJECT_DIR"
     - git config user.email "cd-pipeline@gitlab.ci"
     - git config user.name "CD Pipeline"
@@ -980,7 +1122,21 @@ promote-to-production:
         echo "⚠️  GITLAB_API_TOKEN not set — falling back to CI_JOB_TOKEN"
         PUSH_URL="https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
       fi
-      git push "$PUSH_URL" HEAD:main
+      for ATTEMPT in 1 2 3; do
+        if git push "$PUSH_URL" HEAD:main; then
+          echo "✅ Push succeeded on attempt $ATTEMPT"
+          break
+        fi
+
+        if [ "$ATTEMPT" -eq 3 ]; then
+          echo "❌ Push failed after 3 attempts (likely sustained write race)."
+          exit 1
+        fi
+
+        echo "⚠️  Push rejected (non-fast-forward). Rebasing on latest main and retrying..."
+        git fetch "$PUSH_URL" main
+        git rebase FETCH_HEAD
+      done
     - echo ""
     - echo "✅ Production overlay updated — kubectl deploy will proceed next"
   rules:
@@ -1232,6 +1388,46 @@ install-addons-production:
       when: on_success
   allow_failure: false
 
+install-observability-production:
+  stage: deploy-prod
+  image: alpine:latest
+  resource_group: production-observability
+  needs:
+    - install-addons-production
+  before_script:
+    - apk add --no-cache curl bash tar gzip python3 py3-pip
+    - pip3 install --break-system-packages awscli
+    - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
+    - chmod +x kubectl && mv kubectl /usr/local/bin/
+    - curl -sL "https://get.helm.sh/helm-v3.17.0-linux-amd64.tar.gz" | tar xz -C /tmp
+    - mv /tmp/linux-amd64/helm /usr/local/bin/
+    - aws eks update-kubeconfig --name $PROD_CLUSTER_NAME --region $AWS_DEFAULT_REGION
+  script:
+    - |
+      echo "═══════════════════════════════════════════════════════════════"
+      echo "  Installing observability foundation for PRODUCTION"
+      echo "═══════════════════════════════════════════════════════════════"
+
+      kubectl apply -f kubernetes/observability/storageclass-gp3.yaml
+
+      FLUENT_BIT_ROLE_ARN=$(aws iam get-role \
+        --role-name yr4-project-production-fluent-bit-role \
+        --query 'Role.Arn' --output text)
+      echo "Fluent Bit Role ARN: $FLUENT_BIT_ROLE_ARN"
+
+      helm upgrade --install "$FLUENT_BIT_RELEASE" helm/fluent-bit \
+        -f helm/fluent-bit/values-prod.yaml \
+        --namespace "$LOGGING_NAMESPACE" --create-namespace \
+        --set "serviceAccount.annotations.eks\.amazonaws\.com/role-arn=$FLUENT_BIT_ROLE_ARN" \
+        --wait --timeout 300s
+
+      kubectl rollout status daemonset/$FLUENT_BIT_RELEASE -n "$LOGGING_NAMESPACE" --timeout=180s
+      echo "✅ Production observability foundation installed"
+  rules:
+    - if: $IMAGE_VERSION
+      when: on_success
+  allow_failure: false
+
 # =============================================================================
 # STAGE 6b: DEPLOY PRODUCTION — kubectl apply + rollout verification
 # =============================================================================
@@ -1240,7 +1436,7 @@ deploy-production:
   stage: deploy-prod
   image: alpine:latest
   needs:
-    - install-addons-production
+    - install-observability-production
   before_script:
     - apk add --no-cache curl bash tar gzip python3 py3-pip sed
     - pip3 install --break-system-packages awscli
@@ -1467,7 +1663,7 @@ notify-success:
   stage: notify
   image: alpine:latest
   needs:
-    - smoke-tests-production
+    - trigger-destroy-staging
   before_script:
     - apk add --no-cache curl
   script:

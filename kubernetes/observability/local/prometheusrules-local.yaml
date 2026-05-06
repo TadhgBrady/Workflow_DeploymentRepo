@@ -1,0 +1,79 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: year4-project-local-alerts
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: year4-project-local-alerts
+    app.kubernetes.io/part-of: year4-project-observability
+spec:
+  groups:
+    - name: year4-project.local.availability
+      rules:
+        - alert: Year4ProjectLocalServiceTargetDown
+          expr: up{namespace="year4-project-local", job!=""} == 0
+          for: 2m
+          labels:
+            severity: warning
+            environment: local
+          annotations:
+            summary: "Local scrape target is down"
+            description: "{{ $labels.job }} / {{ $labels.instance }} has been unavailable for 2 minutes."
+        - alert: Year4ProjectLocalDeploymentReplicasUnavailable
+          expr: kube_deployment_status_replicas_unavailable{namespace="year4-project-local"} > 0
+          for: 2m
+          labels:
+            severity: warning
+            environment: local
+          annotations:
+            summary: "Local deployment has unavailable replicas"
+            description: "{{ $labels.deployment }} has unavailable replicas."
+        - alert: Year4ProjectLocalPodCrashLooping
+          expr: increase(kube_pod_container_status_restarts_total{namespace="year4-project-local"}[10m]) > 3
+          for: 2m
+          labels:
+            severity: warning
+            environment: local
+          annotations:
+            summary: "Local pod restart rate is high"
+            description: "{{ $labels.pod }} / {{ $labels.container }} restarted repeatedly."
+    - name: year4-project.local.http
+      rules:
+        - alert: Year4ProjectLocalHttp5xxHigh
+          expr: sum by (service) (rate(http_requests_total{namespace="year4-project-local",status=~"5.."}[5m])) > 0.05
+          for: 2m
+          labels:
+            severity: warning
+            environment: local
+          annotations:
+            summary: "Local HTTP 5xx rate is elevated"
+            description: "{{ $labels.service }} is returning elevated 5xx responses."
+        - alert: Year4ProjectLocalHttpLatencyHigh
+          expr: histogram_quantile(0.95, sum by (le, service) (rate(http_request_duration_seconds_bucket{namespace="year4-project-local"}[5m]))) > 1
+          for: 5m
+          labels:
+            severity: warning
+            environment: local
+          annotations:
+            summary: "Local HTTP p95 latency is high"
+            description: "{{ $labels.service }} p95 latency has exceeded 1 second."
+    - name: year4-project.local.logging
+      rules:
+        - alert: FluentBitLocalErrorsHigh
+          expr: rate(fluentbit_output_errors_total[5m]) > 0
+          for: 2m
+          labels:
+            severity: warning
+            environment: local
+          annotations:
+            summary: "Fluent Bit local output errors are elevated"
+            description: "Fluent Bit is reporting output errors while forwarding local logs."
+        - alert: FluentBitLocalRetriesHigh
+          expr: rate(fluentbit_output_retries_total[5m]) > 0.1
+          for: 5m
+          labels:
+            severity: warning
+            environment: local
+          annotations:
+            summary: "Fluent Bit local output retries are elevated"
+            description: "Fluent Bit is retrying local log delivery frequently."

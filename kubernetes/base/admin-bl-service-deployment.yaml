@@ -52,8 +52,9 @@ spec:
           periodSeconds: 10
         readinessProbe:
           httpGet:
-            path: /api/v1/health
+            path: /api/v1/ready
             port: 8008
           initialDelaySeconds: 5
           periodSeconds: 5
+          timeoutSeconds: 10
        

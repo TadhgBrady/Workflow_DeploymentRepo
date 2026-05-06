@@ -28,6 +28,10 @@ podSecurityContext:
 securityContext:
   privileged: true
 
+state:
+  mountPath: /tmp/flb-state
+  hostPath: /var/lib/flb-state
+
 resources:
   limits:
     cpu: 200m
@@ -54,6 +58,7 @@ config:
       HTTP_Server On
       HTTP_Listen 0.0.0.0
       HTTP_Port 2020
+      Health_Check On
 
   inputs: |
     [INPUT]
@@ -65,12 +70,12 @@ config:
     [INPUT]
       Name tail
       Path /var/log/containers/*_year4-project-dev_*.log
-      Parser docker
+      Parser cri
       Tag app.*
       Refresh_Interval 5
       Mem_Buf_Limit 50MB
       Skip_Long_Lines On
-      DB /var/log/flb-kube.db
+      DB /tmp/flb-state/flb-dev.db
       DB.locking true
 
   filters: |
@@ -121,6 +126,14 @@ config:
       Type _doc
 
   parsers: |
+    [PARSER]
+      Name cri
+      Format regex
+      Regex ^(?<time>[^ ]+) (?<stream>stdout|stderr) (?<logtag>[^ ]*) (?<log>.*)$
+      Time_Key time
+      Time_Format %Y-%m-%dT%H:%M:%S.%L%z
+      Time_Keep On
+
     [PARSER]
       Name docker
       Format json

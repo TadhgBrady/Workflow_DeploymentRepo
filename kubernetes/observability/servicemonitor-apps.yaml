@@ -1,0 +1,39 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: year4-project-apps
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: year4-project-apps
+    app.kubernetes.io/part-of: year4-project-observability
+spec:
+  namespaceSelector:
+    matchNames:
+      - year4-project-staging
+  selector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values:
+          - admin-bl-service
+          - auth-service
+          - customer-bl-service
+          - customer-db-access-service
+          - job-bl-service
+          - job-db-access-service
+          - maps-access-service
+          - notification-service
+          - user-bl-service
+          - user-db-access-service
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      honorLabels: true
+      relabelings:
+        - sourceLabels:
+            - __meta_kubernetes_service_label_app
+          targetLabel: service
+        - targetLabel: environment
+          replacement: staging

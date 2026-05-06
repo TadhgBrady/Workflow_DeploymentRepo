@@ -1,0 +1,275 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-year4-system-metrics
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+    app.kubernetes.io/name: year4-system-metrics
+    app.kubernetes.io/part-of: year4-project-observability
+data:
+  year4-system-metrics.json: |
+    {
+      "uid": "year4-system-metrics",
+      "title": "Year4 System Metrics",
+      "tags": ["year4-project", "kubernetes", "system", "metrics"],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "15s",
+      "time": {
+        "from": "now-1h",
+        "to": "now"
+      },
+      "templating": {
+        "list": [
+          {
+            "name": "app_namespace",
+            "label": "App Namespace",
+            "type": "custom",
+            "query": "year4-project-local,year4-project-staging,year4-project",
+            "includeAll": true,
+            "allValue": "year4-project-local|year4-project-staging|year4-project",
+            "multi": false,
+            "current": {"text": "All", "value": "$__all"},
+            "options": [
+              {"selected": true, "text": "All", "value": "$__all"},
+              {"selected": false, "text": "year4-project-local", "value": "year4-project-local"},
+              {"selected": false, "text": "year4-project-staging", "value": "year4-project-staging"},
+              {"selected": false, "text": "year4-project", "value": "year4-project"}
+            ]
+          },
+          {
+            "name": "platform_namespaces",
+            "label": "Platform Namespaces Regex",
+            "type": "constant",
+            "query": "monitoring|logging",
+            "current": {"text": "monitoring|logging", "value": "monitoring|logging"}
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Ready App Pods",
+          "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "sum(kube_pod_status_ready{namespace=~\"$app_namespace\",condition=\"true\"})", "refId": "A"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Unavailable Replicas",
+          "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "sum(kube_deployment_status_replicas_unavailable{namespace=~\"$app_namespace\"})", "refId": "A"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}, "overrides": []}
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Container Restarts Last 15m",
+          "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=~\"$app_namespace\"}[15m]))", "refId": "A"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1}, {"color": "red", "value": 3}]}}, "overrides": []}
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Prometheus Targets Down",
+          "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "sum(up == 0)", "refId": "A"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}, "overrides": []}
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "CPU Usage By Namespace",
+          "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "sum by (namespace) (rate(container_cpu_usage_seconds_total{namespace=~\"$app_namespace|$platform_namespaces\",container!=\"\",image!=\"\"}[5m]))", "legendFormat": "{{namespace}}", "refId": "A"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "cores"}, "overrides": []}
+        },
+        {
+          "id": 6,
+          "type": "timeseries",
+          "title": "Memory Working Set By Namespace",
+          "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "sum by (namespace) (container_memory_working_set_bytes{namespace=~\"$app_namespace|$platform_namespaces\",container!=\"\",image!=\"\"})", "legendFormat": "{{namespace}}", "refId": "A"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []}
+        },
+        {
+          "id": 7,
+          "type": "timeseries",
+          "title": "Top App Pods By CPU",
+          "gridPos": {"x": 0, "y": 12, "w": 12, "h": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "topk(10, sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=~\"$app_namespace\",container!=\"\",image!=\"\"}[5m])))", "legendFormat": "{{pod}}", "refId": "A"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "cores"}, "overrides": []}
+        },
+        {
+          "id": 8,
+          "type": "timeseries",
+          "title": "Top App Pods By Memory",
+          "gridPos": {"x": 12, "y": 12, "w": 12, "h": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "topk(10, sum by (pod) (container_memory_working_set_bytes{namespace=~\"$app_namespace\",container!=\"\",image!=\"\"}))", "legendFormat": "{{pod}}", "refId": "A"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []}
+        },
+        {
+          "id": 9,
+          "type": "timeseries",
+          "title": "Node CPU Utilization",
+          "gridPos": {"x": 0, "y": 20, "w": 12, "h": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "100 * (1 - avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])))", "legendFormat": "{{instance}}", "refId": "A"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100}, "overrides": []}
+        },
+        {
+          "id": 10,
+          "type": "timeseries",
+          "title": "Node Memory Utilization",
+          "gridPos": {"x": 12, "y": 20, "w": 12, "h": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "100 * (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes))", "legendFormat": "{{instance}}", "refId": "A"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100}, "overrides": []}
+        },
+        {
+          "id": 11,
+          "type": "timeseries",
+          "title": "Node Filesystem Free",
+          "gridPos": {"x": 0, "y": 28, "w": 12, "h": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "100 * (node_filesystem_avail_bytes{fstype!~\"tmpfs|fuse.lxcfs|overlay\"} / node_filesystem_size_bytes{fstype!~\"tmpfs|fuse.lxcfs|overlay\"})", "legendFormat": "{{instance}} {{mountpoint}}", "refId": "A"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100}, "overrides": []}
+        },
+        {
+          "id": 12,
+          "type": "timeseries",
+          "title": "Pod Network Receive And Transmit",
+          "gridPos": {"x": 12, "y": 28, "w": 12, "h": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "sum by (pod) (rate(container_network_receive_bytes_total{namespace=~\"$app_namespace\"}[5m]))", "legendFormat": "rx {{pod}}", "refId": "A"},
+            {"expr": "sum by (pod) (rate(container_network_transmit_bytes_total{namespace=~\"$app_namespace\"}[5m]))", "legendFormat": "tx {{pod}}", "refId": "B"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "Bps"}, "overrides": []}
+        },
+        {
+          "id": 13,
+          "type": "timeseries",
+          "title": "Deployment Available Vs Desired Replicas",
+          "gridPos": {"x": 0, "y": 36, "w": 12, "h": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "kube_deployment_status_replicas_available{namespace=~\"$app_namespace\"}", "legendFormat": "available {{deployment}}", "refId": "A"},
+            {"expr": "kube_deployment_spec_replicas{namespace=~\"$app_namespace\"}", "legendFormat": "desired {{deployment}}", "refId": "B"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
+        },
+        {
+          "id": 14,
+          "type": "timeseries",
+          "title": "Container Restarts By Pod",
+          "gridPos": {"x": 12, "y": 36, "w": 12, "h": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "sum by (pod, container) (increase(kube_pod_container_status_restarts_total{namespace=~\"$app_namespace\"}[15m]))", "legendFormat": "{{pod}} / {{container}}", "refId": "A"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
+        },
+        {
+          "id": 15,
+          "type": "timeseries",
+          "title": "PVC Used Percent",
+          "gridPos": {"x": 0, "y": 44, "w": 12, "h": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "100 * (1 - (kubelet_volume_stats_available_bytes{namespace=~\"$app_namespace|$platform_namespaces\"} / kubelet_volume_stats_capacity_bytes{namespace=~\"$app_namespace|$platform_namespaces\"}))", "legendFormat": "{{namespace}} / {{persistentvolumeclaim}}", "refId": "A"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100}, "overrides": []}
+        },
+        {
+          "id": 16,
+          "type": "timeseries",
+          "title": "Prometheus Scrape Target Health",
+          "gridPos": {"x": 12, "y": 44, "w": 12, "h": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "sum by (namespace, job) (up{namespace=~\"$app_namespace|$platform_namespaces\"})", "legendFormat": "{{namespace}} / {{job}}", "refId": "A"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "short", "min": 0, "max": 1}, "overrides": []}
+        },
+        {
+          "id": 17,
+          "type": "timeseries",
+          "title": "Application HTTP Request Rate",
+          "gridPos": {"x": 0, "y": 52, "w": 12, "h": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "sum by (service, status) (rate(http_requests_total{namespace=~\"$app_namespace\"}[5m]))", "legendFormat": "{{service}} {{status}}", "refId": "A"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []}
+        },
+        {
+          "id": 18,
+          "type": "timeseries",
+          "title": "Application HTTP p95 Latency",
+          "gridPos": {"x": 12, "y": 52, "w": 12, "h": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "histogram_quantile(0.95, sum by (le, service) (rate(http_request_duration_seconds_bucket{namespace=~\"$app_namespace\"}[5m])))", "legendFormat": "{{service}}", "refId": "A"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []}
+        },
+        {
+          "id": 19,
+          "type": "timeseries",
+          "title": "Database Query p95 And Pool Connections",
+          "gridPos": {"x": 0, "y": 60, "w": 12, "h": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "histogram_quantile(0.95, sum by (le, service) (rate(db_query_duration_seconds_bucket[5m])))", "legendFormat": "db p95 {{service}}", "refId": "A"},
+            {"expr": "db_pool_connections", "legendFormat": "pool {{service}}", "refId": "B"}
+          ]
+        },
+        {
+          "id": 20,
+          "type": "timeseries",
+          "title": "Cache Operation Latency And Errors",
+          "gridPos": {"x": 12, "y": 60, "w": 12, "h": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "histogram_quantile(0.95, sum by (le, service, operation) (rate(cache_operation_duration_seconds_bucket[5m])))", "legendFormat": "cache p95 {{service}} {{operation}}", "refId": "A"},
+            {"expr": "sum by (service, operation) (rate(cache_errors_total[5m]))", "legendFormat": "cache errors {{service}} {{operation}}", "refId": "B"}
+          ]
+        }
+      ]
+    }

@@ -1,4 +1,4 @@
-replicaCount: 3
+replicaCount: 1
 image:
   repository: fluent/fluent-bit
   tag: "5.0.3"
@@ -34,40 +34,26 @@ state:
 
 resources:
   limits:
-    cpu: 500m
-    memory: 512Mi
+    cpu: 200m
+    memory: 192Mi
   requests:
-    cpu: 250m
-    memory: 256Mi
+    cpu: 75m
+    memory: 96Mi
 
 nodeSelector: {}
-
 tolerations:
   - key: node-role.kubernetes.io/master
     operator: Exists
     effect: NoSchedule
-  - key: dedicated
-    operator: Equal
-    value: logging
-    effect: NoSchedule
 
-affinity:
-  podAntiAffinity:
-    requiredDuringSchedulingIgnoredDuringExecution:
-      - labelSelector:
-          matchExpressions:
-            - key: app
-              operator: In
-              values:
-                - fluent-bit
-        topologyKey: kubernetes.io/hostname
+affinity: {}
 
 config:
   service: |
     [SERVICE]
       Parsers_File parsers.conf
-      Log_Level warn
-      Flush 15
+      Log_Level info
+      Flush 5
       Daemon off
       HTTP_Server On
       HTTP_Listen 0.0.0.0
@@ -83,13 +69,13 @@ config:
 
     [INPUT]
       Name tail
-      Path /var/log/containers/*.log
+      Path /var/log/containers/*_year4-project-local_*.log
       Parser cri
       Tag app.*
-      Refresh_Interval 10
-      Mem_Buf_Limit 256MB
+      Refresh_Interval 5
+      Mem_Buf_Limit 50MB
       Skip_Long_Lines On
-      DB /tmp/flb-state/flb-production.db
+      DB /tmp/flb-state/flb-local.db
       DB.locking true
 
   filters: |
@@ -116,9 +102,8 @@ config:
       Name record_modifier
       Match app.*
       Record hostname ${HOSTNAME}
-      Record cluster aws-production
-      Record environment production
-      Record region eu-west-1
+      Record cluster kind-local
+      Record environment local
 
   outputs: |
     [OUTPUT]
@@ -126,13 +111,19 @@ config:
       Match healthcheck
 
     [OUTPUT]
-      Name cloudwatch_logs
+      Name stdout
       Match app.*
-      region eu-west-1
-      log_group_name /aws/eks/year4-project/prod/logs
-      log_stream_prefix fluent-bit-
-      auto_create_group false
-      retry_limit 5
+      Format json_lines
+
+    [OUTPUT]
+      Name loki
+      Match app.*
+      Host loki-gateway.monitoring.svc.cluster.local
+      Port 80
+      Labels cluster=kind-local,environment=local
+      Label_Keys $kubernetes['namespace_name'],$kubernetes['pod_name'],$kubernetes['container_name'],$kubernetes['labels']['app'],$service_name,$logging_level
+      Line_Format json
+      Retry_Limit false
 
   parsers: |
     [PARSER]

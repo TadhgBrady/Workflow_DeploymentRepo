@@ -1,13 +1,14 @@
 apiVersion: v2
 name: fluent-bit
-description: Fluent Bit for log aggregation and forwarding to Elasticsearch
+description: Fluent Bit for Kubernetes log collection with Loki primary output and CloudWatch fallback
 type: application
 version: 1.0.0
 appVersion: "5.0.3"
 keywords:
   - logging
   - fluent-bit
-  - elasticsearch
+  - loki
+  - cloudwatch
 maintainers:
   - name: Year4 Project Team
 dependencies: []

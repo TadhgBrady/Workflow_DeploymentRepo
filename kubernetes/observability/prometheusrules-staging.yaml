@@ -1,0 +1,90 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: year4-project-staging-alerts
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: year4-project-staging-alerts
+    app.kubernetes.io/part-of: year4-project-observability
+spec:
+  groups:
+    - name: year4-project.staging.availability
+      rules:
+        - alert: Year4ProjectServiceTargetDown
+          expr: up{namespace="year4-project-staging", job!=""} == 0
+          for: 5m
+          labels:
+            severity: warning
+            environment: staging
+          annotations:
+            summary: "Staging scrape target is down"
+            description: "{{ $labels.job }} / {{ $labels.instance }} has been unavailable for 5 minutes."
+        - alert: Year4ProjectDeploymentReplicasUnavailable
+          expr: kube_deployment_status_replicas_unavailable{namespace="year4-project-staging"} > 0
+          for: 10m
+          labels:
+            severity: warning
+            environment: staging
+          annotations:
+            summary: "Staging deployment has unavailable replicas"
+            description: "{{ $labels.deployment }} has unavailable replicas for more than 10 minutes."
+        - alert: Year4ProjectPodCrashLooping
+          expr: increase(kube_pod_container_status_restarts_total{namespace="year4-project-staging"}[15m]) > 3
+          for: 5m
+          labels:
+            severity: warning
+            environment: staging
+          annotations:
+            summary: "Staging pod restart rate is high"
+            description: "{{ $labels.pod }} / {{ $labels.container }} restarted repeatedly in the last 15 minutes."
+    - name: year4-project.staging.http
+      rules:
+        - alert: Year4ProjectHttp5xxHigh
+          expr: sum by (service) (rate(http_requests_total{namespace="year4-project-staging",status=~"5.."}[5m])) > 0.05
+          for: 5m
+          labels:
+            severity: warning
+            environment: staging
+          annotations:
+            summary: "Staging HTTP 5xx rate is elevated"
+            description: "{{ $labels.service }} is returning elevated 5xx responses."
+        - alert: Year4ProjectHttpLatencyHigh
+          expr: histogram_quantile(0.95, sum by (le, service) (rate(http_request_duration_seconds_bucket{namespace="year4-project-staging"}[5m]))) > 1
+          for: 10m
+          labels:
+            severity: warning
+            environment: staging
+          annotations:
+            summary: "Staging HTTP p95 latency is high"
+            description: "{{ $labels.service }} p95 latency has exceeded 1 second for 10 minutes."
+    - name: year4-project.staging.logging
+      rules:
+        - alert: FluentBitErrorsHigh
+          expr: rate(fluentbit_output_errors_total[5m]) > 0
+          for: 5m
+          labels:
+            severity: warning
+            environment: staging
+          annotations:
+            summary: "Fluent Bit output errors are elevated"
+            description: "Fluent Bit is reporting output errors while forwarding staging logs."
+        - alert: FluentBitRetriesHigh
+          expr: rate(fluentbit_output_retries_total[5m]) > 0.1
+          for: 10m
+          labels:
+            severity: warning
+            environment: staging
+          annotations:
+            summary: "Fluent Bit output retries are elevated"
+            description: "Fluent Bit is retrying log delivery frequently."
+    - name: year4-project.staging.storage
+      rules:
+        - alert: Year4ProjectPersistentVolumeNearlyFull
+          expr: kubelet_volume_stats_available_bytes{namespace=~"monitoring|logging|year4-project-staging"} / kubelet_volume_stats_capacity_bytes{namespace=~"monitoring|logging|year4-project-staging"} < 0.15
+          for: 15m
+          labels:
+            severity: warning
+            environment: staging
+          annotations:
+            summary: "Persistent volume free space is low"
+            description: "PVC {{ $labels.persistentvolumeclaim }} has less than 15% free space."

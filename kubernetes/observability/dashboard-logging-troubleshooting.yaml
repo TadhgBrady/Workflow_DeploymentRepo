@@ -1,0 +1,227 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-year4-logging-troubleshooting
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+    app.kubernetes.io/name: year4-logging-troubleshooting
+    app.kubernetes.io/part-of: year4-project-observability
+data:
+  year4-logging-troubleshooting.json: |
+    {
+      "uid": "year4-logging-troubleshooting",
+      "title": "Year4 Logging Troubleshooting",
+      "tags": ["year4-project", "logs", "loki", "fluent-bit"],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "15s",
+      "time": {
+        "from": "now-1h",
+        "to": "now"
+      },
+      "templating": {
+        "list": [
+          {
+            "name": "environment",
+            "label": "Environment",
+            "type": "custom",
+            "query": "local,staging,prod",
+            "includeAll": true,
+            "allValue": ".+",
+            "multi": false,
+            "current": {"text": "All", "value": "$__all"},
+            "options": [
+              {"selected": true, "text": "All", "value": "$__all"},
+              {"selected": false, "text": "local", "value": "local"},
+              {"selected": false, "text": "staging", "value": "staging"},
+              {"selected": false, "text": "prod", "value": "prod"}
+            ]
+          },
+          {
+            "name": "app_namespace",
+            "label": "App Namespace",
+            "type": "custom",
+            "query": "year4-project-local,year4-project-staging,year4-project",
+            "includeAll": true,
+            "allValue": "year4-project-local|year4-project-staging|year4-project",
+            "multi": false,
+            "current": {"text": "All", "value": "$__all"},
+            "options": [
+              {"selected": true, "text": "All", "value": "$__all"},
+              {"selected": false, "text": "year4-project-local", "value": "year4-project-local"},
+              {"selected": false, "text": "year4-project-staging", "value": "year4-project-staging"},
+              {"selected": false, "text": "year4-project", "value": "year4-project"}
+            ]
+          },
+          {
+            "name": "logging_namespace",
+            "label": "Logging Namespace",
+            "type": "constant",
+            "query": "logging",
+            "current": {"text": "logging", "value": "logging"}
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "Log Lines In Range",
+          "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+          "datasource": {"type": "loki", "uid": "loki"},
+          "targets": [
+            {"expr": "sum(count_over_time({environment=~\"$environment\"}[$__range]))", "refId": "A"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Error Lines In Range",
+          "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+          "datasource": {"type": "loki", "uid": "loki"},
+          "targets": [
+            {"expr": "sum(count_over_time({environment=~\"$environment\"} |= \"ERROR\" [$__range]))", "refId": "A"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "short", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1}, {"color": "red", "value": 10}]}}, "overrides": []}
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Fluent Bit Output Error Rate",
+          "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "sum(rate(fluentbit_output_errors_total[5m]))", "refId": "A"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "ops", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 0.001}]}}, "overrides": []}
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Fluent Bit Retry Rate",
+          "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "sum(rate(fluentbit_output_retries_total[5m]))", "refId": "A"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "ops", "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 0.01}, {"color": "red", "value": 0.1}]}}, "overrides": []}
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "Application Log Volume By Container",
+          "gridPos": {"x": 0, "y": 4, "w": 12, "h": 8},
+          "datasource": {"type": "loki", "uid": "loki"},
+          "targets": [
+            {"expr": "sum by (container_name) (rate({environment=~\"$environment\"} [5m]))", "legendFormat": "{{container_name}}", "refId": "A"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "logs/s"}, "overrides": []}
+        },
+        {
+          "id": 6,
+          "type": "timeseries",
+          "title": "Error And Warning Log Rate",
+          "gridPos": {"x": 12, "y": 4, "w": 12, "h": 8},
+          "datasource": {"type": "loki", "uid": "loki"},
+          "targets": [
+            {"expr": "sum(rate({environment=~\"$environment\"} |= \"ERROR\" [5m]))", "legendFormat": "errors", "refId": "A"},
+            {"expr": "sum(rate({environment=~\"$environment\"} |~ \"WARN|WARNING\" [5m]))", "legendFormat": "warnings", "refId": "B"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "logs/s"}, "overrides": []}
+        },
+        {
+          "id": 7,
+          "type": "timeseries",
+          "title": "Fluent Bit Input And Output Throughput",
+          "gridPos": {"x": 0, "y": 12, "w": 12, "h": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "sum(rate(fluentbit_input_records_total[5m]))", "legendFormat": "input records/s", "refId": "A"},
+            {"expr": "sum(rate(fluentbit_output_proc_records_total[5m]))", "legendFormat": "output records/s", "refId": "B"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []}
+        },
+        {
+          "id": 8,
+          "type": "timeseries",
+          "title": "Fluent Bit Errors, Retries, And Drops",
+          "gridPos": {"x": 12, "y": 12, "w": 12, "h": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "sum(rate(fluentbit_output_errors_total[5m]))", "legendFormat": "output errors/s", "refId": "A"},
+            {"expr": "sum(rate(fluentbit_output_retries_total[5m]))", "legendFormat": "output retries/s", "refId": "B"},
+            {"expr": "sum(rate(fluentbit_output_dropped_records_total[5m]))", "legendFormat": "dropped records/s", "refId": "C"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []}
+        },
+        {
+          "id": 9,
+          "type": "timeseries",
+          "title": "Loki Request Rate",
+          "gridPos": {"x": 0, "y": 20, "w": 12, "h": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "sum by (route, status_code) (rate(loki_request_duration_seconds_count[5m]))", "legendFormat": "{{route}} {{status_code}}", "refId": "A"}
+          ],
+          "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []}
+        },
+        {
+          "id": 10,
+          "type": "timeseries",
+          "title": "Loki 5xx And High Latency",
+          "gridPos": {"x": 12, "y": 20, "w": 12, "h": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "sum(rate(loki_request_duration_seconds_count{status_code=~\"5..\"}[5m]))", "legendFormat": "5xx/s", "refId": "A"},
+            {"expr": "histogram_quantile(0.95, sum by (le) (rate(loki_request_duration_seconds_bucket[5m])))", "legendFormat": "p95 seconds", "refId": "B"}
+          ]
+        },
+        {
+          "id": 11,
+          "type": "logs",
+          "title": "Recent Application Errors",
+          "gridPos": {"x": 0, "y": 28, "w": 24, "h": 8},
+          "datasource": {"type": "loki", "uid": "loki"},
+          "targets": [
+            {"expr": "{environment=~\"$environment\"} |~ \"ERROR|Exception|Traceback|failed|unavailable\"", "refId": "A"}
+          ],
+          "options": {"dedupStrategy": "none", "enableLogDetails": true, "showCommonLabels": false, "showLabels": true, "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true}
+        },
+        {
+          "id": 12,
+          "type": "logs",
+          "title": "Auth And Permission Problems",
+          "gridPos": {"x": 0, "y": 36, "w": 12, "h": 8},
+          "datasource": {"type": "loki", "uid": "loki"},
+          "targets": [
+            {"expr": "{environment=~\"$environment\"} |~ \"(?i)(auth|login|token|unauthorized|forbidden|permission)\"", "refId": "A"}
+          ],
+          "options": {"dedupStrategy": "none", "enableLogDetails": true, "showCommonLabels": false, "showLabels": true, "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true}
+        },
+        {
+          "id": 13,
+          "type": "logs",
+          "title": "Database, Redis, And Cache Problems",
+          "gridPos": {"x": 12, "y": 36, "w": 12, "h": 8},
+          "datasource": {"type": "loki", "uid": "loki"},
+          "targets": [
+            {"expr": "{environment=~\"$environment\"} |~ \"(?i)(database|postgres|sql|redis|cache|connection|timeout|pool)\"", "refId": "A"}
+          ],
+          "options": {"dedupStrategy": "none", "enableLogDetails": true, "showCommonLabels": false, "showLabels": true, "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true}
+        },
+        {
+          "id": 14,
+          "type": "logs",
+          "title": "Raw Application Logs",
+          "gridPos": {"x": 0, "y": 44, "w": 24, "h": 10},
+          "datasource": {"type": "loki", "uid": "loki"},
+          "targets": [
+            {"expr": "{environment=~\"$environment\"}", "refId": "A"}
+          ],
+          "options": {"dedupStrategy": "none", "enableLogDetails": true, "showCommonLabels": false, "showLabels": true, "showTime": true, "sortOrder": "Descending", "wrapLogMessage": true}
+        }
+      ]
+    }

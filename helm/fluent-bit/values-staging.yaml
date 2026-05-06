@@ -28,6 +28,10 @@ podSecurityContext:
 securityContext:
   privileged: true
 
+state:
+  mountPath: /tmp/flb-state
+  hostPath: /var/lib/flb-state
+
 resources:
   limits:
     cpu: 300m
@@ -65,6 +69,7 @@ config:
       HTTP_Server On
       HTTP_Listen 0.0.0.0
       HTTP_Port 2020
+      Health_Check On
 
   inputs: |
     [INPUT]
@@ -76,12 +81,12 @@ config:
     [INPUT]
       Name tail
       Path /var/log/containers/*_year4-project-staging_*.log
-      Parser docker
+      Parser cri
       Tag app.*
       Refresh_Interval 5
       Mem_Buf_Limit 100MB
       Skip_Long_Lines On
-      DB /var/log/flb-staging.db
+      DB /tmp/flb-state/flb-staging.db
       DB.locking true
 
   filters: |
@@ -122,10 +127,28 @@ config:
       region eu-west-1
       log_group_name /aws/eks/year4-project/staging/logs
       log_stream_prefix fluent-bit-
-      auto_create_group true
+      auto_create_group false
       retry_limit 5
 
+    [OUTPUT]
+      Name loki
+      Match app.*
+      Host loki-gateway.monitoring.svc.cluster.local
+      Port 80
+      Labels cluster=aws-staging,environment=staging
+      Label_Keys $kubernetes['namespace_name'],$kubernetes['pod_name'],$kubernetes['container_name'],$kubernetes['labels']['app'],$service_name,$logging_level
+      Line_Format json
+      Retry_Limit false
+
   parsers: |
+    [PARSER]
+      Name cri
+      Format regex
+      Regex ^(?<time>[^ ]+) (?<stream>stdout|stderr) (?<logtag>[^ ]*) (?<log>.*)$
+      Time_Key time
+      Time_Format %Y-%m-%dT%H:%M:%S.%L%z
+      Time_Keep On
+
     [PARSER]
       Name docker
       Format json

@@ -66,7 +66,7 @@ secretGenerator:
       - NOTIFICATION_REDIS_URL=redis://:redis-dev-password@host.docker.internal:6380/6
   - name: google-maps-secrets
     literals:
-      - GOOGLE_MAPS_SERVER_KEY=
+      - GOOGLE_MAPS_SERVER_KEY=local-test-key
       - GOOGLE_MAPS_BROWSER_KEY=
       - GOOGLE_MAPS_MAP_ID=
   - name: smtp-secrets
@@ -98,8 +98,123 @@ patches:
   # NGINX: NodePort so we can access from host
   - path: patches/nginx-service-nodeport.yaml
 
+  # Local Kind does not install cert-manager; TLS issuers are staging/prod concerns.
+  - target:
+      group: cert-manager.io
+      version: v1
+      kind: ClusterIssuer
+      name: letsencrypt-prod
+    patch: |
+      $patch: delete
+      apiVersion: cert-manager.io/v1
+      kind: ClusterIssuer
+      metadata:
+        name: letsencrypt-prod
+  - target:
+      group: cert-manager.io
+      version: v1
+      kind: ClusterIssuer
+      name: letsencrypt-staging
+    patch: |
+      $patch: delete
+      apiVersion: cert-manager.io/v1
+      kind: ClusterIssuer
+      metadata:
+        name: letsencrypt-staging
+
+  # Use images built by yr4-projectdevelopmentrepo/docker-compose.yml and loaded into Kind.
+  - target:
+      kind: Deployment
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: IfNotPresent
+  - target:
+      kind: Deployment
+      name: admin-bl-service
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/image
+        value: yr4-projectdevelopmentrepo-admin-bl-service:latest
+  - target:
+      kind: Deployment
+      name: auth-service
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/image
+        value: yr4-projectdevelopmentrepo-auth-service:latest
+  - target:
+      kind: Deployment
+      name: customer-bl-service
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/image
+        value: yr4-projectdevelopmentrepo-customer-bl-service:latest
+  - target:
+      kind: Deployment
+      name: customer-db-access-service
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/image
+        value: yr4-projectdevelopmentrepo-customer-db-access-service:latest
+  - target:
+      kind: Deployment
+      name: frontend-deployment
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/image
+        value: yr4-projectdevelopmentrepo-frontend:latest
+  - target:
+      kind: Deployment
+      name: job-bl-service-deployment
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/image
+        value: yr4-projectdevelopmentrepo-job-bl-service:latest
+  - target:
+      kind: Deployment
+      name: job-db-access-service-deployment
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/image
+        value: yr4-projectdevelopmentrepo-job-db-access-service:latest
+  - target:
+      kind: Deployment
+      name: maps-access-service
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/image
+        value: yr4-projectdevelopmentrepo-maps-access-service:latest
+  - target:
+      kind: Deployment
+      name: notification-service
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/image
+        value: yr4-projectdevelopmentrepo-notification-service:latest
+  - target:
+      kind: Deployment
+      name: user-bl-service
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/image
+        value: yr4-projectdevelopmentrepo-user-bl-service:latest
+  - target:
+      kind: Deployment
+      name: user-db-access-service
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/image
+        value: yr4-projectdevelopmentrepo-user-db-access-service:latest
+  - target:
+      kind: Job
+      name: migration-runner
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/image
+        value: yr4-projectdevelopmentrepo-migration-runner:latest
+
   # Note: env vars are now handled by base deployments via envFrom (secrets/configmaps).
   # Per-service env patch files are no longer needed.
 
   # Note: base resources (256Mi/250m) are fine for local dev.
-  # imagePullPolicy: IfNotPresent is already set in base manifests.
