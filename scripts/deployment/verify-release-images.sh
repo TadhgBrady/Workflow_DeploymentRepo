@@ -14,11 +14,27 @@ fi
 
 echo "Verifying release images exist before deployment..."
 SKOPEO_CREDS=""
-if [ -n "${CI_REGISTRY_USER:-}" ] && [ -n "${CI_REGISTRY_PASSWORD:-}" ]; then
+AUTH_SOURCE="unauthenticated"
+
+IMAGE_REGISTRY="${IMAGE_TAG%%/*}"
+case "$IMAGE_REGISTRY" in
+  *.*|*:*|localhost) ;;
+  *) IMAGE_REGISTRY="docker.io" ;;
+esac
+
+DOCKERHUB_LOGIN_USER="${DOCKERHUB_USER:-${DOCKERHUB_USERNAME:-}}"
+if [ "$IMAGE_REGISTRY" = "docker.io" ]; then
+  if [ -n "$DOCKERHUB_LOGIN_USER" ] && [ -n "${DOCKERHUB_TOKEN:-}" ]; then
+    SKOPEO_CREDS="${DOCKERHUB_LOGIN_USER}:${DOCKERHUB_TOKEN}"
+    AUTH_SOURCE="Docker Hub credentials"
+  fi
+elif [ -n "${CI_REGISTRY:-}" ] && [ "$IMAGE_REGISTRY" = "$CI_REGISTRY" ] && [ -n "${CI_REGISTRY_USER:-}" ] && [ -n "${CI_REGISTRY_PASSWORD:-}" ]; then
   SKOPEO_CREDS="${CI_REGISTRY_USER}:${CI_REGISTRY_PASSWORD}"
-elif [ -n "${DOCKERHUB_USERNAME:-}" ] && [ -n "${DOCKERHUB_TOKEN:-}" ]; then
-  SKOPEO_CREDS="${DOCKERHUB_USERNAME}:${DOCKERHUB_TOKEN}"
+  AUTH_SOURCE="GitLab registry credentials"
 fi
+
+echo "  Registry: ${IMAGE_REGISTRY}"
+echo "  Auth: ${AUTH_SOURCE}"
 
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT HUP INT TERM
@@ -31,23 +47,33 @@ printf '%s\n' $SERVICES | xargs -P "$VERIFY_IMAGE_PARALLELISM" -I {} sh -c '
   REF="docker://${IMAGE_TAG}:${SERVICE}-${IMAGE_VERSION}"
   LOG_FILE="$TMP_DIR/${SERVICE}.log"
   FAIL_FILE="$TMP_DIR/${SERVICE}.fail"
+  AUTH_LOG_FILE="$TMP_DIR/${SERVICE}.auth.log"
+  PUBLIC_LOG_FILE="$TMP_DIR/${SERVICE}.public.log"
 
   {
     echo "  Inspecting ${IMAGE_TAG}:${SERVICE}-${IMAGE_VERSION}"
     if [ -n "$SKOPEO_CREDS" ]; then
-      if skopeo inspect --creds "$SKOPEO_CREDS" "$REF" >/dev/null 2>&1; then
+      if skopeo inspect --creds "$SKOPEO_CREDS" "$REF" >"$AUTH_LOG_FILE" 2>&1; then
         echo "    ✅ found"
       else
-        echo "    ❌ missing or inaccessible"
-        skopeo inspect --creds "$SKOPEO_CREDS" "$REF" 2>&1 | sed "s/^/       /" || true
-        echo "$SERVICE" > "$FAIL_FILE"
+        echo "    ⚠️  authenticated inspect failed; retrying without credentials"
+        if skopeo inspect "$REF" >"$PUBLIC_LOG_FILE" 2>&1; then
+          echo "    ✅ found without credentials"
+        else
+          echo "    ❌ missing or inaccessible"
+          echo "       authenticated inspect output:"
+          sed "s/^/         /" "$AUTH_LOG_FILE" || true
+          echo "       unauthenticated inspect output:"
+          sed "s/^/         /" "$PUBLIC_LOG_FILE" || true
+          echo "$SERVICE" > "$FAIL_FILE"
+        fi
       fi
     else
-      if skopeo inspect "$REF" >/dev/null 2>&1; then
+      if skopeo inspect "$REF" >"$PUBLIC_LOG_FILE" 2>&1; then
         echo "    ✅ found"
       else
         echo "    ❌ missing or inaccessible"
-        skopeo inspect "$REF" 2>&1 | sed "s/^/       /" || true
+        sed "s/^/       /" "$PUBLIC_LOG_FILE" || true
         echo "$SERVICE" > "$FAIL_FILE"
       fi
     fi
