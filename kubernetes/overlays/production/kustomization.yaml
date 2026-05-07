@@ -7,6 +7,7 @@ namespace: year4-project
 resources:
   - ../../base
   - external-secrets.yaml
+  - migration-job.yaml
 
 # Production-specific configuration
 labels:

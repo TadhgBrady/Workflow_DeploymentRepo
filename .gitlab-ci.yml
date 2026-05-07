@@ -86,6 +86,8 @@ variables:
 
   # -- Services list (matches dev repo) --
   SERVICES: "nginx-gateway auth-service user-bl-service user-db-access-service job-bl-service job-db-access-service customer-bl-service customer-db-access-service admin-bl-service maps-access-service notification-service frontend migration-runner"
+  # Registry tags produced by the dev repo.
+  RELEASE_IMAGE_SERVICES: "nginx auth-service user-bl-service user-db-access-service job-bl-service job-db-access-service customer-bl-service customer-db-access-service admin-bl-service maps-access-service notification-service frontend migration-runner"
 
 # =============================================================================
 # STAGE 1: VALIDATE — Lint manifests, validate Helm templates
@@ -175,6 +177,18 @@ validate-image-version:
       when: on_success
   allow_failure: false
 
+verify-release-images:
+  stage: validate
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache skopeo
+  script:
+    - sh scripts/deployment/verify-release-images.sh
+  rules:
+    - if: $IMAGE_VERSION
+      when: on_success
+  allow_failure: false
+
 # =============================================================================
 # STAGE 2: UPDATE TAGS — Patch Kustomize overlays with new image version
 # =============================================================================
@@ -192,6 +206,7 @@ update-image-tags:
     - validate-manifests
     - validate-helm
     - validate-image-version
+    - verify-release-images
   before_script:
     - apk add --no-cache git sed
   script:
@@ -826,9 +841,10 @@ deploy-staging:
       kubectl kustomize kubernetes/overlays/staging > /tmp/staging-rendered.yaml
       kubectl apply --dry-run=client --validate=false -k kubernetes/overlays/staging > /dev/null
       sh scripts/deployment/check-cloudwatch-observability.sh "$STAGING_CLUSTER_NAME"
-    - |
-      # Job pod template is immutable; recreate migration job on each deploy.
-      kubectl delete job migration-runner -n $STAGING_NAMESPACE --ignore-not-found=true
+    # Sync secrets and run migrations before application rollouts.
+    - kubectl apply -f kubernetes/overlays/staging/external-secrets.yaml -n $STAGING_NAMESPACE
+    - sh scripts/deployment/sync-external-secrets.sh "$STAGING_NAMESPACE" 180
+    - sh scripts/deployment/run-migration-job.sh "$STAGING_NAMESPACE" /tmp/staging-rendered.yaml 300s
     - kubectl apply --dry-run=server -k kubernetes/overlays/staging > /dev/null
     # Clean up only failed/stale pods from previous deployments. Do not scale healthy deployments to 0.
     - |
@@ -1559,14 +1575,16 @@ deploy-production:
       fi
     # ── Pin images to exact version when triggered by dev repo ──
     - sh scripts/deployment/pin-images.sh "$IMAGE_VERSION" kubernetes/base/*-deployment.y*ml
+    - sh scripts/deployment/pin-images.sh "$IMAGE_VERSION" kubernetes/overlays/production/migration-job.yaml
     - kubectl create namespace $PROD_NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
     - |
       echo "Validating production Kustomize overlay with kubectl before apply..."
       kubectl kustomize kubernetes/overlays/production > /tmp/production-rendered.yaml
       kubectl apply --dry-run=client --validate=false -k kubernetes/overlays/production > /dev/null
-    - |
-      # Job pod template is immutable; recreate migration job on each deploy.
-      kubectl delete job migration-runner -n $PROD_NAMESPACE --ignore-not-found=true
+    # Sync secrets and run migrations before application rollouts.
+    - kubectl apply -f kubernetes/overlays/production/external-secrets.yaml -n $PROD_NAMESPACE
+    - sh scripts/deployment/sync-external-secrets.sh "$PROD_NAMESPACE" 180
+    - sh scripts/deployment/run-migration-job.sh "$PROD_NAMESPACE" /tmp/production-rendered.yaml 300s
     - kubectl apply --dry-run=server -k kubernetes/overlays/production > /dev/null
     - kubectl apply -k kubernetes/overlays/production
     # Force ESO to re-sync secrets from AWS before checking rollouts
@@ -1632,13 +1650,33 @@ smoke-tests-production:
         echo "❌ PROD_URL is empty — LoadBalancer hostname not provisioned"
         exit 1
       fi
+      echo "  Waiting for production LoadBalancer to become reachable..."
+      WARMUP_ATTEMPTS=18
+      WARMUP_DONE=0
+      for i in $(seq 1 $WARMUP_ATTEMPTS); do
+        WARMUP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${PROD_URL}/health" 2>/dev/null) || true
+        if [ -n "$WARMUP_CODE" ] && [ "$WARMUP_CODE" != "000" ]; then
+          echo "  ✅ LoadBalancer reachable (HTTP $WARMUP_CODE) after $((i * 10))s"
+          WARMUP_DONE=1
+          break
+        fi
+        echo "  Attempt $i/$WARMUP_ATTEMPTS — not reachable yet (code: ${WARMUP_CODE:-000}), retrying in 10s..."
+        sleep 10
+      done
+      if [ "$WARMUP_DONE" -eq 0 ]; then
+        echo "❌ LoadBalancer did not become reachable within $((WARMUP_ATTEMPTS * 10))s"
+        echo "  URL: ${PROD_URL}/health"
+        exit 1
+      fi
+
       FAILED=0
       check_url() {
         NAME="$1"
         URL="$2"
         EXPECTED="$3"
         echo -n "  Checking $NAME... "
-        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "$URL" 2>/dev/null || echo "000")
+        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "$URL" 2>/dev/null) || true
+        HTTP_CODE="${HTTP_CODE:-000}"
         OLDIFS=$IFS
         IFS=','
         for CODE in $EXPECTED; do
@@ -1711,8 +1749,6 @@ notify-success:
 notify-failure:
   stage: notify
   image: alpine:latest
-  needs:
-    - smoke-tests-production
   before_script:
     - apk add --no-cache curl
   script:

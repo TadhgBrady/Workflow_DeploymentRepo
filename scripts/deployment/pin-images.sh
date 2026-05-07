@@ -4,7 +4,7 @@ set -eu
 IMAGE_VERSION="${1:-${IMAGE_VERSION:-}}"
 shift 2>/dev/null || true
 
-REPOSITORY="${IMAGE_REPOSITORY:-bencev04/4th-year-proj-tadgh-bence}"
+REPOSITORY="${IMAGE_REPOSITORY:-${IMAGE_TAG:-bencev04/4th-year-proj-tadgh-bence}}"
 
 if [ -z "$IMAGE_VERSION" ] || [ "$IMAGE_VERSION" = "latest" ]; then
   echo "ℹ️  IMAGE_VERSION not set — deploying existing image tags"
