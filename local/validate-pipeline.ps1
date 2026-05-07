@@ -132,14 +132,24 @@ if (Test-Path $ciFile) {
         }
     }
 
+    Assert-TextOrder $ciText "  - deploy-staging" "  - staging-readiness" "staging readiness runs after staging deploy stage"
+    Assert-TextOrder $ciText "  - staging-readiness" "  - staging-tests" "staging readiness runs before staging tests"
     Assert-TextOrder $ciText "  - staging-tests" "  - destroy-staging" "staging tests run before staging destroy stage"
-    Assert-TextOrder $ciText "  - destroy-staging" "  - promote" "staging destroy stage runs before promotion stage"
+    Assert-TextOrder $ciText "  - destroy-staging" "  - verify-destroy" "staging destroy runs before destroy verification"
+    Assert-TextOrder $ciText "  - verify-destroy" "  - promote" "destroy verification stage runs before promotion stage"
     Assert-TextOrder $ciText "confirm-destroy-staging:" "cleanup-staging-loadbalancers:" "manual destroy approval comes before cleanup job"
     Assert-TextOrder $ciText "cleanup-staging-loadbalancers:" "trigger-destroy-staging:" "load balancer cleanup comes before Terraform destroy trigger"
-    Assert-TextOrder $ciText "trigger-destroy-staging:" "promote-to-production:" "promotion job is defined after staging destroy trigger"
+    Assert-TextOrder $ciText "trigger-destroy-staging:" "verify-staging-destroyed:" "destroy verification job is defined after staging destroy trigger"
+    Assert-TextOrder $ciText "verify-staging-destroyed:" "promote-to-production:" "promotion job is defined after staging destroy verification"
 
+    Assert-ContainsText $ciText 'PIPELINE_MODE: "auto"' "pipeline mode defaults to auto"
+    Assert-ContainsText $ciText "validate-deployment-mode:" "deployment mode validation job exists"
+    Assert-ContainsText $ciText "preflight-staging:" "staging preflight job exists"
+    Assert-ContainsText $ciText "staging-readiness:" "staging readiness job exists"
     Assert-ContainsText $ciText "confirm-destroy-staging:" "manual staging destroy confirmation job exists"
+    Assert-ContainsText $ciText "verify-staging-destroyed:" "staging destroy verification job exists"
     Assert-ContainsText $ciText 'DESTROY_ENV: "staging"' "staging destroy trigger targets only staging"
+    Assert-ContainsText $ciText 'scripts/deployment/smoke-tests.sh' "shared smoke-test script is used"
 
     if ($ciText -notmatch "(?s)cleanup-staging-loadbalancers:.*?needs:\s*\r?\n\s*-\s*confirm-destroy-staging") {
         Write-Host "  FAIL cleanup job must depend on confirm-destroy-staging" -ForegroundColor Red
@@ -148,11 +158,18 @@ if (Test-Path $ciFile) {
         Write-Host "  PASS cleanup job depends on manual staging destroy confirmation" -ForegroundColor Green
     }
 
-    if ($ciText -notmatch "(?s)promote-to-production:.*?needs:\s*\r?\n\s*-\s*trigger-destroy-staging") {
-        Write-Host "  FAIL production promotion must depend on trigger-destroy-staging" -ForegroundColor Red
+    if ($ciText -notmatch "(?s)verify-staging-destroyed:.*?needs:\s*\r?\n\s*-\s*trigger-destroy-staging") {
+        Write-Host "  FAIL destroy verification must depend on trigger-destroy-staging" -ForegroundColor Red
         $pipelineErrors++
     } else {
-        Write-Host "  PASS production promotion is gated on staging destroy completion" -ForegroundColor Green
+        Write-Host "  PASS destroy verification depends on staging destroy trigger" -ForegroundColor Green
+    }
+
+    if ($ciText -notmatch "(?s)promote-to-production:.*?needs:\s*\r?\n\s*-\s*verify-staging-destroyed") {
+        Write-Host "  FAIL production promotion must depend on verify-staging-destroyed" -ForegroundColor Red
+        $pipelineErrors++
+    } else {
+        Write-Host "  PASS production promotion is gated on staging destroy verification" -ForegroundColor Green
     }
 
     $totalErrors += $pipelineErrors

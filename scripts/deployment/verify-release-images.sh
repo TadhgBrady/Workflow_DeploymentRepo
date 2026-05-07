@@ -20,23 +20,49 @@ elif [ -n "${DOCKERHUB_USERNAME:-}" ] && [ -n "${DOCKERHUB_TOKEN:-}" ]; then
   SKOPEO_CREDS="${DOCKERHUB_USERNAME}:${DOCKERHUB_TOKEN}"
 fi
 
-FAILED=""
-for SERVICE in $SERVICES; do
+TMP_DIR=$(mktemp -d)
+trap 'rm -rf "$TMP_DIR"' EXIT HUP INT TERM
+
+export IMAGE_TAG IMAGE_VERSION SKOPEO_CREDS TMP_DIR
+VERIFY_IMAGE_PARALLELISM="${VERIFY_IMAGE_PARALLELISM:-4}"
+
+printf '%s\n' $SERVICES | xargs -P "$VERIFY_IMAGE_PARALLELISM" -I {} sh -c '
+  SERVICE="$1"
   REF="docker://${IMAGE_TAG}:${SERVICE}-${IMAGE_VERSION}"
-  echo "  Inspecting ${IMAGE_TAG}:${SERVICE}-${IMAGE_VERSION}"
-  if [ -n "$SKOPEO_CREDS" ]; then
-    INSPECT_OUTPUT=$(skopeo inspect --creds "$SKOPEO_CREDS" "$REF" 2>&1) || INSPECT_EXIT=$?
-  else
-    INSPECT_OUTPUT=$(skopeo inspect "$REF" 2>&1) || INSPECT_EXIT=$?
-  fi
-  if [ "${INSPECT_EXIT:-0}" -eq 0 ]; then
-    echo "    ✅ found"
-  else
-    echo "    ❌ missing or inaccessible"
-    echo "       ${INSPECT_OUTPUT:-inspect failed}"
-    FAILED="$FAILED $SERVICE"
-  fi
-  unset INSPECT_EXIT INSPECT_OUTPUT
+  LOG_FILE="$TMP_DIR/${SERVICE}.log"
+  FAIL_FILE="$TMP_DIR/${SERVICE}.fail"
+
+  {
+    echo "  Inspecting ${IMAGE_TAG}:${SERVICE}-${IMAGE_VERSION}"
+    if [ -n "$SKOPEO_CREDS" ]; then
+      if skopeo inspect --creds "$SKOPEO_CREDS" "$REF" >/dev/null 2>&1; then
+        echo "    ✅ found"
+      else
+        echo "    ❌ missing or inaccessible"
+        skopeo inspect --creds "$SKOPEO_CREDS" "$REF" 2>&1 | sed "s/^/       /" || true
+        echo "$SERVICE" > "$FAIL_FILE"
+      fi
+    else
+      if skopeo inspect "$REF" >/dev/null 2>&1; then
+        echo "    ✅ found"
+      else
+        echo "    ❌ missing or inaccessible"
+        skopeo inspect "$REF" 2>&1 | sed "s/^/       /" || true
+        echo "$SERVICE" > "$FAIL_FILE"
+      fi
+    fi
+  } > "$LOG_FILE" 2>&1
+' sh {}
+
+for LOG_FILE in "$TMP_DIR"/*.log; do
+  [ -e "$LOG_FILE" ] || continue
+  cat "$LOG_FILE"
+done
+
+FAILED=""
+for FAIL_FILE in "$TMP_DIR"/*.fail; do
+  [ -e "$FAIL_FILE" ] || continue
+  FAILED="$FAILED $(cat "$FAIL_FILE")"
 done
 
 if [ -n "$FAILED" ]; then

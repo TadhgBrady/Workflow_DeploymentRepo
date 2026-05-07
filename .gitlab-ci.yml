@@ -5,11 +5,18 @@
 # Triggered by the dev repo CI pipeline (trigger-deploy stage) via GitLab webhook.
 # Receives: IMAGE_TAG, IMAGE_VERSION, SOURCE_COMMIT, SOURCE_BRANCH
 #
-# Pipeline Architecture (12 stages):
+# Pipeline Architecture (mode-aware stages):
 #
 #   validate → update-tags → ensure-staging (triggers infra repo) → deploy-staging
-#     → staging-tests → destroy-staging (manual teardown) → promote
-#       → ensure-production (triggers infra repo) → deploy-prod → prod-validation → notify
+#     → staging-readiness → staging-tests → [destroy-staging → verify-destroy] → [promote
+#       → ensure-production (triggers infra repo) → deploy-prod → prod-validation] → notify
+#
+# PIPELINE_MODE controls how far a valid release goes:
+#   auto                  → full-release when IMAGE_VERSION exists, validate-only otherwise
+#   validate-only         → offline validation only, no live deploy
+#   staging-only          → deploy/test staging, then stop
+#   staging-teardown-test → deploy/test staging, destroy staging, verify destroy, then stop
+#   full-release          → staging deploy/test/destroy verification, then production promotion
 #
 # Environments:
 #   - Staging:    Auto-deploy, canary rollout, full test suite before promotion
@@ -31,8 +38,10 @@ stages:
   - update-tags         # Patch Kustomize overlays with new image version
   - ensure-staging      # Scale up staging cluster (or trigger infra pipeline)
   - deploy-staging      # kubectl apply staging, rollout verification
+  - staging-readiness   # Post-deploy pod/service/migration diagnostics before smoke tests
   - staging-tests       # Playwright E2E, Grafana k6 load tests, smoke tests
   - destroy-staging     # Manually destroy staging infra before production promotion
+  - verify-destroy      # Confirm staging cost resources are gone and bootstrap remains
   - promote             # Manual gate — approve promotion to production
   - ensure-production   # Scale up production cluster (or trigger infra pipeline)
   - deploy-prod         # kubectl apply production, rollout verification
@@ -50,6 +59,8 @@ variables:
   # IMAGE_VERSION:   Short SHA of the source commit (e.g. a1b2c3d4)
   # SOURCE_COMMIT:   Full SHA of the source commit
   # SOURCE_BRANCH:   Branch that triggered the build (should be "main")
+  # PIPELINE_MODE:    auto | validate-only | staging-only | staging-teardown-test | full-release
+  PIPELINE_MODE: "auto"
 
   # -- AWS credentials (set in GitLab CI/CD settings) --
   # AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
@@ -166,6 +177,43 @@ validate-helm:
     - when: always
   allow_failure: false
 
+validate-deployment-mode:
+  stage: validate
+  image: alpine:latest
+  before_script: []
+  script:
+    - |
+      set -eu
+      MODE="${PIPELINE_MODE:-auto}"
+      echo "═══════════════════════════════════════════════════════════════"
+      echo "  Validating deployment mode"
+      echo "═══════════════════════════════════════════════════════════════"
+      echo "PIPELINE_MODE=$MODE"
+      echo "IMAGE_VERSION=${IMAGE_VERSION:-<not set>}"
+
+      case "$MODE" in
+        auto|validate-only|staging-only|staging-teardown-test|full-release) ;;
+        *)
+          echo "❌ Unsupported PIPELINE_MODE: $MODE"
+          echo "   Allowed: auto, validate-only, staging-only, staging-teardown-test, full-release"
+          exit 1
+          ;;
+      esac
+
+      if [ "$MODE" != "auto" ] && [ "$MODE" != "validate-only" ] && [ -z "${IMAGE_VERSION:-}" ]; then
+        echo "❌ PIPELINE_MODE=$MODE performs a live deployment and requires IMAGE_VERSION from the dev repo or a manual known-good release."
+        exit 1
+      fi
+
+      if [ "$MODE" = "auto" ] && [ -z "${IMAGE_VERSION:-}" ]; then
+        echo "ℹ️  No IMAGE_VERSION was provided; auto mode resolves to validate-only."
+      elif [ "$MODE" = "auto" ]; then
+        echo "ℹ️  IMAGE_VERSION was provided; auto mode resolves to full-release."
+      fi
+  rules:
+    - when: always
+  allow_failure: false
+
 validate-image-version:
   stage: validate
   image: alpine:latest
@@ -205,6 +253,7 @@ update-image-tags:
   needs:
     - validate-manifests
     - validate-helm
+    - validate-deployment-mode
     - validate-image-version
     - verify-release-images
   before_script:
@@ -304,7 +353,7 @@ update-image-tags:
         git rebase FETCH_HEAD
       done
   rules:
-    - if: $IMAGE_VERSION
+    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only"'
       when: on_success
   allow_failure: false
 
@@ -336,7 +385,7 @@ trigger-infra-staging:
     ENSURE_UP: "true"
     TARGET_ENV: "staging"
   rules:
-    - if: $IMAGE_VERSION
+    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only"'
       when: on_success
       allow_failure: false
 
@@ -460,7 +509,7 @@ wait-staging-ready:
       curl -sk --connect-timeout 10 --max-time 15 "${API_ENDPOINT}/readyz" 2>&1 | head -20 || echo "curl failed"
       exit 1
   rules:
-    - if: $IMAGE_VERSION
+    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only"'
       when: on_success
   allow_failure: false
 
@@ -612,7 +661,83 @@ install-addons-staging:
       echo ""
       echo "✅ All staging add-ons installed successfully"
   rules:
-    - if: $IMAGE_VERSION
+    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only"'
+      when: on_success
+  allow_failure: false
+
+preflight-staging:
+  stage: deploy-staging
+  image: alpine:latest
+  needs:
+    - install-addons-staging
+  before_script:
+    - apk add --no-cache curl bash python3 py3-pip
+    - pip3 install --break-system-packages awscli
+    - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
+    - chmod +x kubectl && mv kubectl /usr/local/bin/
+    - aws eks update-kubeconfig --name $STAGING_CLUSTER_NAME --region $AWS_DEFAULT_REGION
+  script:
+    - |
+      set -eu
+      echo "═══════════════════════════════════════════════════════════════"
+      echo "  Preflight — STAGING cluster, add-ons, and secrets"
+      echo "═══════════════════════════════════════════════════════════════"
+
+      CLUSTER_STATUS=$(aws eks describe-cluster \
+        --name "$STAGING_CLUSTER_NAME" \
+        --region "$AWS_DEFAULT_REGION" \
+        --query 'cluster.status' --output text)
+      if [ "$CLUSTER_STATUS" != "ACTIVE" ]; then
+        echo "❌ Staging EKS cluster is not ACTIVE: $CLUSTER_STATUS"
+        exit 1
+      fi
+      echo "✅ EKS cluster ACTIVE: $STAGING_CLUSTER_NAME"
+
+      NODEGROUP_STATUS=$(aws eks describe-nodegroup \
+        --cluster-name "$STAGING_CLUSTER_NAME" \
+        --nodegroup-name "$STAGING_NODE_GROUP" \
+        --region "$AWS_DEFAULT_REGION" \
+        --query 'nodegroup.status' --output text)
+      if [ "$NODEGROUP_STATUS" != "ACTIVE" ]; then
+        echo "❌ Staging node group is not ACTIVE: $NODEGROUP_STATUS"
+        exit 1
+      fi
+      echo "✅ Node group ACTIVE: $STAGING_NODE_GROUP"
+
+      kubectl --request-timeout=15s get --raw=/readyz >/dev/null
+      echo "✅ Kubernetes API reachable"
+
+      READY_NODES=$(kubectl get nodes --no-headers 2>/dev/null | awk '$2 ~ /Ready/ { count++ } END { print count + 0 }')
+      if [ "$READY_NODES" -lt 1 ]; then
+        echo "❌ No Ready Kubernetes nodes found"
+        kubectl get nodes -o wide || true
+        exit 1
+      fi
+      echo "✅ Ready nodes: $READY_NODES"
+
+      kubectl get namespace cert-manager >/dev/null
+      kubectl get namespace external-secrets >/dev/null
+      kubectl get crd externalsecrets.external-secrets.io >/dev/null
+      kubectl get crd clustersecretstores.external-secrets.io >/dev/null
+      kubectl get clustersecretstore aws-secrets-manager >/dev/null
+      echo "✅ Required add-ons and External Secrets store are present"
+
+      for SECRET_NAME in \
+        "yr4-project/staging/db-credentials" \
+        "yr4-project/staging/redis-credentials" \
+        "yr4-project/staging/app-secrets" \
+        "yr4-project/staging/api-keys"; do
+        if aws secretsmanager describe-secret --secret-id "$SECRET_NAME" --region "$AWS_DEFAULT_REGION" >/dev/null 2>&1; then
+          echo "✅ Secrets Manager secret exists: $SECRET_NAME"
+        else
+          echo "❌ Required Secrets Manager secret missing or inaccessible: $SECRET_NAME"
+          exit 1
+        fi
+      done
+
+      echo "✅ Staging preflight passed"
+  rules:
+    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only"'
       when: on_success
   allow_failure: false
 
@@ -621,8 +746,7 @@ install-observability-staging:
   image: alpine:latest
   resource_group: staging-observability
   needs:
-    - job: install-addons-staging
-      optional: true
+    - preflight-staging
   before_script:
     - apk add --no-cache curl bash tar gzip python3 py3-pip openssl
     - pip3 install --break-system-packages awscli
@@ -747,9 +871,10 @@ install-observability-staging:
       kubectl get pods -n "$LOGGING_NAMESPACE"
       echo "✅ Staging kube-prometheus-stack, Loki, Fluent Bit, and dashboards installed"
   rules:
-    - if: $IMAGE_VERSION
+    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only"'
       when: on_success
-    - when: manual
+    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only"'
+      when: manual
       allow_failure: true
   allow_failure: false
 
@@ -890,12 +1015,75 @@ deploy-staging:
     reports:
       dotenv: staging-deploy.env
   rules:
-    - if: $IMAGE_VERSION
+    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only"'
       when: on_success
   allow_failure: false
 
 # =============================================================================
-# STAGE 4: STAGING TESTS — E2E, load tests, smoke tests
+# STAGE 4: STAGING READINESS — Post-deploy diagnostics before smoke tests
+# =============================================================================
+
+staging-readiness:
+  stage: staging-readiness
+  image: alpine:latest
+  needs:
+    - deploy-staging
+  before_script:
+    - apk add --no-cache curl bash python3 py3-pip
+    - pip3 install --break-system-packages awscli
+    - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
+    - chmod +x kubectl && mv kubectl /usr/local/bin/
+    - aws eks update-kubeconfig --name $STAGING_CLUSTER_NAME --region $AWS_DEFAULT_REGION
+  script:
+    - |
+      set -eu
+      echo "═══════════════════════════════════════════════════════════════"
+      echo "  Readiness — STAGING workloads and services"
+      echo "═══════════════════════════════════════════════════════════════"
+
+      kubectl get nodes -o wide
+      kubectl get pods -n "$STAGING_NAMESPACE" -o wide
+      kubectl get svc -n "$STAGING_NAMESPACE" -o wide
+      kubectl get endpoints -n "$STAGING_NAMESPACE" || true
+
+      sh scripts/deployment/wait-deployment-rollout.sh "$STAGING_NAMESPACE" 300
+
+      BAD_PODS=$(kubectl get pods -n "$STAGING_NAMESPACE" \
+        --field-selector=status.phase!=Succeeded \
+        -o jsonpath='{range .items[*]}{.metadata.name}{" "}{range .status.containerStatuses[*]}{.state.waiting.reason}{" "}{end}{"\n"}{end}' 2>/dev/null \
+        | grep -E 'ImagePullBackOff|ErrImagePull|CrashLoopBackOff|CreateContainerConfigError' || true)
+      if [ -n "$BAD_PODS" ]; then
+        echo "❌ Pods are in failing states:"
+        printf '%s\n' "$BAD_PODS"
+        kubectl describe pods -n "$STAGING_NAMESPACE" || true
+        kubectl get events -n "$STAGING_NAMESPACE" --sort-by=.lastTimestamp | tail -100 || true
+        exit 1
+      fi
+
+      NOT_READY=$(kubectl get pods -n "$STAGING_NAMESPACE" --field-selector=status.phase!=Succeeded --no-headers 2>/dev/null \
+        | awk '{ split($2, ready, "/"); if (ready[1] != ready[2] || $3 != "Running") print }' || true)
+      if [ -n "$NOT_READY" ]; then
+        echo "❌ Not all non-completed staging pods are Running and Ready"
+        printf '%s\n' "$NOT_READY"
+        kubectl get pods -n "$STAGING_NAMESPACE" -o wide || true
+        kubectl describe pods -n "$STAGING_NAMESPACE" || true
+        kubectl get events -n "$STAGING_NAMESPACE" --sort-by=.lastTimestamp | tail -100 || true
+        exit 1
+      fi
+
+      kubectl get job migration-runner -n "$STAGING_NAMESPACE" -o jsonpath='{.status.conditions[?(@.type=="Complete")].status}' | grep -q True
+      echo "✅ Migration job completed"
+
+      echo "Recent staging warning events, if any:"
+      kubectl get events -n "$STAGING_NAMESPACE" --field-selector type=Warning --sort-by=.lastTimestamp | tail -30 || true
+      echo "✅ Staging readiness checks passed"
+  rules:
+    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only"'
+      when: on_success
+  allow_failure: false
+
+# =============================================================================
+# STAGE 5: STAGING TESTS — E2E, load tests, smoke tests
 # =============================================================================
 #
 # All three jobs run in parallel against the staging environment.
@@ -906,84 +1094,18 @@ smoke-tests-staging:
   stage: staging-tests
   image: alpine:latest
   needs:
-    - deploy-staging
+    - staging-readiness
+    - job: deploy-staging
+      artifacts: true
   before_script:
     - apk add --no-cache curl
   script:
     - echo "═══════════════════════════════════════════════════════════════"
     - echo "  Smoke Tests — Staging Health Checks"
     - echo "═══════════════════════════════════════════════════════════════"
-    - |
-      if [ -z "$STAGING_URL" ]; then
-        echo "❌ STAGING_URL is empty — LoadBalancer hostname not provisioned"
-        exit 1
-      fi
-
-      # Wait for the LoadBalancer to become reachable before running checks.
-      # The deploy job only waits for the LB hostname to appear; DNS propagation
-      # and ELB target-group health checks can take another 30-90 seconds.
-      echo "  Waiting for staging LoadBalancer to become reachable..."
-      WARMUP_ATTEMPTS=18
-      WARMUP_DONE=0
-      for i in $(seq 1 $WARMUP_ATTEMPTS); do
-        WARMUP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${STAGING_URL}/health" 2>/dev/null) || true
-        if [ -n "$WARMUP_CODE" ] && [ "$WARMUP_CODE" != "000" ]; then
-          echo "  ✅ LoadBalancer reachable (HTTP $WARMUP_CODE) after $((i * 10))s"
-          WARMUP_DONE=1
-          break
-        fi
-        echo "  Attempt $i/$WARMUP_ATTEMPTS — not reachable yet (code: ${WARMUP_CODE:-000}), retrying in 10s..."
-        sleep 10
-      done
-      if [ "$WARMUP_DONE" -eq 0 ]; then
-        echo "❌ LoadBalancer did not become reachable within $((WARMUP_ATTEMPTS * 10))s"
-        echo "  URL: ${STAGING_URL}/health"
-        exit 1
-      fi
-
-      FAILED=0
-      # NGINX gateway exposes /health and route prefixes (/api/v1/*), not /api/{service}/health.
-      # Probe stable public endpoints to avoid false negatives from invalid paths.
-      # Note: curl always populates %{http_code} (000 on failure); do NOT use || echo "000"
-      # as that would double the output string and break the equality check.
-      check_url() {
-        NAME="$1"
-        URL="$2"
-        EXPECTED="$3"
-        echo -n "  Checking $NAME... "
-        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "$URL" 2>/dev/null) || true
-        HTTP_CODE="${HTTP_CODE:-000}"
-        OLDIFS=$IFS
-        IFS=','
-        for CODE in $EXPECTED; do
-          if [ "$HTTP_CODE" = "$CODE" ]; then
-            IFS=$OLDIFS
-            echo "✅ ($HTTP_CODE)"
-            return 0
-          fi
-        done
-        IFS=$OLDIFS
-        echo "❌ ($HTTP_CODE), expected: $EXPECTED"
-        return 1
-      }
-
-      check_url "gateway-health" "${STAGING_URL}/health" "200" || FAILED=$((FAILED + 1))
-      check_url "frontend-root" "${STAGING_URL}/" "200,301,302" || FAILED=$((FAILED + 1))
-      check_url "auth-login-endpoint" "${STAGING_URL}/api/v1/auth/login" "200,400,401,405,422" || FAILED=$((FAILED + 1))
-      check_url "users-route-prefix" "${STAGING_URL}/api/v1/users" "200,401,405" || FAILED=$((FAILED + 1))
-      check_url "jobs-route-prefix" "${STAGING_URL}/api/v1/jobs" "200,401,405" || FAILED=$((FAILED + 1))
-      check_url "customers-route-prefix" "${STAGING_URL}/api/v1/customers" "200,401,405" || FAILED=$((FAILED + 1))
-      check_url "admin-organizations-endpoint" "${STAGING_URL}/api/v1/admin/organizations" "200,401,403,405" || FAILED=$((FAILED + 1))
-
-      echo ""
-      if [ "$FAILED" -gt 0 ]; then
-        echo "❌ $FAILED service(s) failed health check"
-        exit 1
-      else
-        echo "✅ All services healthy"
-      fi
+    - sh scripts/deployment/smoke-tests.sh "$STAGING_URL" staging
   rules:
-    - if: $IMAGE_VERSION
+    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only"'
       when: on_success
   allow_failure: false
 
@@ -1026,7 +1148,7 @@ confirm-destroy-staging:
       echo "Expected preserved resources: Terraform S3/DynamoDB bootstrap and persistent secrets state."
       echo "Production promotion is blocked until staging destroy completes successfully."
   rules:
-    - if: $IMAGE_VERSION
+    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only" && $PIPELINE_MODE != "staging-only"'
       when: manual
       allow_failure: false
 
@@ -1116,7 +1238,7 @@ cleanup-staging-loadbalancers:
         --output table || true
       exit 1
   rules:
-    - if: $IMAGE_VERSION
+    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only" && $PIPELINE_MODE != "staging-only"'
       when: on_success
       allow_failure: false
 
@@ -1130,7 +1252,22 @@ trigger-destroy-staging:
   variables:
     DESTROY_ENV: "staging"
   rules:
-    - if: $IMAGE_VERSION
+    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only" && $PIPELINE_MODE != "staging-only"'
+      when: on_success
+      allow_failure: false
+
+verify-staging-destroyed:
+  stage: verify-destroy
+  image: alpine:latest
+  needs:
+    - trigger-destroy-staging
+  before_script:
+    - apk add --no-cache bash python3 py3-pip
+    - pip3 install --break-system-packages awscli
+  script:
+    - sh scripts/deployment/verify-staging-destroyed.sh
+  rules:
+    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only" && $PIPELINE_MODE != "staging-only"'
       when: on_success
       allow_failure: false
 
@@ -1146,7 +1283,7 @@ promote-to-production:
   stage: promote
   image: alpine:latest
   needs:
-    - trigger-destroy-staging
+    - verify-staging-destroyed
   before_script:
     - apk add --no-cache git sed
   script:
@@ -1224,7 +1361,7 @@ promote-to-production:
     - echo ""
     - echo "✅ Production overlay updated — kubectl deploy will proceed next"
   rules:
-    - if: $IMAGE_VERSION
+    - if: '$IMAGE_VERSION && ($PIPELINE_MODE == "auto" || $PIPELINE_MODE == "full-release")'
       when: manual
       allow_failure: false
 
@@ -1246,7 +1383,7 @@ trigger-infra-production:
     ENSURE_UP: "true"
     TARGET_ENV: "production"
   rules:
-    - if: $IMAGE_VERSION
+    - if: '$IMAGE_VERSION && ($PIPELINE_MODE == "auto" || $PIPELINE_MODE == "full-release")'
       when: on_success
 
 wait-production-ready:
@@ -1321,7 +1458,7 @@ wait-production-ready:
       curl -sk --connect-timeout 10 --max-time 15 "${API_ENDPOINT}/readyz" 2>&1 | head -20 || echo "curl failed"
       exit 1
   rules:
-    - if: $IMAGE_VERSION
+    - if: '$IMAGE_VERSION && ($PIPELINE_MODE == "auto" || $PIPELINE_MODE == "full-release")'
       when: on_success
   allow_failure: false
 
@@ -1470,7 +1607,7 @@ install-addons-production:
       echo ""
       echo "✅ All production add-ons installed successfully"
   rules:
-    - if: $IMAGE_VERSION
+    - if: '$IMAGE_VERSION && ($PIPELINE_MODE == "auto" || $PIPELINE_MODE == "full-release")'
       when: on_success
   allow_failure: false
 
@@ -1512,7 +1649,7 @@ install-observability-production:
       kubectl rollout status daemonset/$FLUENT_BIT_RELEASE -n "$LOGGING_NAMESPACE" --timeout=180s
       echo "✅ Production observability foundation installed"
   rules:
-    - if: $IMAGE_VERSION
+    - if: '$IMAGE_VERSION && ($PIPELINE_MODE == "auto" || $PIPELINE_MODE == "full-release")'
       when: on_success
   allow_failure: false
 
@@ -1648,7 +1785,7 @@ deploy-production:
     reports:
       dotenv: production-deploy.env
   rules:
-    - if: $IMAGE_VERSION
+    - if: '$IMAGE_VERSION && ($PIPELINE_MODE == "auto" || $PIPELINE_MODE == "full-release")'
       when: on_success
   allow_failure: false
 
@@ -1667,70 +1804,9 @@ smoke-tests-production:
     - echo "═══════════════════════════════════════════════════════════════"
     - echo "  Production Smoke Tests — Health Checks"
     - echo "═══════════════════════════════════════════════════════════════"
-    - |
-      if [ -z "$PROD_URL" ]; then
-        echo "❌ PROD_URL is empty — LoadBalancer hostname not provisioned"
-        exit 1
-      fi
-      echo "  Waiting for production LoadBalancer to become reachable..."
-      WARMUP_ATTEMPTS=18
-      WARMUP_DONE=0
-      for i in $(seq 1 $WARMUP_ATTEMPTS); do
-        WARMUP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${PROD_URL}/health" 2>/dev/null) || true
-        if [ -n "$WARMUP_CODE" ] && [ "$WARMUP_CODE" != "000" ]; then
-          echo "  ✅ LoadBalancer reachable (HTTP $WARMUP_CODE) after $((i * 10))s"
-          WARMUP_DONE=1
-          break
-        fi
-        echo "  Attempt $i/$WARMUP_ATTEMPTS — not reachable yet (code: ${WARMUP_CODE:-000}), retrying in 10s..."
-        sleep 10
-      done
-      if [ "$WARMUP_DONE" -eq 0 ]; then
-        echo "❌ LoadBalancer did not become reachable within $((WARMUP_ATTEMPTS * 10))s"
-        echo "  URL: ${PROD_URL}/health"
-        exit 1
-      fi
-
-      FAILED=0
-      check_url() {
-        NAME="$1"
-        URL="$2"
-        EXPECTED="$3"
-        echo -n "  Checking $NAME... "
-        HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "$URL" 2>/dev/null) || true
-        HTTP_CODE="${HTTP_CODE:-000}"
-        OLDIFS=$IFS
-        IFS=','
-        for CODE in $EXPECTED; do
-          if [ "$HTTP_CODE" = "$CODE" ]; then
-            IFS=$OLDIFS
-            echo "✅ ($HTTP_CODE)"
-            return 0
-          fi
-        done
-        IFS=$OLDIFS
-        echo "❌ ($HTTP_CODE), expected: $EXPECTED"
-        return 1
-      }
-
-      check_url "gateway-health" "${PROD_URL}/health" "200" || FAILED=$((FAILED + 1))
-      check_url "frontend-root" "${PROD_URL}/" "200,301,302" || FAILED=$((FAILED + 1))
-      check_url "auth-login-endpoint" "${PROD_URL}/api/v1/auth/login" "200,400,401,405,422" || FAILED=$((FAILED + 1))
-      check_url "users-route-prefix" "${PROD_URL}/api/v1/users" "200,401,405" || FAILED=$((FAILED + 1))
-      check_url "jobs-route-prefix" "${PROD_URL}/api/v1/jobs" "200,401,405" || FAILED=$((FAILED + 1))
-      check_url "customers-route-prefix" "${PROD_URL}/api/v1/customers" "200,401,405" || FAILED=$((FAILED + 1))
-      check_url "admin-organizations-endpoint" "${PROD_URL}/api/v1/admin/organizations" "200,401,403,405" || FAILED=$((FAILED + 1))
-
-      echo ""
-      if [ "$FAILED" -gt 0 ]; then
-        echo "❌ $FAILED service(s) failed health check in production"
-        echo "⚠️  ACTION REQUIRED: Check deployment logs and kubectl rollout status"
-        exit 1
-      else
-        echo "✅ All production services healthy"
-      fi
+    - sh scripts/deployment/smoke-tests.sh "$PROD_URL" production
   rules:
-    - if: $IMAGE_VERSION
+    - if: '$IMAGE_VERSION && ($PIPELINE_MODE == "auto" || $PIPELINE_MODE == "full-release")'
       when: on_success
   allow_failure: false
 
@@ -1746,7 +1822,7 @@ notify-success:
   stage: notify
   image: alpine:latest
   needs:
-    - trigger-destroy-staging
+    - smoke-tests-production
   before_script:
     - apk add --no-cache curl
   script:
@@ -1764,7 +1840,7 @@ notify-success:
     #   curl -X POST "$SLACK_WEBHOOK_URL" -H "Content-Type: application/json" \
     #     -d "{\"text\": \"✅ Production deploy complete — version ${IMAGE_VERSION}\"}"
   rules:
-    - if: $IMAGE_VERSION
+    - if: '$IMAGE_VERSION && ($PIPELINE_MODE == "auto" || $PIPELINE_MODE == "full-release")'
       when: on_success
   allow_failure: true
 
@@ -1785,7 +1861,7 @@ notify-failure:
     - 'echo "  ACTION REQUIRED: Check deployment logs and kubectl rollout status"'
     # TODO: Add Slack/Teams/webhook notification
   rules:
-    - if: $IMAGE_VERSION
+    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only"'
       when: on_failure
   allow_failure: true
 
