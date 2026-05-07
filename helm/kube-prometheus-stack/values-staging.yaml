@@ -59,6 +59,12 @@ prometheus:
               storage: 30Gi
 
 prometheusOperator:
+  # Disable operator TLS in staging because the chart otherwise mounts the
+  # kube-prometheus-stack-admission Secret even when admission webhooks are
+  # disabled. On fresh clusters that Secret may not exist, leaving the operator
+  # stuck in ContainerCreating and causing Helm --wait to time out.
+  tls:
+    enabled: false
   admissionWebhooks:
     # Disable optional admission webhook hooks in staging. The hook jobs can
     # timeout on the small 2x t3.medium cluster and block observability deploys.
