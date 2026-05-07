@@ -1,12 +1,13 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-    Locally validate the CD pipeline manifests WITHOUT pushing to GitLab.
+    Locally validate the CD pipeline manifests and key CI ordering WITHOUT pushing to GitLab.
 
 .DESCRIPTION
     Runs the same offline checks as the CI pipeline (kustomize build + kubeconform,
-    plus kubectl's embedded Kustomize engine) on your local machine. Catches
-    manifest errors in seconds instead of waiting for a remote pipeline run.
+    plus kubectl's embedded Kustomize engine) and verifies critical CD pipeline
+    ordering on your local machine. Catches manifest and stage-order errors in
+    seconds instead of waiting for a remote pipeline run.
 
     Requires: kustomize, kubeconform, kubectl (auto-installs via scoop if missing)
 
@@ -98,6 +99,64 @@ $overlays = if ($Overlay -eq "all") {
 }
 
 $totalErrors = 0
+
+# ── Check critical CD pipeline ordering ──
+$ciFile = Join-Path $RepoRoot ".gitlab-ci.yml"
+if (Test-Path $ciFile) {
+    Write-Host "`n-----------------------------------------" -ForegroundColor Cyan
+    Write-Host "  Validating CD pipeline stage ordering" -ForegroundColor Cyan
+    Write-Host "-----------------------------------------" -ForegroundColor Cyan
+
+    $ciText = Get-Content $ciFile -Raw
+    $pipelineErrors = 0
+
+    function Assert-ContainsText($Content, $Needle, $Description) {
+        if ($Content.Contains($Needle)) {
+            Write-Host "  PASS $Description" -ForegroundColor Green
+        } else {
+            Write-Host "  FAIL $Description" -ForegroundColor Red
+            Write-Host "       Missing: $Needle" -ForegroundColor Red
+            $script:pipelineErrors++
+        }
+    }
+
+    function Assert-TextOrder($Content, $First, $Second, $Description) {
+        $firstIndex = $Content.IndexOf($First)
+        $secondIndex = $Content.IndexOf($Second)
+        if ($firstIndex -ge 0 -and $secondIndex -ge 0 -and $firstIndex -lt $secondIndex) {
+            Write-Host "  PASS $Description" -ForegroundColor Green
+        } else {
+            Write-Host "  FAIL $Description" -ForegroundColor Red
+            Write-Host "       Expected '$First' before '$Second'" -ForegroundColor Red
+            $script:pipelineErrors++
+        }
+    }
+
+    Assert-TextOrder $ciText "  - staging-tests" "  - destroy-staging" "staging tests run before staging destroy stage"
+    Assert-TextOrder $ciText "  - destroy-staging" "  - promote" "staging destroy stage runs before promotion stage"
+    Assert-TextOrder $ciText "confirm-destroy-staging:" "cleanup-staging-loadbalancers:" "manual destroy approval comes before cleanup job"
+    Assert-TextOrder $ciText "cleanup-staging-loadbalancers:" "trigger-destroy-staging:" "load balancer cleanup comes before Terraform destroy trigger"
+    Assert-TextOrder $ciText "trigger-destroy-staging:" "promote-to-production:" "promotion job is defined after staging destroy trigger"
+
+    Assert-ContainsText $ciText "confirm-destroy-staging:" "manual staging destroy confirmation job exists"
+    Assert-ContainsText $ciText 'DESTROY_ENV: "staging"' "staging destroy trigger targets only staging"
+
+    if ($ciText -notmatch "(?s)cleanup-staging-loadbalancers:.*?needs:\s*\r?\n\s*-\s*confirm-destroy-staging") {
+        Write-Host "  FAIL cleanup job must depend on confirm-destroy-staging" -ForegroundColor Red
+        $pipelineErrors++
+    } else {
+        Write-Host "  PASS cleanup job depends on manual staging destroy confirmation" -ForegroundColor Green
+    }
+
+    if ($ciText -notmatch "(?s)promote-to-production:.*?needs:\s*\r?\n\s*-\s*trigger-destroy-staging") {
+        Write-Host "  FAIL production promotion must depend on trigger-destroy-staging" -ForegroundColor Red
+        $pipelineErrors++
+    } else {
+        Write-Host "  PASS production promotion is gated on staging destroy completion" -ForegroundColor Green
+    }
+
+    $totalErrors += $pipelineErrors
+}
 
 foreach ($env in $overlays) {
     $overlayPath = Join-Path (Join-Path $KubernetesDir "overlays") $env
