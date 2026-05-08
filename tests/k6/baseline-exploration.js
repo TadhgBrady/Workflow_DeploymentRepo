@@ -4,31 +4,36 @@ import { Counter, Rate, Trend } from 'k6/metrics';
 
 const rawBaseUrl = __ENV.STAGING_URL || __ENV.BASE_URL || '';
 const BASE_URL = rawBaseUrl.replace(/\/+$/, '');
-const PROFILE = (__ENV.K6_PROFILE || 'baseline').toLowerCase();
-const ENVIRONMENT = __ENV.K6_ENVIRONMENT || 'staging';
-const TEST_ID = __ENV.K6_TEST_ID || `baseline-${Date.now()}`;
+
+function loadTestEnv(name, fallback) {
+  return __ENV[`LOAD_TEST_${name}`] || __ENV[`K6_${name}`] || fallback;
+}
+
+const PROFILE = loadTestEnv('PROFILE', 'baseline').toLowerCase();
+const ENVIRONMENT = loadTestEnv('ENVIRONMENT', 'staging');
+const TEST_ID = loadTestEnv('TEST_ID', `baseline-${Date.now()}`);
 const PIPELINE_ID = __ENV.CI_PIPELINE_ID || 'local';
 const IMAGE_VERSION = __ENV.IMAGE_VERSION || 'unknown';
 
-const WARMUP_DURATION = __ENV.K6_WARMUP_DURATION || '45s';
-const DURATION = __ENV.K6_DURATION || '5m';
-const COOLDOWN_DURATION = __ENV.K6_COOLDOWN_DURATION || '45s';
-const SWEEP_RATE = Number(__ENV.K6_SWEEP_RATE || __ENV.K6_ITERATION_RATE || 1);
-const BROWSE_RATE = Number(__ENV.K6_BROWSE_RATE || 2);
-const STRESS_RATE = Number(__ENV.K6_STRESS_RATE || 5);
-const SPIKE_RATE = Number(__ENV.K6_SPIKE_RATE || 10);
-const PRE_ALLOCATED_VUS = Number(__ENV.K6_PRE_ALLOCATED_VUS || 8);
-const MAX_VUS = Number(__ENV.K6_MAX_VUS || 30);
-const THINK_TIME_SECONDS = Number(__ENV.K6_THINK_TIME_SECONDS || 0.25);
+const WARMUP_DURATION = loadTestEnv('WARMUP_DURATION', '45s');
+const DURATION = loadTestEnv('DURATION', '5m');
+const COOLDOWN_DURATION = loadTestEnv('COOLDOWN_DURATION', '45s');
+const SWEEP_RATE = Number(loadTestEnv('SWEEP_RATE', loadTestEnv('ITERATION_RATE', 1)));
+const BROWSE_RATE = Number(loadTestEnv('BROWSE_RATE', 2));
+const STRESS_RATE = Number(loadTestEnv('STRESS_RATE', 5));
+const SPIKE_RATE = Number(loadTestEnv('SPIKE_RATE', 10));
+const PRE_ALLOCATED_VUS = Number(loadTestEnv('PRE_ALLOCATED_VUS', 8));
+const MAX_VUS = Number(loadTestEnv('MAX_VUS', 30));
+const THINK_TIME_SECONDS = Number(loadTestEnv('THINK_TIME_SECONDS', 0.25));
 
-const FAILURE_RATE = Number(__ENV.K6_FAILURE_RATE || 0.02);
-const CRITICAL_FAILURE_RATE = Number(__ENV.K6_CRITICAL_FAILURE_RATE || 0.01);
-const UNEXPECTED_STATUS_RATE = Number(__ENV.K6_UNEXPECTED_STATUS_RATE || 0.02);
-const SERVER_ERROR_RATE = Number(__ENV.K6_SERVER_ERROR_RATE || 0.01);
-const CHECK_RATE = Number(__ENV.K6_CHECK_RATE || 0.95);
-const LATENCY_P95_MS = Number(__ENV.K6_LATENCY_P95_MS || 1500);
-const LATENCY_P99_MS = Number(__ENV.K6_LATENCY_P99_MS || 3000);
-const REQUEST_TIMEOUT = __ENV.K6_REQUEST_TIMEOUT || '10s';
+const FAILURE_RATE = Number(loadTestEnv('FAILURE_RATE', 0.02));
+const CRITICAL_FAILURE_RATE = Number(loadTestEnv('CRITICAL_FAILURE_RATE', 0.01));
+const UNEXPECTED_STATUS_RATE = Number(loadTestEnv('UNEXPECTED_STATUS_RATE', 0.02));
+const SERVER_ERROR_RATE = Number(loadTestEnv('SERVER_ERROR_RATE', 0.01));
+const CHECK_RATE = Number(loadTestEnv('CHECK_RATE', 0.95));
+const LATENCY_P95_MS = Number(loadTestEnv('LATENCY_P95_MS', 1500));
+const LATENCY_P99_MS = Number(loadTestEnv('LATENCY_P99_MS', 3000));
+const REQUEST_TIMEOUT = loadTestEnv('REQUEST_TIMEOUT', '10s');
 
 http.setResponseCallback(http.expectedStatuses({ min: 200, max: 499 }));
 
@@ -169,8 +174,8 @@ function buildScenarios() {
   switch (PROFILE) {
     case 'smoke':
       return {
-        health_probe: healthProbeScenario(__ENV.K6_DURATION || '1m'),
-        availability_sweep: availabilityScenario(__ENV.K6_DURATION || '1m'),
+        health_probe: healthProbeScenario(loadTestEnv('DURATION', '1m')),
+        availability_sweep: availabilityScenario(loadTestEnv('DURATION', '1m')),
       };
     case 'stress-lite':
       return {

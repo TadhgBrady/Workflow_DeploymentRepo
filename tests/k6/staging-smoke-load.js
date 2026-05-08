@@ -5,17 +5,21 @@ import { Rate } from 'k6/metrics';
 const rawBaseUrl = __ENV.STAGING_URL || __ENV.BASE_URL || '';
 const BASE_URL = rawBaseUrl.replace(/\/+$/, '');
 
-const ITERATION_RATE = Number(__ENV.K6_ITERATION_RATE || 1);
-const WARMUP_DURATION = __ENV.K6_WARMUP_DURATION || '30s';
-const DURATION = __ENV.K6_DURATION || '3m';
-const COOLDOWN_DURATION = __ENV.K6_COOLDOWN_DURATION || '30s';
-const PRE_ALLOCATED_VUS = Number(__ENV.K6_PRE_ALLOCATED_VUS || 6);
-const MAX_VUS = Number(__ENV.K6_MAX_VUS || 20);
-const THINK_TIME_SECONDS = Number(__ENV.K6_THINK_TIME_SECONDS || 0.2);
+function loadTestEnv(name, fallback) {
+  return __ENV[`LOAD_TEST_${name}`] || __ENV[`K6_${name}`] || fallback;
+}
 
-const ENVIRONMENT = __ENV.K6_ENVIRONMENT || 'staging';
-const PROFILE = __ENV.K6_PROFILE || 'gate';
-const TEST_ID = __ENV.K6_TEST_ID || `local-${Date.now()}`;
+const ITERATION_RATE = Number(loadTestEnv('ITERATION_RATE', 1));
+const WARMUP_DURATION = loadTestEnv('WARMUP_DURATION', '30s');
+const DURATION = loadTestEnv('DURATION', '3m');
+const COOLDOWN_DURATION = loadTestEnv('COOLDOWN_DURATION', '30s');
+const PRE_ALLOCATED_VUS = Number(loadTestEnv('PRE_ALLOCATED_VUS', 6));
+const MAX_VUS = Number(loadTestEnv('MAX_VUS', 20));
+const THINK_TIME_SECONDS = Number(loadTestEnv('THINK_TIME_SECONDS', 0.2));
+
+const ENVIRONMENT = loadTestEnv('ENVIRONMENT', 'staging');
+const PROFILE = loadTestEnv('PROFILE', 'gate');
+const TEST_ID = loadTestEnv('TEST_ID', `local-${Date.now()}`);
 const PIPELINE_ID = __ENV.CI_PIPELINE_ID || 'local';
 const IMAGE_VERSION = __ENV.IMAGE_VERSION || 'unknown';
 

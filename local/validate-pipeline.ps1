@@ -170,7 +170,7 @@ if (Test-Path $ciFile) {
         Write-Host "  PASS k6 load gate depends on readiness and deploy-staging artifacts" -ForegroundColor Green
     }
 
-    if ($ciText -notmatch "(?s)k6-baseline-staging:.*?K6_SCRIPT_PATH:\s*\"tests/k6/baseline-exploration.js\".*?when:\s*manual.*?allow_failure:\s*true") {
+    if ($ciText -notmatch '(?s)k6-baseline-staging:.*?K6_SCRIPT_PATH:\s*"tests/k6/baseline-exploration.js".*?when:\s*manual.*?allow_failure:\s*true') {
         Write-Host "  FAIL k6 baseline job must be manual, optional, and use the baseline script" -ForegroundColor Red
         $pipelineErrors++
     } else {
@@ -212,6 +212,22 @@ if (Test-Path $ciFile) {
         Write-Host "  PASS k6 baseline exploration script exists" -ForegroundColor Green
     } else {
         Write-Host "  FAIL k6 baseline exploration script is missing" -ForegroundColor Red
+        $pipelineErrors++
+    }
+
+    $k6RunnerScript = Join-Path $RepoRoot "scripts/deployment/run-k6-staging.sh"
+    if (Test-Path $k6RunnerScript) {
+        $k6RunnerText = Get-Content $k6RunnerScript -Raw
+        Assert-ContainsText $k6RunnerText "LOAD_TEST_DURATION" "k6 runner maps duration to non-reserved LOAD_TEST_* env vars"
+        Assert-ContainsText $k6RunnerText "LOAD_TEST_MAX_VUS" "k6 runner maps max VUs to non-reserved LOAD_TEST_* env vars"
+        if ($k6RunnerText -match "(?m)^\s*- name: K6_(?!PROMETHEUS_RW_)[A-Z0-9_]+\s*$") {
+            Write-Host "  FAIL k6 runner must not pass custom K6_* env vars into the k6 pod" -ForegroundColor Red
+            $pipelineErrors++
+        } else {
+            Write-Host "  PASS k6 runner keeps custom tuning vars out of reserved K6_* pod env names" -ForegroundColor Green
+        }
+    } else {
+        Write-Host "  FAIL shared k6 runner script is missing" -ForegroundColor Red
         $pipelineErrors++
     }
 

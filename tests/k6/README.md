@@ -22,6 +22,8 @@ Both scripts are non-destructive and use the same safe public endpoints as the s
 
 The GitLab pipeline exposes `k6-baseline-staging` as a manual, allowed-to-fail job so it can be run while staging is up without blocking release flow.
 
+The GitLab jobs still use the `K6_*` variables below for convenience. The Kubernetes runner maps those values to `LOAD_TEST_*` environment variables inside the k6 pod, because some `K6_*` names are reserved by k6 itself. If you run these scripts directly with `k6 run`, use `LOAD_TEST_DURATION`, `LOAD_TEST_MAX_VUS`, and the other `LOAD_TEST_*` names instead of exporting custom `K6_*` values.
+
 ## Useful tuning variables
 
 | Variable | Default | Notes |

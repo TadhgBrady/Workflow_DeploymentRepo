@@ -44,6 +44,10 @@ K6_PROMETHEUS_RW_PUSH_INTERVAL="${K6_PROMETHEUS_RW_PUSH_INTERVAL:-5s}"
 K6_PROMETHEUS_RW_TREND_STATS="${K6_PROMETHEUS_RW_TREND_STATS:-min,avg,med,p(90),p(95),p(99),max}"
 K6_PROMETHEUS_RW_STALE_MARKERS="${K6_PROMETHEUS_RW_STALE_MARKERS:-true}"
 
+# Keep GitLab-facing knobs as K6_* for continuity, but pass script-specific
+# values into the pod as LOAD_TEST_* so the k6 binary does not treat them as
+# runtime options like K6_DURATION or K6_MAX_VUS.
+
 sanitize_name() {
   printf '%s' "$1" \
     | tr '[:upper:]_' '[:lower:]-' \
@@ -164,11 +168,11 @@ spec:
           env:
             - name: STAGING_URL
               value: "$BASE_URL"
-            - name: K6_ENVIRONMENT
+            - name: LOAD_TEST_ENVIRONMENT
               value: "$K6_ENVIRONMENT"
-            - name: K6_PROFILE
+            - name: LOAD_TEST_PROFILE
               value: "$K6_PROFILE"
-            - name: K6_TEST_ID
+            - name: LOAD_TEST_ID
               value: "$K6_TEST_ID"
             - name: CI_PIPELINE_ID
               value: "${CI_PIPELINE_ID:-local}"
@@ -176,43 +180,43 @@ spec:
               value: "${CI_JOB_ID:-local}"
             - name: IMAGE_VERSION
               value: "${IMAGE_VERSION:-unknown}"
-            - name: K6_ITERATION_RATE
+            - name: LOAD_TEST_ITERATION_RATE
               value: "$K6_ITERATION_RATE"
-            - name: K6_SWEEP_RATE
+            - name: LOAD_TEST_SWEEP_RATE
               value: "$K6_SWEEP_RATE"
-            - name: K6_BROWSE_RATE
+            - name: LOAD_TEST_BROWSE_RATE
               value: "$K6_BROWSE_RATE"
-            - name: K6_STRESS_RATE
+            - name: LOAD_TEST_STRESS_RATE
               value: "$K6_STRESS_RATE"
-            - name: K6_SPIKE_RATE
+            - name: LOAD_TEST_SPIKE_RATE
               value: "$K6_SPIKE_RATE"
-            - name: K6_WARMUP_DURATION
+            - name: LOAD_TEST_WARMUP_DURATION
               value: "$K6_WARMUP_DURATION"
-            - name: K6_DURATION
+            - name: LOAD_TEST_DURATION
               value: "$K6_DURATION"
-            - name: K6_COOLDOWN_DURATION
+            - name: LOAD_TEST_COOLDOWN_DURATION
               value: "$K6_COOLDOWN_DURATION"
-            - name: K6_PRE_ALLOCATED_VUS
+            - name: LOAD_TEST_PRE_ALLOCATED_VUS
               value: "$K6_PRE_ALLOCATED_VUS"
-            - name: K6_MAX_VUS
+            - name: LOAD_TEST_MAX_VUS
               value: "$K6_MAX_VUS"
-            - name: K6_THINK_TIME_SECONDS
+            - name: LOAD_TEST_THINK_TIME_SECONDS
               value: "$K6_THINK_TIME_SECONDS"
-            - name: K6_REQUEST_TIMEOUT
+            - name: LOAD_TEST_REQUEST_TIMEOUT
               value: "$K6_REQUEST_TIMEOUT"
-            - name: K6_FAILURE_RATE
+            - name: LOAD_TEST_FAILURE_RATE
               value: "$K6_FAILURE_RATE"
-            - name: K6_CRITICAL_FAILURE_RATE
+            - name: LOAD_TEST_CRITICAL_FAILURE_RATE
               value: "$K6_CRITICAL_FAILURE_RATE"
-            - name: K6_UNEXPECTED_STATUS_RATE
+            - name: LOAD_TEST_UNEXPECTED_STATUS_RATE
               value: "$K6_UNEXPECTED_STATUS_RATE"
-            - name: K6_SERVER_ERROR_RATE
+            - name: LOAD_TEST_SERVER_ERROR_RATE
               value: "$K6_SERVER_ERROR_RATE"
-            - name: K6_CHECK_RATE
+            - name: LOAD_TEST_CHECK_RATE
               value: "$K6_CHECK_RATE"
-            - name: K6_LATENCY_P95_MS
+            - name: LOAD_TEST_LATENCY_P95_MS
               value: "$K6_LATENCY_P95_MS"
-            - name: K6_LATENCY_P99_MS
+            - name: LOAD_TEST_LATENCY_P99_MS
               value: "$K6_LATENCY_P99_MS"
             - name: K6_PROMETHEUS_RW_SERVER_URL
               value: "$PROMETHEUS_RW_URL"
