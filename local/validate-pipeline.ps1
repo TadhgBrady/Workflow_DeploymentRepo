@@ -151,7 +151,9 @@ if (Test-Path $ciFile) {
     Assert-ContainsText $ciText 'DESTROY_ENV: "staging"' "staging destroy trigger targets only staging"
     Assert-ContainsText $ciText 'scripts/deployment/smoke-tests.sh' "shared smoke-test script is used"
     Assert-ContainsText $ciText "k6-load-staging:" "staging k6 load gate job exists"
+    Assert-ContainsText $ciText "k6-baseline-staging:" "manual staging k6 baseline job exists"
     Assert-ContainsText $ciText 'scripts/deployment/run-k6-staging.sh' "shared k6 runner script is used"
+    Assert-ContainsText $ciText 'tests/k6/baseline-exploration.js' "k6 baseline exploration script is wired in"
     Assert-ContainsText $ciText 'dashboard-k6-staging.yaml' "k6 Grafana dashboard is applied"
 
     if ($ciText -notmatch "(?s)cleanup-staging-loadbalancers:.*?needs:\s*\r?\n\s*-\s*confirm-destroy-staging") {
@@ -166,6 +168,13 @@ if (Test-Path $ciFile) {
         $pipelineErrors++
     } else {
         Write-Host "  PASS k6 load gate depends on readiness and deploy-staging artifacts" -ForegroundColor Green
+    }
+
+    if ($ciText -notmatch "(?s)k6-baseline-staging:.*?K6_SCRIPT_PATH:\s*\"tests/k6/baseline-exploration.js\".*?when:\s*manual.*?allow_failure:\s*true") {
+        Write-Host "  FAIL k6 baseline job must be manual, optional, and use the baseline script" -ForegroundColor Red
+        $pipelineErrors++
+    } else {
+        Write-Host "  PASS k6 baseline job is manual, optional, and uses the baseline script" -ForegroundColor Green
     }
 
     if ($ciText -notmatch "(?s)confirm-destroy-staging:.*?needs:.*?-\s*smoke-tests-staging.*?-\s*k6-load-staging") {
@@ -195,6 +204,14 @@ if (Test-Path $ciFile) {
         Assert-ContainsText $promValuesText "enableRemoteWriteReceiver: true" "Prometheus remote-write receiver is enabled for k6"
     } else {
         Write-Host "  FAIL staging Prometheus values file is missing" -ForegroundColor Red
+        $pipelineErrors++
+    }
+
+    $baselineScript = Join-Path $RepoRoot "tests/k6/baseline-exploration.js"
+    if (Test-Path $baselineScript) {
+        Write-Host "  PASS k6 baseline exploration script exists" -ForegroundColor Green
+    } else {
+        Write-Host "  FAIL k6 baseline exploration script is missing" -ForegroundColor Red
         $pipelineErrors++
     }
 

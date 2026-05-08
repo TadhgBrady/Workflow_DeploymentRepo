@@ -45,7 +45,7 @@ data:
           "gridPos": {"x": 0, "y": 0, "w": 24, "h": 3},
           "options": {
             "mode": "markdown",
-            "content": "The GitLab staging-tests stage launches a short-lived grafana/k6 Kubernetes Job. k6 pushes metrics to Prometheus remote write with environment=staging and a pipeline testid. Threshold failures make the CI job fail, while these panels remain available while staging is up."
+            "content": "The GitLab staging-tests stage launches short-lived grafana/k6 Kubernetes Jobs. The automated load gate blocks release flow on threshold failures; the manual baseline job is allowed to fail and is used for tuning. Both push metrics to Prometheus remote write with environment=staging and a pipeline testid, so these panels remain available while staging is up."
           }
         },
         {

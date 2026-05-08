@@ -12,19 +12,33 @@ if [ ! -f "$SCRIPT_PATH" ]; then
   echo "❌ k6 script not found: $SCRIPT_PATH"
   exit 1
 fi
+SCRIPT_FILE="$(basename "$SCRIPT_PATH")"
 
 STAGING_NAMESPACE="${STAGING_NAMESPACE:-year4-project-staging}"
 MONITORING_NAMESPACE="${MONITORING_NAMESPACE:-monitoring}"
 K6_ENVIRONMENT="${K6_ENVIRONMENT:-staging}"
+K6_PROFILE="${K6_PROFILE:-gate}"
 K6_IMAGE="${K6_IMAGE:-grafana/k6:0.54.0}"
 K6_JOB_TIMEOUT="${K6_JOB_TIMEOUT:-12m}"
 K6_ITERATION_RATE="${K6_ITERATION_RATE:-1}"
+K6_SWEEP_RATE="${K6_SWEEP_RATE:-$K6_ITERATION_RATE}"
+K6_BROWSE_RATE="${K6_BROWSE_RATE:-2}"
+K6_STRESS_RATE="${K6_STRESS_RATE:-5}"
+K6_SPIKE_RATE="${K6_SPIKE_RATE:-10}"
 K6_WARMUP_DURATION="${K6_WARMUP_DURATION:-30s}"
 K6_DURATION="${K6_DURATION:-3m}"
 K6_COOLDOWN_DURATION="${K6_COOLDOWN_DURATION:-30s}"
 K6_PRE_ALLOCATED_VUS="${K6_PRE_ALLOCATED_VUS:-6}"
 K6_MAX_VUS="${K6_MAX_VUS:-20}"
 K6_THINK_TIME_SECONDS="${K6_THINK_TIME_SECONDS:-0.2}"
+K6_REQUEST_TIMEOUT="${K6_REQUEST_TIMEOUT:-10s}"
+K6_FAILURE_RATE="${K6_FAILURE_RATE:-0.02}"
+K6_CRITICAL_FAILURE_RATE="${K6_CRITICAL_FAILURE_RATE:-0.01}"
+K6_UNEXPECTED_STATUS_RATE="${K6_UNEXPECTED_STATUS_RATE:-0.02}"
+K6_SERVER_ERROR_RATE="${K6_SERVER_ERROR_RATE:-0.01}"
+K6_CHECK_RATE="${K6_CHECK_RATE:-0.95}"
+K6_LATENCY_P95_MS="${K6_LATENCY_P95_MS:-1500}"
+K6_LATENCY_P99_MS="${K6_LATENCY_P99_MS:-3000}"
 K6_PROMETHEUS_RW_PUSH_INTERVAL="${K6_PROMETHEUS_RW_PUSH_INTERVAL:-5s}"
 K6_PROMETHEUS_RW_TREND_STATS="${K6_PROMETHEUS_RW_TREND_STATS:-min,avg,med,p(90),p(95),p(99),max}"
 K6_PROMETHEUS_RW_STALE_MARKERS="${K6_PROMETHEUS_RW_STALE_MARKERS:-true}"
@@ -100,6 +114,8 @@ echo "════════════════════════�
 echo "Target URL:        $BASE_URL"
 echo "Namespace:         $STAGING_NAMESPACE"
 echo "k6 image:          $K6_IMAGE"
+echo "Script:            $SCRIPT_PATH"
+echo "Profile:           $K6_PROFILE"
 echo "Test ID:           $K6_TEST_ID"
 echo "Iteration rate:    $K6_ITERATION_RATE endpoint sweeps/sec"
 echo "Duration:          warmup=$K6_WARMUP_DURATION steady=$K6_DURATION cooldown=$K6_COOLDOWN_DURATION"
@@ -111,7 +127,7 @@ kubectl delete configmap "$CONFIGMAP_NAME" -n "$STAGING_NAMESPACE" --ignore-not-
 
 kubectl create configmap "$CONFIGMAP_NAME" \
   --namespace "$STAGING_NAMESPACE" \
-  --from-file=staging-smoke-load.js="$SCRIPT_PATH"
+  --from-file="$SCRIPT_FILE=$SCRIPT_PATH"
 
 cat <<EOF | kubectl apply -f -
 apiVersion: batch/v1
@@ -145,6 +161,8 @@ spec:
               value: "$BASE_URL"
             - name: K6_ENVIRONMENT
               value: "$K6_ENVIRONMENT"
+            - name: K6_PROFILE
+              value: "$K6_PROFILE"
             - name: K6_TEST_ID
               value: "$K6_TEST_ID"
             - name: CI_PIPELINE_ID
@@ -155,6 +173,14 @@ spec:
               value: "${IMAGE_VERSION:-unknown}"
             - name: K6_ITERATION_RATE
               value: "$K6_ITERATION_RATE"
+            - name: K6_SWEEP_RATE
+              value: "$K6_SWEEP_RATE"
+            - name: K6_BROWSE_RATE
+              value: "$K6_BROWSE_RATE"
+            - name: K6_STRESS_RATE
+              value: "$K6_STRESS_RATE"
+            - name: K6_SPIKE_RATE
+              value: "$K6_SPIKE_RATE"
             - name: K6_WARMUP_DURATION
               value: "$K6_WARMUP_DURATION"
             - name: K6_DURATION
@@ -167,6 +193,22 @@ spec:
               value: "$K6_MAX_VUS"
             - name: K6_THINK_TIME_SECONDS
               value: "$K6_THINK_TIME_SECONDS"
+            - name: K6_REQUEST_TIMEOUT
+              value: "$K6_REQUEST_TIMEOUT"
+            - name: K6_FAILURE_RATE
+              value: "$K6_FAILURE_RATE"
+            - name: K6_CRITICAL_FAILURE_RATE
+              value: "$K6_CRITICAL_FAILURE_RATE"
+            - name: K6_UNEXPECTED_STATUS_RATE
+              value: "$K6_UNEXPECTED_STATUS_RATE"
+            - name: K6_SERVER_ERROR_RATE
+              value: "$K6_SERVER_ERROR_RATE"
+            - name: K6_CHECK_RATE
+              value: "$K6_CHECK_RATE"
+            - name: K6_LATENCY_P95_MS
+              value: "$K6_LATENCY_P95_MS"
+            - name: K6_LATENCY_P99_MS
+              value: "$K6_LATENCY_P99_MS"
             - name: K6_PROMETHEUS_RW_SERVER_URL
               value: "$PROMETHEUS_RW_URL"
             - name: K6_PROMETHEUS_RW_PUSH_INTERVAL
@@ -179,7 +221,7 @@ spec:
             - run
             - --out
             - experimental-prometheus-rw
-            - /scripts/staging-smoke-load.js
+            - /scripts/$SCRIPT_FILE
           volumeMounts:
             - name: k6-script
               mountPath: /scripts

@@ -1142,6 +1142,41 @@ k6-load-staging:
       when: on_success
   allow_failure: false
 
+k6-baseline-staging:
+  stage: staging-tests
+  image: alpine:latest
+  needs:
+    - staging-readiness
+    - job: deploy-staging
+      artifacts: true
+  variables:
+    K6_SCRIPT_PATH: "tests/k6/baseline-exploration.js"
+    K6_PROFILE: "baseline"
+    K6_DURATION: "5m"
+    K6_JOB_TIMEOUT: "20m"
+    K6_SWEEP_RATE: "1"
+    K6_BROWSE_RATE: "2"
+    K6_PRE_ALLOCATED_VUS: "8"
+    K6_MAX_VUS: "30"
+  before_script:
+    - apk add --no-cache curl bash aws-cli
+    - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
+    - chmod +x kubectl && mv kubectl /usr/local/bin/
+    - aws eks update-kubeconfig --name $STAGING_CLUSTER_NAME --region $AWS_DEFAULT_REGION
+  script:
+    - |
+      set -eu
+      if [ -z "${STAGING_URL:-}" ]; then
+        echo "❌ STAGING_URL was not exported by deploy-staging"
+        exit 1
+      fi
+      sh scripts/deployment/run-k6-staging.sh "$STAGING_URL"
+  rules:
+    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only"'
+      when: manual
+      allow_failure: true
+  allow_failure: true
+
 # ---------------------------------------------------------------------------
 # PLAYWRIGHT E2E TESTS (Staging)
 # ---------------------------------------------------------------------------

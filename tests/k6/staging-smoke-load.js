@@ -14,6 +14,7 @@ const MAX_VUS = Number(__ENV.K6_MAX_VUS || 20);
 const THINK_TIME_SECONDS = Number(__ENV.K6_THINK_TIME_SECONDS || 0.2);
 
 const ENVIRONMENT = __ENV.K6_ENVIRONMENT || 'staging';
+const PROFILE = __ENV.K6_PROFILE || 'gate';
 const TEST_ID = __ENV.K6_TEST_ID || `local-${Date.now()}`;
 const PIPELINE_ID = __ENV.CI_PIPELINE_ID || 'local';
 const IMAGE_VERSION = __ENV.IMAGE_VERSION || 'unknown';
@@ -49,6 +50,7 @@ export const options = {
     testid: TEST_ID,
     pipeline: PIPELINE_ID,
     image_version: IMAGE_VERSION,
+    profile: PROFILE,
   },
 };
 
