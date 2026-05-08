@@ -45,7 +45,7 @@ data:
           "gridPos": {"x": 0, "y": 0, "w": 24, "h": 3},
           "options": {
             "mode": "markdown",
-            "content": "The GitLab staging-tests stage launches short-lived grafana/k6 Kubernetes Jobs. The automated load gate blocks release flow on threshold failures; the manual baseline job is allowed to fail and is used for tuning. Both push metrics to Prometheus remote write with environment=staging and a pipeline testid, so these panels remain available while staging is up."
+            "content": "The GitLab staging-tests stage launches short-lived grafana/k6 Kubernetes Jobs. The automated load gate blocks release flow on threshold failures; the manual baseline and human-workflow jobs are allowed to fail and are used for tuning. All push metrics to Prometheus remote write with environment=staging and a pipeline testid, so these panels remain available while staging is up."
           }
         },
         {
@@ -242,6 +242,145 @@ data:
           ],
           "fieldConfig": {
             "defaults": {"unit": "percentunit"},
+            "overrides": []
+          }
+        },
+        {
+          "id": 12,
+          "type": "stat",
+          "title": "Workflow Success Rate",
+          "gridPos": {"x": 0, "y": 31, "w": 6, "h": 4},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {
+              "expr": "max(k6_workflow_success_rate{environment=\"staging\",testid=~\"$testid\"}) or vector(0)",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "red", "value": null},
+                  {"color": "orange", "value": 0.9},
+                  {"color": "green", "value": 0.95}
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 13,
+          "type": "stat",
+          "title": "Cleanup Failure Rate",
+          "gridPos": {"x": 6, "y": 31, "w": 6, "h": 4},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {
+              "expr": "max(k6_cleanup_failures_rate{environment=\"staging\",testid=~\"$testid\"}) or vector(0)",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "green", "value": null},
+                  {"color": "orange", "value": 0.01},
+                  {"color": "red", "value": 0.02}
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 14,
+          "type": "stat",
+          "title": "Auth Failure Rate",
+          "gridPos": {"x": 12, "y": 31, "w": 6, "h": 4},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {
+              "expr": "max(k6_auth_failures_rate{environment=\"staging\",testid=~\"$testid\"}) or vector(0)",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "green", "value": null},
+                  {"color": "orange", "value": 0.005},
+                  {"color": "red", "value": 0.01}
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 15,
+          "type": "stat",
+          "title": "Expected Conflicts",
+          "gridPos": {"x": 18, "y": 31, "w": 6, "h": 4},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {
+              "expr": "sum(increase(k6_expected_conflicts_total{environment=\"staging\",testid=~\"$testid\"}[30m])) or vector(0)",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {"unit": "short"},
+            "overrides": []
+          }
+        },
+        {
+          "id": 16,
+          "type": "timeseries",
+          "title": "Workflow Duration p95 by Journey",
+          "gridPos": {"x": 0, "y": 35, "w": 12, "h": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {
+              "expr": "max by (journey) (k6_workflow_duration_p95{environment=\"staging\",testid=~\"$testid\"})",
+              "legendFormat": "{{journey}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {"unit": "ms"},
+            "overrides": []
+          }
+        },
+        {
+          "id": 17,
+          "type": "timeseries",
+          "title": "Scheduling and Conflict p95",
+          "gridPos": {"x": 12, "y": 35, "w": 12, "h": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {
+              "expr": "max(k6_scheduling_duration_p95{environment=\"staging\",testid=~\"$testid\"}) or vector(0)",
+              "legendFormat": "scheduling p95",
+              "refId": "A"
+            },
+            {
+              "expr": "max(k6_conflict_check_duration_p95{environment=\"staging\",testid=~\"$testid\"}) or vector(0)",
+              "legendFormat": "conflict check p95",
+              "refId": "B"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {"unit": "ms"},
             "overrides": []
           }
         }

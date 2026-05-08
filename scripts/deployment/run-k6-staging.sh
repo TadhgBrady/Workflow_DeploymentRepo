@@ -32,6 +32,7 @@ K6_COOLDOWN_DURATION="${K6_COOLDOWN_DURATION:-30s}"
 K6_PRE_ALLOCATED_VUS="${K6_PRE_ALLOCATED_VUS:-6}"
 K6_MAX_VUS="${K6_MAX_VUS:-20}"
 K6_THINK_TIME_SECONDS="${K6_THINK_TIME_SECONDS:-0.2}"
+K6_THINK_TIME_JITTER_SECONDS="${K6_THINK_TIME_JITTER_SECONDS:-0.4}"
 K6_REQUEST_TIMEOUT="${K6_REQUEST_TIMEOUT:-10s}"
 K6_FAILURE_RATE="${K6_FAILURE_RATE:-0.02}"
 K6_CRITICAL_FAILURE_RATE="${K6_CRITICAL_FAILURE_RATE:-0.01}"
@@ -40,6 +41,24 @@ K6_SERVER_ERROR_RATE="${K6_SERVER_ERROR_RATE:-0.01}"
 K6_CHECK_RATE="${K6_CHECK_RATE:-0.95}"
 K6_LATENCY_P95_MS="${K6_LATENCY_P95_MS:-1500}"
 K6_LATENCY_P99_MS="${K6_LATENCY_P99_MS:-3000}"
+K6_MEDIUM_TARGET_VUS="${K6_MEDIUM_TARGET_VUS:-10}"
+K6_HARD_TARGET_VUS="${K6_HARD_TARGET_VUS:-24}"
+K6_HARD_JOBS_PER_SESSION="${K6_HARD_JOBS_PER_SESSION:-2}"
+K6_WORKFLOW_SUCCESS_RATE="${K6_WORKFLOW_SUCCESS_RATE:-0.95}"
+K6_AUTH_FAILURE_RATE="${K6_AUTH_FAILURE_RATE:-0.01}"
+K6_CLEANUP_FAILURE_RATE="${K6_CLEANUP_FAILURE_RATE:-0.02}"
+K6_SCHEDULING_P95_MS="${K6_SCHEDULING_P95_MS:-4000}"
+K6_SCHEDULING_P99_MS="${K6_SCHEDULING_P99_MS:-8000}"
+K6_CONFLICT_P95_MS="${K6_CONFLICT_P95_MS:-4000}"
+K6_CONFLICT_P99_MS="${K6_CONFLICT_P99_MS:-8000}"
+K6_CLEANUP_ENABLED="${K6_CLEANUP_ENABLED:-true}"
+K6_OWNER_EMAIL="${K6_OWNER_EMAIL:-owner@demo.com}"
+K6_MANAGER_EMAIL="${K6_MANAGER_EMAIL:-manager@demo.com}"
+K6_EMPLOYEE_EMAIL="${K6_EMPLOYEE_EMAIL:-employee@demo.com}"
+K6_USER_PASSWORD="${K6_USER_PASSWORD:-}"
+K6_OWNER_PASSWORD="${K6_OWNER_PASSWORD:-$K6_USER_PASSWORD}"
+K6_MANAGER_PASSWORD="${K6_MANAGER_PASSWORD:-$K6_USER_PASSWORD}"
+K6_EMPLOYEE_PASSWORD="${K6_EMPLOYEE_PASSWORD:-$K6_USER_PASSWORD}"
 K6_PROMETHEUS_RW_PUSH_INTERVAL="${K6_PROMETHEUS_RW_PUSH_INTERVAL:-5s}"
 K6_PROMETHEUS_RW_TREND_STATS="${K6_PROMETHEUS_RW_TREND_STATS:-min,avg,med,p(90),p(95),p(99),max}"
 K6_PROMETHEUS_RW_STALE_MARKERS="${K6_PROMETHEUS_RW_STALE_MARKERS:-true}"
@@ -62,6 +81,7 @@ if [ -z "$JOB_NAME" ]; then
   JOB_NAME="k6-staging-manual"
 fi
 CONFIGMAP_NAME="${K6_CONFIGMAP_NAME:-$(sanitize_name "$JOB_NAME-script")}"
+CREDENTIAL_SECRET_NAME="${K6_CREDENTIAL_SECRET_NAME:-$(sanitize_name "$JOB_NAME-credentials")}"
 K6_TEST_ID="${K6_TEST_ID:-staging-${CI_PIPELINE_ID:-manual}-${CI_JOB_ID:-local}}"
 LABEL_TEST_ID="$(sanitize_name "$K6_TEST_ID")"
 if [ -z "$LABEL_TEST_ID" ]; then
@@ -124,6 +144,7 @@ echo "Profile:           $K6_PROFILE"
 echo "Test ID:           $K6_TEST_ID"
 echo "Iteration rate:    $K6_ITERATION_RATE endpoint sweeps/sec"
 echo "Duration:          warmup=$K6_WARMUP_DURATION steady=$K6_DURATION cooldown=$K6_COOLDOWN_DURATION"
+echo "Human users:       owner=$K6_OWNER_EMAIL manager=$K6_MANAGER_EMAIL employee=$K6_EMPLOYEE_EMAIL"
 echo "Remote write URL:  $PROMETHEUS_RW_URL"
 echo "Job timeout:       $K6_JOB_TIMEOUT"
 echo "Schedule timeout:  $K6_SCHEDULE_TIMEOUT"
@@ -133,10 +154,21 @@ kubectl delete job -n "$STAGING_NAMESPACE" \
   --ignore-not-found=true --wait=false >/dev/null 2>&1 || true
 kubectl delete job "$JOB_NAME" -n "$STAGING_NAMESPACE" --ignore-not-found=true --wait=false >/dev/null 2>&1 || true
 kubectl delete configmap "$CONFIGMAP_NAME" -n "$STAGING_NAMESPACE" --ignore-not-found=true >/dev/null 2>&1 || true
+kubectl delete secret "$CREDENTIAL_SECRET_NAME" -n "$STAGING_NAMESPACE" --ignore-not-found=true >/dev/null 2>&1 || true
 
 kubectl create configmap "$CONFIGMAP_NAME" \
   --namespace "$STAGING_NAMESPACE" \
   --from-file="$SCRIPT_FILE=$SCRIPT_PATH"
+
+kubectl create secret generic "$CREDENTIAL_SECRET_NAME" \
+  --namespace "$STAGING_NAMESPACE" \
+  --from-literal=owner-email="$K6_OWNER_EMAIL" \
+  --from-literal=manager-email="$K6_MANAGER_EMAIL" \
+  --from-literal=employee-email="$K6_EMPLOYEE_EMAIL" \
+  --from-literal=owner-password="$K6_OWNER_PASSWORD" \
+  --from-literal=manager-password="$K6_MANAGER_PASSWORD" \
+  --from-literal=employee-password="$K6_EMPLOYEE_PASSWORD" \
+  --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
 cat <<EOF | kubectl apply -f -
 apiVersion: batch/v1
@@ -174,6 +206,36 @@ spec:
               value: "$K6_PROFILE"
             - name: LOAD_TEST_ID
               value: "$K6_TEST_ID"
+            - name: LOAD_TEST_OWNER_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: $CREDENTIAL_SECRET_NAME
+                  key: owner-email
+            - name: LOAD_TEST_MANAGER_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: $CREDENTIAL_SECRET_NAME
+                  key: manager-email
+            - name: LOAD_TEST_EMPLOYEE_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: $CREDENTIAL_SECRET_NAME
+                  key: employee-email
+            - name: LOAD_TEST_OWNER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: $CREDENTIAL_SECRET_NAME
+                  key: owner-password
+            - name: LOAD_TEST_MANAGER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: $CREDENTIAL_SECRET_NAME
+                  key: manager-password
+            - name: LOAD_TEST_EMPLOYEE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: $CREDENTIAL_SECRET_NAME
+                  key: employee-password
             - name: CI_PIPELINE_ID
               value: "${CI_PIPELINE_ID:-local}"
             - name: CI_JOB_ID
@@ -202,6 +264,8 @@ spec:
               value: "$K6_MAX_VUS"
             - name: LOAD_TEST_THINK_TIME_SECONDS
               value: "$K6_THINK_TIME_SECONDS"
+            - name: LOAD_TEST_THINK_TIME_JITTER_SECONDS
+              value: "$K6_THINK_TIME_JITTER_SECONDS"
             - name: LOAD_TEST_REQUEST_TIMEOUT
               value: "$K6_REQUEST_TIMEOUT"
             - name: LOAD_TEST_FAILURE_RATE
@@ -218,6 +282,28 @@ spec:
               value: "$K6_LATENCY_P95_MS"
             - name: LOAD_TEST_LATENCY_P99_MS
               value: "$K6_LATENCY_P99_MS"
+            - name: LOAD_TEST_MEDIUM_TARGET_VUS
+              value: "$K6_MEDIUM_TARGET_VUS"
+            - name: LOAD_TEST_HARD_TARGET_VUS
+              value: "$K6_HARD_TARGET_VUS"
+            - name: LOAD_TEST_HARD_JOBS_PER_SESSION
+              value: "$K6_HARD_JOBS_PER_SESSION"
+            - name: LOAD_TEST_WORKFLOW_SUCCESS_RATE
+              value: "$K6_WORKFLOW_SUCCESS_RATE"
+            - name: LOAD_TEST_AUTH_FAILURE_RATE
+              value: "$K6_AUTH_FAILURE_RATE"
+            - name: LOAD_TEST_CLEANUP_FAILURE_RATE
+              value: "$K6_CLEANUP_FAILURE_RATE"
+            - name: LOAD_TEST_SCHEDULING_P95_MS
+              value: "$K6_SCHEDULING_P95_MS"
+            - name: LOAD_TEST_SCHEDULING_P99_MS
+              value: "$K6_SCHEDULING_P99_MS"
+            - name: LOAD_TEST_CONFLICT_P95_MS
+              value: "$K6_CONFLICT_P95_MS"
+            - name: LOAD_TEST_CONFLICT_P99_MS
+              value: "$K6_CONFLICT_P99_MS"
+            - name: LOAD_TEST_CLEANUP_ENABLED
+              value: "$K6_CLEANUP_ENABLED"
             - name: K6_PROMETHEUS_RW_SERVER_URL
               value: "$PROMETHEUS_RW_URL"
             - name: K6_PROMETHEUS_RW_PUSH_INTERVAL
@@ -260,6 +346,7 @@ if ! kubectl wait -n "$STAGING_NAMESPACE" \
   kubectl get nodes -o wide || true
   kubectl describe nodes | grep -E 'Name:|pods:|Too many pods|Allocated resources' || true
   kubectl delete configmap "$CONFIGMAP_NAME" -n "$STAGING_NAMESPACE" --ignore-not-found=true >/dev/null 2>&1 || true
+  kubectl delete secret "$CREDENTIAL_SECRET_NAME" -n "$STAGING_NAMESPACE" --ignore-not-found=true >/dev/null 2>&1 || true
   exit 125
 fi
 
@@ -302,6 +389,7 @@ if [ "$RESULT" -ne 0 ]; then
   kubectl describe pods -n "$STAGING_NAMESPACE" -l "job-name=$JOB_NAME" || true
   kubectl get events -n "$STAGING_NAMESPACE" --sort-by=.lastTimestamp | tail -80 || true
   kubectl delete configmap "$CONFIGMAP_NAME" -n "$STAGING_NAMESPACE" --ignore-not-found=true >/dev/null 2>&1 || true
+  kubectl delete secret "$CREDENTIAL_SECRET_NAME" -n "$STAGING_NAMESPACE" --ignore-not-found=true >/dev/null 2>&1 || true
 
   if [ "$RESULT" -eq 124 ]; then
     echo "❌ k6 load gate timed out after $K6_JOB_TIMEOUT"
@@ -312,4 +400,5 @@ if [ "$RESULT" -ne 0 ]; then
 fi
 
 kubectl delete configmap "$CONFIGMAP_NAME" -n "$STAGING_NAMESPACE" --ignore-not-found=true >/dev/null 2>&1 || true
+kubectl delete secret "$CREDENTIAL_SECRET_NAME" -n "$STAGING_NAMESPACE" --ignore-not-found=true >/dev/null 2>&1 || true
 echo "✅ k6 load gate passed. Metrics were pushed to Prometheus with testid=$K6_TEST_ID"

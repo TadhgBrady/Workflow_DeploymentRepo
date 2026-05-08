@@ -6,8 +6,9 @@ This folder contains the first baseline k6 suite for tuning staging performance 
 
 - `staging-smoke-load.js` — automated CI gate. It is intentionally lightweight and blocks staging destroy/promotion when thresholds fail.
 - `baseline-exploration.js` — manual exploratory baseline suite. Use it to learn normal staging latency, failure rate, and capacity before tightening the gate.
+- `real-user-workflows.js` — manual authenticated workflow suite. Use it to exercise login-backed customer, job, calendar, status, scheduling, and conflict-check paths with temporary data cleanup.
 
-Both scripts are non-destructive and use the same safe public endpoints as the shell smoke tests.
+The smoke and baseline scripts are non-destructive and use the same safe public endpoints as the shell smoke tests. The real workflow script creates only temporary `k6-*` customers/jobs and deletes them at the end of each journey.
 
 ## Profiles
 
@@ -20,7 +21,14 @@ Both scripts are non-destructive and use the same safe public endpoints as the s
 | `stress-lite` | Gentle ramp-up | baseline coverage plus ramping browse traffic |
 | `spike-lite` | Small burst test | short burst to observe recovery and dashboard behavior |
 
-The GitLab pipeline exposes `k6-baseline-staging` as a manual, allowed-to-fail job so it can be run while staging is up without blocking release flow.
+`real-user-workflows.js` supports these `K6_PROFILE` values:
+
+| Profile | Purpose | Default shape |
+| --- | --- | --- |
+| `medium` | Realistic logged-in daily use | owner customer/job workflow, employee job processing, manager read workflow at about 10 VUs |
+| `hard` | Scheduling and contention pressure | manager scheduling, employee status updates, and expected conflict checks at about 24 VUs |
+
+The GitLab pipeline exposes `k6-baseline-staging`, `k6-human-medium-staging`, and `k6-human-hard-staging` as manual, allowed-to-fail jobs so they can be run while staging is up without blocking release flow. The automated `k6-load-staging` gate remains the only blocking k6 job.
 
 The GitLab jobs still use the `K6_*` variables below for convenience. The Kubernetes runner maps those values to `LOAD_TEST_*` environment variables inside the k6 pod, because some `K6_*` names are reserved by k6 itself. If you run these scripts directly with `k6 run`, use `LOAD_TEST_DURATION`, `LOAD_TEST_MAX_VUS`, and the other `LOAD_TEST_*` names instead of exporting custom `K6_*` values.
 
@@ -41,12 +49,37 @@ The GitLab jobs still use the `K6_*` variables below for convenience. The Kubern
 | `K6_FAILURE_RATE` | `0.02` | total failed request threshold |
 | `K6_SERVER_ERROR_RATE` | `0.01` | HTTP 5xx threshold |
 | `K6_CHECK_RATE` | `0.95` | check pass-rate threshold |
+| `K6_MEDIUM_TARGET_VUS` | `10` | total target VUs for `real-user-workflows.js` medium profile |
+| `K6_HARD_TARGET_VUS` | `24` | total target VUs for `real-user-workflows.js` hard profile |
+| `K6_HARD_JOBS_PER_SESSION` | `2` | jobs each hard manager scheduling session creates and schedules |
+| `K6_THINK_TIME_SECONDS` | `0.6` medium, `0.35` hard | base human pause between workflow actions |
+| `K6_THINK_TIME_JITTER_SECONDS` | `0.4` medium, `0.25` hard | random extra human pause |
+| `K6_WORKFLOW_SUCCESS_RATE` | `0.95` medium, `0.90` hard | full journey success threshold |
+| `K6_CLEANUP_FAILURE_RATE` | `0.02` | cleanup failure threshold for temporary records |
+| `K6_SCHEDULING_P95_MS` | `2500` medium, `4000` hard | scheduling action p95 threshold |
+| `K6_CONFLICT_P95_MS` | `2500` medium, `4000` hard | conflict-check p95 threshold |
+
+## Authenticated workflow credentials
+
+The real workflow jobs default to the seeded staging emails:
+
+| Role | Default email | Password variable |
+| --- | --- | --- |
+| Owner | `owner@demo.com` | `K6_OWNER_PASSWORD` or shared `K6_USER_PASSWORD` |
+| Manager | `manager@demo.com` | `K6_MANAGER_PASSWORD` or shared `K6_USER_PASSWORD` |
+| Employee | `employee@demo.com` | `K6_EMPLOYEE_PASSWORD` or shared `K6_USER_PASSWORD` |
+
+Set `K6_USER_PASSWORD` as a masked GitLab CI/CD variable if all seeded users share the same password. Use the role-specific password variables if staging uses different credentials. The runner stores these values in a short-lived Kubernetes Secret and deletes it after the k6 Job finishes.
 
 ## Tuning workflow
 
 1. Run a staging deployment and open the manual `k6-baseline-staging` job.
 2. Start with `K6_PROFILE=baseline` and review the `Year4 Staging k6 Load Gate` Grafana dashboard.
-3. Record normal p95/p99 latency, check rate, status-code mix, and any 5xx rate.
-4. Re-run with `K6_PROFILE=stress-lite` or `K6_PROFILE=spike-lite` to understand headroom.
-5. Tighten `staging-smoke-load.js` thresholds only after the baseline numbers are stable across several staging runs.
-6. Add authenticated user journeys later when safe seeded credentials are available.
+3. Run `k6-human-medium-staging` after setting the masked password variables. Record workflow success, cleanup failure rate, p95/p99 latency, scheduling latency, status-code mix, and any 5xx rate.
+4. Run `k6-human-hard-staging` only after medium succeeds. Watch scheduling latency, conflict-check latency, expected conflicts, server errors, pod CPU/memory, and database symptoms.
+5. Re-run baseline with `K6_PROFILE=stress-lite` or `K6_PROFILE=spike-lite` to compare public endpoint headroom with authenticated workflow headroom.
+6. Tighten `staging-smoke-load.js` thresholds only after the baseline and real workflow numbers are stable across several staging runs.
+
+## Cleanup expectations
+
+`real-user-workflows.js` creates temporary customers, jobs, and notes with a `k6-<testid>` marker. Each journey deletes notes first, then jobs, then customers. A non-zero cleanup failure rate should be investigated before repeating hard tests, because leftover records can make future scheduling conflict numbers noisy.

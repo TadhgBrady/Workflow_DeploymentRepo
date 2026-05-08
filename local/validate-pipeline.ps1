@@ -152,8 +152,11 @@ if (Test-Path $ciFile) {
     Assert-ContainsText $ciText 'scripts/deployment/smoke-tests.sh' "shared smoke-test script is used"
     Assert-ContainsText $ciText "k6-load-staging:" "staging k6 load gate job exists"
     Assert-ContainsText $ciText "k6-baseline-staging:" "manual staging k6 baseline job exists"
+    Assert-ContainsText $ciText "k6-human-medium-staging:" "manual staging k6 human medium job exists"
+    Assert-ContainsText $ciText "k6-human-hard-staging:" "manual staging k6 human hard job exists"
     Assert-ContainsText $ciText 'scripts/deployment/run-k6-staging.sh' "shared k6 runner script is used"
     Assert-ContainsText $ciText 'tests/k6/baseline-exploration.js' "k6 baseline exploration script is wired in"
+    Assert-ContainsText $ciText 'tests/k6/real-user-workflows.js' "k6 real user workflow script is wired in"
     Assert-ContainsText $ciText 'dashboard-k6-staging.yaml' "k6 Grafana dashboard is applied"
 
     if ($ciText -notmatch "(?s)cleanup-staging-loadbalancers:.*?needs:\s*\r?\n\s*-\s*confirm-destroy-staging") {
@@ -175,6 +178,20 @@ if (Test-Path $ciFile) {
         $pipelineErrors++
     } else {
         Write-Host "  PASS k6 baseline job is manual, optional, and uses the baseline script" -ForegroundColor Green
+    }
+
+    if ($ciText -notmatch '(?s)k6-human-medium-staging:.*?K6_SCRIPT_PATH:\s*"tests/k6/real-user-workflows.js".*?K6_PROFILE:\s*"medium".*?when:\s*manual.*?allow_failure:\s*true') {
+        Write-Host "  FAIL k6 human medium job must be manual, optional, and use the real workflow script" -ForegroundColor Red
+        $pipelineErrors++
+    } else {
+        Write-Host "  PASS k6 human medium job is manual, optional, and uses the real workflow script" -ForegroundColor Green
+    }
+
+    if ($ciText -notmatch '(?s)k6-human-hard-staging:.*?K6_SCRIPT_PATH:\s*"tests/k6/real-user-workflows.js".*?K6_PROFILE:\s*"hard".*?when:\s*manual.*?allow_failure:\s*true') {
+        Write-Host "  FAIL k6 human hard job must be manual, optional, and use the real workflow script" -ForegroundColor Red
+        $pipelineErrors++
+    } else {
+        Write-Host "  PASS k6 human hard job is manual, optional, and uses the real workflow script" -ForegroundColor Green
     }
 
     if ($ciText -notmatch "(?s)confirm-destroy-staging:.*?needs:.*?-\s*smoke-tests-staging.*?-\s*k6-load-staging") {
@@ -215,11 +232,27 @@ if (Test-Path $ciFile) {
         $pipelineErrors++
     }
 
+    $realWorkflowScript = Join-Path $RepoRoot "tests/k6/real-user-workflows.js"
+    if (Test-Path $realWorkflowScript) {
+        $realWorkflowText = Get-Content $realWorkflowScript -Raw
+        Assert-ContainsText $realWorkflowText "ownerDailyWorkflow" "k6 real workflow includes owner daily journey"
+        Assert-ContainsText $realWorkflowText "managerSchedulingWorkflow" "k6 real workflow includes manager scheduling journey"
+        Assert-ContainsText $realWorkflowText "conflictPressureWorkflow" "k6 real workflow includes conflict pressure journey"
+        Assert-ContainsText $realWorkflowText "cleanup_failures" "k6 real workflow emits cleanup failure metric"
+    } else {
+        Write-Host "  FAIL k6 real user workflow script is missing" -ForegroundColor Red
+        $pipelineErrors++
+    }
+
     $k6RunnerScript = Join-Path $RepoRoot "scripts/deployment/run-k6-staging.sh"
     if (Test-Path $k6RunnerScript) {
         $k6RunnerText = Get-Content $k6RunnerScript -Raw
         Assert-ContainsText $k6RunnerText "LOAD_TEST_DURATION" "k6 runner maps duration to non-reserved LOAD_TEST_* env vars"
         Assert-ContainsText $k6RunnerText "LOAD_TEST_MAX_VUS" "k6 runner maps max VUs to non-reserved LOAD_TEST_* env vars"
+        Assert-ContainsText $k6RunnerText "LOAD_TEST_OWNER_PASSWORD" "k6 runner maps owner password through LOAD_TEST_* env vars"
+        Assert-ContainsText $k6RunnerText "LOAD_TEST_MEDIUM_TARGET_VUS" "k6 runner maps human medium VU target"
+        Assert-ContainsText $k6RunnerText "LOAD_TEST_HARD_TARGET_VUS" "k6 runner maps human hard VU target"
+        Assert-ContainsText $k6RunnerText "secretKeyRef" "k6 runner uses a Kubernetes Secret for human workflow credentials"
         if ($k6RunnerText -match "(?m)^\s*- name: K6_(?!PROMETHEUS_RW_)[A-Z0-9_]+\s*$") {
             Write-Host "  FAIL k6 runner must not pass custom K6_* env vars into the k6 pod" -ForegroundColor Red
             $pipelineErrors++
