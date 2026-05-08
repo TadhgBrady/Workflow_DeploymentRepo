@@ -150,12 +150,29 @@ if (Test-Path $ciFile) {
     Assert-ContainsText $ciText "verify-staging-destroyed:" "staging destroy verification job exists"
     Assert-ContainsText $ciText 'DESTROY_ENV: "staging"' "staging destroy trigger targets only staging"
     Assert-ContainsText $ciText 'scripts/deployment/smoke-tests.sh' "shared smoke-test script is used"
+    Assert-ContainsText $ciText "k6-load-staging:" "staging k6 load gate job exists"
+    Assert-ContainsText $ciText 'scripts/deployment/run-k6-staging.sh' "shared k6 runner script is used"
+    Assert-ContainsText $ciText 'dashboard-k6-staging.yaml' "k6 Grafana dashboard is applied"
 
     if ($ciText -notmatch "(?s)cleanup-staging-loadbalancers:.*?needs:\s*\r?\n\s*-\s*confirm-destroy-staging") {
         Write-Host "  FAIL cleanup job must depend on confirm-destroy-staging" -ForegroundColor Red
         $pipelineErrors++
     } else {
         Write-Host "  PASS cleanup job depends on manual staging destroy confirmation" -ForegroundColor Green
+    }
+
+    if ($ciText -notmatch "(?s)k6-load-staging:.*?needs:.*?-\s*staging-readiness.*?-\s*job:\s*deploy-staging\s*\r?\n\s*artifacts:\s*true") {
+        Write-Host "  FAIL k6 load gate must depend on readiness and deploy-staging artifacts" -ForegroundColor Red
+        $pipelineErrors++
+    } else {
+        Write-Host "  PASS k6 load gate depends on readiness and deploy-staging artifacts" -ForegroundColor Green
+    }
+
+    if ($ciText -notmatch "(?s)confirm-destroy-staging:.*?needs:.*?-\s*smoke-tests-staging.*?-\s*k6-load-staging") {
+        Write-Host "  FAIL manual destroy approval must wait for smoke tests and k6" -ForegroundColor Red
+        $pipelineErrors++
+    } else {
+        Write-Host "  PASS manual destroy approval waits for smoke tests and k6" -ForegroundColor Green
     }
 
     if ($ciText -notmatch "(?s)verify-staging-destroyed:.*?needs:\s*\r?\n\s*-\s*trigger-destroy-staging") {
@@ -170,6 +187,15 @@ if (Test-Path $ciFile) {
         $pipelineErrors++
     } else {
         Write-Host "  PASS production promotion is gated on staging destroy verification" -ForegroundColor Green
+    }
+
+    $promValuesFile = Join-Path $RepoRoot "helm/kube-prometheus-stack/values-staging.yaml"
+    if (Test-Path $promValuesFile) {
+        $promValuesText = Get-Content $promValuesFile -Raw
+        Assert-ContainsText $promValuesText "enableRemoteWriteReceiver: true" "Prometheus remote-write receiver is enabled for k6"
+    } else {
+        Write-Host "  FAIL staging Prometheus values file is missing" -ForegroundColor Red
+        $pipelineErrors++
     }
 
     $totalErrors += $pipelineErrors

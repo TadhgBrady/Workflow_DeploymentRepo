@@ -37,6 +37,7 @@ prometheus:
     retentionSize: 25GB
     scrapeInterval: 30s
     evaluationInterval: 30s
+    enableRemoteWriteReceiver: true
     serviceMonitorSelectorNilUsesHelmValues: false
     podMonitorSelectorNilUsesHelmValues: false
     ruleSelectorNilUsesHelmValues: false

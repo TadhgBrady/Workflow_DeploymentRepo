@@ -1,0 +1,249 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-year4-k6-staging
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+    app.kubernetes.io/name: year4-k6-staging
+    app.kubernetes.io/part-of: year4-project-observability
+data:
+  year4-k6-staging.json: |
+    {
+      "uid": "year4-k6-staging",
+      "title": "Year4 Staging k6 Load Gate",
+      "tags": ["year4-project", "staging", "k6", "load-test"],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "10s",
+      "time": {
+        "from": "now-6h",
+        "to": "now"
+      },
+      "templating": {
+        "list": [
+          {
+            "name": "testid",
+            "label": "k6 test id",
+            "type": "query",
+            "datasource": {"type": "prometheus", "uid": "prometheus"},
+            "query": "label_values(k6_http_reqs_total{environment=\"staging\"}, testid)",
+            "refresh": 2,
+            "sort": 2,
+            "includeAll": true,
+            "multi": false,
+            "current": {"selected": true, "text": "All", "value": "$__all"}
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "text",
+          "title": "How this dashboard is populated",
+          "gridPos": {"x": 0, "y": 0, "w": 24, "h": 3},
+          "options": {
+            "mode": "markdown",
+            "content": "The GitLab staging-tests stage launches a short-lived grafana/k6 Kubernetes Job. k6 pushes metrics to Prometheus remote write with environment=staging and a pipeline testid. Threshold failures make the CI job fail, while these panels remain available while staging is up."
+          }
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Request Rate",
+          "gridPos": {"x": 0, "y": 3, "w": 6, "h": 4},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {
+              "expr": "sum(rate(k6_http_reqs_total{environment=\"staging\",testid=~\"$testid\"}[1m])) or vector(0)",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {"unit": "reqps"},
+            "overrides": []
+          }
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Active VUs",
+          "gridPos": {"x": 6, "y": 3, "w": 6, "h": 4},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {
+              "expr": "max(k6_vus{environment=\"staging\",testid=~\"$testid\"}) or vector(0)",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Failed Request Rate",
+          "gridPos": {"x": 12, "y": 3, "w": 6, "h": 4},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {
+              "expr": "max(k6_http_req_failed_rate{environment=\"staging\",testid=~\"$testid\"}) or vector(0)",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "green", "value": null},
+                  {"color": "orange", "value": 0.005},
+                  {"color": "red", "value": 0.01}
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 5,
+          "type": "stat",
+          "title": "Checks Pass Rate",
+          "gridPos": {"x": 18, "y": 3, "w": 6, "h": 4},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {
+              "expr": "max(k6_checks_rate{environment=\"staging\",testid=~\"$testid\"}) or vector(0)",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "red", "value": null},
+                  {"color": "orange", "value": 0.95},
+                  {"color": "green", "value": 0.98}
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 6,
+          "type": "timeseries",
+          "title": "Request Rate by Endpoint",
+          "gridPos": {"x": 0, "y": 7, "w": 12, "h": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {
+              "expr": "sum by (name) (rate(k6_http_reqs_total{environment=\"staging\",testid=~\"$testid\"}[1m]))",
+              "legendFormat": "{{name}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {"unit": "reqps"},
+            "overrides": []
+          }
+        },
+        {
+          "id": 7,
+          "type": "timeseries",
+          "title": "p95 / p99 Latency by Endpoint",
+          "gridPos": {"x": 12, "y": 7, "w": 12, "h": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {
+              "expr": "max by (name) (k6_http_req_duration_p95{environment=\"staging\",testid=~\"$testid\"})",
+              "legendFormat": "p95 {{name}}",
+              "refId": "A"
+            },
+            {
+              "expr": "max by (name) (k6_http_req_duration_p99{environment=\"staging\",testid=~\"$testid\"})",
+              "legendFormat": "p99 {{name}}",
+              "refId": "B"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {"unit": "ms"},
+            "overrides": []
+          }
+        },
+        {
+          "id": 8,
+          "type": "timeseries",
+          "title": "Failure Rate by Endpoint",
+          "gridPos": {"x": 0, "y": 15, "w": 12, "h": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {
+              "expr": "max by (name) (k6_http_req_failed_rate{environment=\"staging\",testid=~\"$testid\"})",
+              "legendFormat": "{{name}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {"unit": "percentunit"},
+            "overrides": []
+          }
+        },
+        {
+          "id": 9,
+          "type": "timeseries",
+          "title": "Status Code Rate",
+          "gridPos": {"x": 12, "y": 15, "w": 12, "h": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {
+              "expr": "sum by (status) (rate(k6_http_reqs_total{environment=\"staging\",testid=~\"$testid\"}[1m]))",
+              "legendFormat": "HTTP {{status}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {"unit": "reqps"},
+            "overrides": []
+          }
+        },
+        {
+          "id": 10,
+          "type": "timeseries",
+          "title": "Checks Pass Rate by Endpoint",
+          "gridPos": {"x": 0, "y": 23, "w": 12, "h": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {
+              "expr": "max by (name) (k6_checks_rate{environment=\"staging\",testid=~\"$testid\"})",
+              "legendFormat": "{{name}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {"unit": "percentunit"},
+            "overrides": []
+          }
+        },
+        {
+          "id": 11,
+          "type": "timeseries",
+          "title": "Server Error Rate by Endpoint",
+          "gridPos": {"x": 12, "y": 23, "w": 12, "h": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {
+              "expr": "max by (name) (k6_server_errors_rate{environment=\"staging\",testid=~\"$testid\"})",
+              "legendFormat": "{{name}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {"unit": "percentunit"},
+            "overrides": []
+          }
+        }
+      ]
+    }

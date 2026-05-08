@@ -84,6 +84,13 @@ variables:
   KUBE_PROM_STACK_RELEASE: "monitoring"
   LOKI_RELEASE: "loki"
   FLUENT_BIT_RELEASE: "fluent-bit"
+
+  # -- Staging k6 load gate defaults (safe smoke-load profile) --
+  K6_IMAGE: "grafana/k6:0.54.0"
+  K6_ITERATION_RATE: "1"
+  K6_DURATION: "3m"
+  K6_PRE_ALLOCATED_VUS: "6"
+  K6_MAX_VUS: "20"
   # -- Infrastructure repo (set in GitLab CI/CD settings as masked variables) --
   # INFRA_PROJECT_ID: ""        # GitLab project ID for yr4-projectinfrarepo
   # INFRA_TRIGGER_TOKEN: ""     # Pipeline trigger token for infra repo
@@ -865,6 +872,7 @@ install-observability-staging:
       kubectl apply -f kubernetes/observability/dashboard-staging-overview.yaml
       kubectl apply -f kubernetes/observability/dashboard-logging-troubleshooting.yaml
       kubectl apply -f kubernetes/observability/dashboard-system-metrics.yaml
+      kubectl apply -f kubernetes/observability/dashboard-k6-staging.yaml
 
       kubectl rollout status deployment -l app.kubernetes.io/name=grafana -n "$MONITORING_NAMESPACE" --timeout=300s
       kubectl get pods -n "$MONITORING_NAMESPACE"
@@ -1086,8 +1094,8 @@ staging-readiness:
 # STAGE 5: STAGING TESTS — E2E, load tests, smoke tests
 # =============================================================================
 #
-# All three jobs run in parallel against the staging environment.
-# Playwright E2E and k6 load tests validate the deployment before promotion.
+# Smoke tests and the k6 load gate run in parallel against the staging environment.
+# Both must pass before staging destroy/promotion can proceed.
 #
 
 smoke-tests-staging:
@@ -1109,6 +1117,31 @@ smoke-tests-staging:
       when: on_success
   allow_failure: false
 
+k6-load-staging:
+  stage: staging-tests
+  image: alpine:latest
+  needs:
+    - staging-readiness
+    - job: deploy-staging
+      artifacts: true
+  before_script:
+    - apk add --no-cache curl bash aws-cli
+    - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
+    - chmod +x kubectl && mv kubectl /usr/local/bin/
+    - aws eks update-kubeconfig --name $STAGING_CLUSTER_NAME --region $AWS_DEFAULT_REGION
+  script:
+    - |
+      set -eu
+      if [ -z "${STAGING_URL:-}" ]; then
+        echo "❌ STAGING_URL was not exported by deploy-staging"
+        exit 1
+      fi
+      sh scripts/deployment/run-k6-staging.sh "$STAGING_URL"
+  rules:
+    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only"'
+      when: on_success
+  allow_failure: false
+
 # ---------------------------------------------------------------------------
 # PLAYWRIGHT E2E TESTS (Staging)
 # ---------------------------------------------------------------------------
@@ -1122,8 +1155,8 @@ smoke-tests-staging:
 #   - Admin panel access
 # ---------------------------------------------------------------------------
 
-# NOTE: Playwright E2E and k6 load test jobs removed (placeholders).
-# Re-add when test scripts are ready. See CD_PLAN.md Phase 4.
+# NOTE: Playwright E2E remains a future placeholder. k6 now runs as the
+# staging load gate above and pushes metrics into the Grafana dashboard.
 
 # =============================================================================
 # STAGE 5: DESTROY STAGING — Manual full teardown before production promotion
@@ -1138,6 +1171,7 @@ confirm-destroy-staging:
   image: alpine:latest
   needs:
     - smoke-tests-staging
+    - k6-load-staging
   script:
     - |
       echo "═══════════════════════════════════════════════════════════════"
