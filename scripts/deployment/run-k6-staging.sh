@@ -20,6 +20,7 @@ K6_ENVIRONMENT="${K6_ENVIRONMENT:-staging}"
 K6_PROFILE="${K6_PROFILE:-gate}"
 K6_IMAGE="${K6_IMAGE:-grafana/k6:0.54.0}"
 K6_JOB_TIMEOUT="${K6_JOB_TIMEOUT:-12m}"
+K6_SCHEDULE_TIMEOUT="${K6_SCHEDULE_TIMEOUT:-3m}"
 K6_ITERATION_RATE="${K6_ITERATION_RATE:-1}"
 K6_SWEEP_RATE="${K6_SWEEP_RATE:-$K6_ITERATION_RATE}"
 K6_BROWSE_RATE="${K6_BROWSE_RATE:-2}"
@@ -121,7 +122,11 @@ echo "Iteration rate:    $K6_ITERATION_RATE endpoint sweeps/sec"
 echo "Duration:          warmup=$K6_WARMUP_DURATION steady=$K6_DURATION cooldown=$K6_COOLDOWN_DURATION"
 echo "Remote write URL:  $PROMETHEUS_RW_URL"
 echo "Job timeout:       $K6_JOB_TIMEOUT"
+echo "Schedule timeout:  $K6_SCHEDULE_TIMEOUT"
 
+kubectl delete job -n "$STAGING_NAMESPACE" \
+  -l app.kubernetes.io/name=k6-staging-load \
+  --ignore-not-found=true --wait=false >/dev/null 2>&1 || true
 kubectl delete job "$JOB_NAME" -n "$STAGING_NAMESPACE" --ignore-not-found=true --wait=false >/dev/null 2>&1 || true
 kubectl delete configmap "$CONFIGMAP_NAME" -n "$STAGING_NAMESPACE" --ignore-not-found=true >/dev/null 2>&1 || true
 
@@ -238,6 +243,21 @@ spec:
           configMap:
             name: $CONFIGMAP_NAME
 EOF
+
+echo "Waiting for k6 pod to be scheduled..."
+if ! kubectl wait -n "$STAGING_NAMESPACE" \
+  --for=condition=PodScheduled \
+  pod -l "job-name=$JOB_NAME" \
+  --timeout="$K6_SCHEDULE_TIMEOUT"; then
+  echo "❌ k6 pod did not schedule within $K6_SCHEDULE_TIMEOUT."
+  echo "This indicates staging worker-node capacity or pod-density is too low."
+  kubectl describe job "$JOB_NAME" -n "$STAGING_NAMESPACE" || true
+  kubectl describe pods -n "$STAGING_NAMESPACE" -l "job-name=$JOB_NAME" || true
+  kubectl get nodes -o wide || true
+  kubectl describe nodes | grep -E 'Name:|pods:|Too many pods|Allocated resources' || true
+  kubectl delete configmap "$CONFIGMAP_NAME" -n "$STAGING_NAMESPACE" --ignore-not-found=true >/dev/null 2>&1 || true
+  exit 125
+fi
 
 DEADLINE=$(( $(date +%s) + TIMEOUT_SECONDS ))
 RESULT=124
