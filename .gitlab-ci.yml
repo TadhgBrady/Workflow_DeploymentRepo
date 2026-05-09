@@ -1138,6 +1138,11 @@ k6-load-staging:
         exit 1
       fi
       sh scripts/deployment/run-k6-staging.sh "$STAGING_URL"
+  artifacts:
+    when: always
+    paths:
+      - k6-results/
+    expire_in: 14 days
   rules:
     - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only"'
       when: on_success
@@ -1173,6 +1178,11 @@ k6-baseline-staging:
         exit 1
       fi
       sh scripts/deployment/run-k6-staging.sh "$STAGING_URL"
+  artifacts:
+    when: always
+    paths:
+      - k6-results/
+    expire_in: 14 days
   rules:
     - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only"'
       when: manual
@@ -1227,6 +1237,11 @@ k6-human-medium-staging:
         exit 1
       fi
       sh scripts/deployment/run-k6-staging.sh "$STAGING_URL"
+  artifacts:
+    when: always
+    paths:
+      - k6-results/
+    expire_in: 14 days
   rules:
     - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only"'
       when: manual
@@ -1282,6 +1297,11 @@ k6-human-hard-staging:
         exit 1
       fi
       sh scripts/deployment/run-k6-staging.sh "$STAGING_URL"
+  artifacts:
+    when: always
+    paths:
+      - k6-results/
+    expire_in: 14 days
   rules:
     - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only"'
       when: manual

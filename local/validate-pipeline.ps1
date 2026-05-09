@@ -158,6 +158,7 @@ if (Test-Path $ciFile) {
     Assert-ContainsText $ciText 'tests/k6/baseline-exploration.js' "k6 baseline exploration script is wired in"
     Assert-ContainsText $ciText 'tests/k6/real-user-workflows.js' "k6 real user workflow script is wired in"
     Assert-ContainsText $ciText 'dashboard-k6-staging.yaml' "k6 Grafana dashboard is applied"
+    Assert-ContainsText $ciText 'k6-results/' "k6 jobs publish log and metadata artifacts"
 
     if ($ciText -notmatch "(?s)cleanup-staging-loadbalancers:.*?needs:\s*\r?\n\s*-\s*confirm-destroy-staging") {
         Write-Host "  FAIL cleanup job must depend on confirm-destroy-staging" -ForegroundColor Red
@@ -238,6 +239,7 @@ if (Test-Path $ciFile) {
         Assert-ContainsText $realWorkflowText "ownerDailyWorkflow" "k6 real workflow includes owner daily journey"
         Assert-ContainsText $realWorkflowText "managerSchedulingWorkflow" "k6 real workflow includes manager scheduling journey"
         Assert-ContainsText $realWorkflowText "conflictPressureWorkflow" "k6 real workflow includes conflict pressure journey"
+        Assert-ContainsText $realWorkflowText "auth/refresh" "k6 real workflow refreshes access tokens during long runs"
         Assert-ContainsText $realWorkflowText "cleanup_failures" "k6 real workflow emits cleanup failure metric"
     } else {
         Write-Host "  FAIL k6 real user workflow script is missing" -ForegroundColor Red
@@ -249,9 +251,12 @@ if (Test-Path $ciFile) {
         $k6RunnerText = Get-Content $k6RunnerScript -Raw
         Assert-ContainsText $k6RunnerText "LOAD_TEST_DURATION" "k6 runner maps duration to non-reserved LOAD_TEST_* env vars"
         Assert-ContainsText $k6RunnerText "LOAD_TEST_MAX_VUS" "k6 runner maps max VUs to non-reserved LOAD_TEST_* env vars"
+        Assert-ContainsText $k6RunnerText "K6_DEMO_USER_PASSWORD" "k6 runner defaults to seeded demo credentials for manual human workflows"
         Assert-ContainsText $k6RunnerText "LOAD_TEST_OWNER_PASSWORD" "k6 runner maps owner password through LOAD_TEST_* env vars"
         Assert-ContainsText $k6RunnerText "LOAD_TEST_MEDIUM_TARGET_VUS" "k6 runner maps human medium VU target"
         Assert-ContainsText $k6RunnerText "LOAD_TEST_HARD_TARGET_VUS" "k6 runner maps human hard VU target"
+        Assert-ContainsText $k6RunnerText "LOAD_TEST_AUTH_REFRESH_SKEW_SECONDS" "k6 runner maps auth token refresh controls"
+        Assert-ContainsText $k6RunnerText "K6_METADATA_FILE" "k6 runner writes per-run metadata artifacts"
         Assert-ContainsText $k6RunnerText "secretKeyRef" "k6 runner uses a Kubernetes Secret for human workflow credentials"
         if ($k6RunnerText -match "(?m)^\s*- name: K6_(?!PROMETHEUS_RW_)[A-Z0-9_]+\s*$") {
             Write-Host "  FAIL k6 runner must not pass custom K6_* env vars into the k6 pod" -ForegroundColor Red

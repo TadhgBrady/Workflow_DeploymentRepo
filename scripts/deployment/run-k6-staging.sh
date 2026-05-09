@@ -21,6 +21,7 @@ K6_PROFILE="${K6_PROFILE:-gate}"
 K6_IMAGE="${K6_IMAGE:-grafana/k6:0.54.0}"
 K6_JOB_TIMEOUT="${K6_JOB_TIMEOUT:-12m}"
 K6_SCHEDULE_TIMEOUT="${K6_SCHEDULE_TIMEOUT:-3m}"
+K6_RESULTS_DIR="${K6_RESULTS_DIR:-k6-results}"
 K6_ITERATION_RATE="${K6_ITERATION_RATE:-1}"
 K6_SWEEP_RATE="${K6_SWEEP_RATE:-$K6_ITERATION_RATE}"
 K6_BROWSE_RATE="${K6_BROWSE_RATE:-2}"
@@ -52,10 +53,14 @@ K6_SCHEDULING_P99_MS="${K6_SCHEDULING_P99_MS:-8000}"
 K6_CONFLICT_P95_MS="${K6_CONFLICT_P95_MS:-4000}"
 K6_CONFLICT_P99_MS="${K6_CONFLICT_P99_MS:-8000}"
 K6_CLEANUP_ENABLED="${K6_CLEANUP_ENABLED:-true}"
+K6_AUTH_RECOVERY_ENABLED="${K6_AUTH_RECOVERY_ENABLED:-true}"
+K6_AUTH_REFRESH_SKEW_SECONDS="${K6_AUTH_REFRESH_SKEW_SECONDS:-60}"
+K6_AUTH_RETRY_DELAY_SECONDS="${K6_AUTH_RETRY_DELAY_SECONDS:-0.4}"
 K6_OWNER_EMAIL="${K6_OWNER_EMAIL:-owner@demo.com}"
 K6_MANAGER_EMAIL="${K6_MANAGER_EMAIL:-manager@demo.com}"
 K6_EMPLOYEE_EMAIL="${K6_EMPLOYEE_EMAIL:-employee@demo.com}"
-K6_USER_PASSWORD="${K6_USER_PASSWORD:-}"
+K6_DEMO_USER_PASSWORD="${K6_DEMO_USER_PASSWORD:-password123}"
+K6_USER_PASSWORD="${K6_USER_PASSWORD:-$K6_DEMO_USER_PASSWORD}"
 K6_OWNER_PASSWORD="${K6_OWNER_PASSWORD:-$K6_USER_PASSWORD}"
 K6_MANAGER_PASSWORD="${K6_MANAGER_PASSWORD:-$K6_USER_PASSWORD}"
 K6_EMPLOYEE_PASSWORD="${K6_EMPLOYEE_PASSWORD:-$K6_USER_PASSWORD}"
@@ -133,6 +138,31 @@ if [ -z "$TIMEOUT_SECONDS" ] || ! [ "$TIMEOUT_SECONDS" -gt 0 ] 2>/dev/null; then
   exit 1
 fi
 
+mkdir -p "$K6_RESULTS_DIR"
+K6_LOG_FILE="$K6_RESULTS_DIR/$JOB_NAME.log"
+K6_METADATA_FILE="$K6_RESULTS_DIR/$JOB_NAME-metadata.json"
+cat > "$K6_METADATA_FILE" <<EOF
+{
+  "test_id": "$K6_TEST_ID",
+  "job_name": "$JOB_NAME",
+  "script_path": "$SCRIPT_PATH",
+  "profile": "$K6_PROFILE",
+  "environment": "$K6_ENVIRONMENT",
+  "namespace": "$STAGING_NAMESPACE",
+  "target_url": "$BASE_URL",
+  "k6_image": "$K6_IMAGE",
+  "image_version": "${IMAGE_VERSION:-unknown}",
+  "pipeline_id": "${CI_PIPELINE_ID:-local}",
+  "job_id": "${CI_JOB_ID:-local}",
+  "commit_sha": "${CI_COMMIT_SHA:-unknown}",
+  "warmup_duration": "$K6_WARMUP_DURATION",
+  "duration": "$K6_DURATION",
+  "cooldown_duration": "$K6_COOLDOWN_DURATION",
+  "job_timeout": "$K6_JOB_TIMEOUT",
+  "schedule_timeout": "$K6_SCHEDULE_TIMEOUT"
+}
+EOF
+
 echo "═══════════════════════════════════════════════════════════════"
 echo "  k6 staging load gate"
 echo "═══════════════════════════════════════════════════════════════"
@@ -148,6 +178,8 @@ echo "Human users:       owner=$K6_OWNER_EMAIL manager=$K6_MANAGER_EMAIL employe
 echo "Remote write URL:  $PROMETHEUS_RW_URL"
 echo "Job timeout:       $K6_JOB_TIMEOUT"
 echo "Schedule timeout:  $K6_SCHEDULE_TIMEOUT"
+echo "Result metadata:   $K6_METADATA_FILE"
+echo "Log artifact:      $K6_LOG_FILE"
 
 kubectl delete job -n "$STAGING_NAMESPACE" \
   -l app.kubernetes.io/name=k6-staging-load \
@@ -304,6 +336,12 @@ spec:
               value: "$K6_CONFLICT_P99_MS"
             - name: LOAD_TEST_CLEANUP_ENABLED
               value: "$K6_CLEANUP_ENABLED"
+            - name: LOAD_TEST_AUTH_RECOVERY_ENABLED
+              value: "$K6_AUTH_RECOVERY_ENABLED"
+            - name: LOAD_TEST_AUTH_REFRESH_SKEW_SECONDS
+              value: "$K6_AUTH_REFRESH_SKEW_SECONDS"
+            - name: LOAD_TEST_AUTH_RETRY_DELAY_SECONDS
+              value: "$K6_AUTH_RETRY_DELAY_SECONDS"
             - name: K6_PROMETHEUS_RW_SERVER_URL
               value: "$PROMETHEUS_RW_URL"
             - name: K6_PROMETHEUS_RW_PUSH_INTERVAL
@@ -381,7 +419,7 @@ kubectl get job "$JOB_NAME" -n "$STAGING_NAMESPACE" -o wide || true
 kubectl get pods -n "$STAGING_NAMESPACE" -l "job-name=$JOB_NAME" -o wide || true
 
 echo "--- k6 logs ---"
-kubectl logs -n "$STAGING_NAMESPACE" "job/$JOB_NAME" --all-containers=true --timestamps || true
+kubectl logs -n "$STAGING_NAMESPACE" "job/$JOB_NAME" --all-containers=true --timestamps | tee "$K6_LOG_FILE" || true
 
 if [ "$RESULT" -ne 0 ]; then
   echo "--- k6 diagnostics ---"

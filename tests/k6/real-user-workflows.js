@@ -45,6 +45,9 @@ const THINK_TIME_SECONDS = numberEnv('THINK_TIME_SECONDS', 0.6);
 const THINK_TIME_JITTER_SECONDS = numberEnv('THINK_TIME_JITTER_SECONDS', 0.4);
 const REQUEST_TIMEOUT = loadTestEnv('REQUEST_TIMEOUT', '15s');
 const CLEANUP_ENABLED = boolEnv('CLEANUP_ENABLED', true);
+const AUTH_RECOVERY_ENABLED = boolEnv('AUTH_RECOVERY_ENABLED', true);
+const AUTH_REFRESH_SKEW_SECONDS = numberEnv('AUTH_REFRESH_SKEW_SECONDS', 60);
+const AUTH_RETRY_DELAY_SECONDS = numberEnv('AUTH_RETRY_DELAY_SECONDS', 0.4);
 
 const FAILURE_RATE = numberEnv('FAILURE_RATE', PROFILE === 'hard' ? 0.05 : 0.02);
 const SERVER_ERROR_RATE = numberEnv('SERVER_ERROR_RATE', 0.01);
@@ -69,6 +72,9 @@ const serverErrors = new Rate('server_errors');
 const unexpectedStatuses = new Rate('unexpected_statuses');
 const workflowSuccess = new Rate('workflow_success');
 const authFailures = new Rate('auth_failures');
+const authRecoveries = new Counter('auth_recoveries');
+const tokenRefreshes = new Counter('token_refreshes');
+const tokenRefreshFailures = new Rate('token_refresh_failures');
 const cleanupFailures = new Rate('cleanup_failures');
 const expectedConflicts = new Counter('expected_conflicts');
 const workflowDuration = new Trend('workflow_duration', true);
@@ -152,6 +158,7 @@ export const options = {
     checks: [`rate>${CHECK_RATE}`],
     workflow_success: [`rate>${WORKFLOW_SUCCESS_RATE}`],
     auth_failures: [`rate<${AUTH_FAILURE_RATE}`],
+    token_refresh_failures: [`rate<${AUTH_FAILURE_RATE}`],
     cleanup_failures: [`rate<${CLEANUP_FAILURE_RATE}`],
     unexpected_statuses: [`rate<${UNEXPECTED_STATUS_RATE}`],
     server_errors: [`rate<${SERVER_ERROR_RATE}`],
@@ -227,6 +234,86 @@ function requestTags(name, role, journey, type, flow) {
   return baseTags({ name, endpoint: name, role, journey, type, flow });
 }
 
+function applyTokenResponse(session, data) {
+  session.token = data.access_token;
+  session.refreshToken = data.refresh_token || session.refreshToken || '';
+  const expiresIn = Math.max(30, Number(data.expires_in || 300));
+  session.expiresAt = Date.now() + expiresIn * 1000;
+}
+
+function refreshSession(session, journey) {
+  const tags = baseTags({ role: session.role, journey, flow: 'auth', name: 'auth-refresh' });
+  if (!session.refreshToken) {
+    tokenRefreshFailures.add(true, tags);
+    return false;
+  }
+
+  const response = apiRequest(null, 'POST', '/api/v1/auth/refresh', {
+    name: 'auth-refresh',
+    role: session.role,
+    journey,
+    flow: 'auth',
+    type: 'critical',
+    expectedStatuses: [200],
+    recoverAuth: false,
+    body: { refresh_token: session.refreshToken },
+  });
+  const ok = response.status === 200;
+  tokenRefreshFailures.add(!ok, tags);
+  if (!ok) {
+    return false;
+  }
+
+  const data = parseJson(response);
+  if (!data.access_token) {
+    tokenRefreshFailures.add(true, tags);
+    return false;
+  }
+
+  applyTokenResponse(session, data);
+  tokenRefreshes.add(1, tags);
+  return true;
+}
+
+function reloginSession(session, journey) {
+  if (!session.email || !session.password) {
+    return false;
+  }
+  try {
+    const nextSession = login(session.role, session.email, session.password, journey);
+    session.token = nextSession.token;
+    session.refreshToken = nextSession.refreshToken;
+    session.expiresAt = nextSession.expiresAt;
+    return true;
+  } catch (error) {
+    authFailures.add(true, baseTags({ role: session.role, journey, flow: 'auth', name: 'auth-relogin' }));
+    return false;
+  }
+}
+
+function recoverSession(session, journey) {
+  if (!AUTH_RECOVERY_ENABLED) {
+    return false;
+  }
+  if (AUTH_RETRY_DELAY_SECONDS > 0) {
+    sleep(AUTH_RETRY_DELAY_SECONDS + Math.random() * AUTH_RETRY_DELAY_SECONDS);
+  }
+  const recovered = refreshSession(session, journey) || reloginSession(session, journey);
+  if (recovered) {
+    authRecoveries.add(1, baseTags({ role: session.role, journey, flow: 'auth', name: 'auth-recovery' }));
+  }
+  return recovered;
+}
+
+function ensureFreshSession(session, journey) {
+  if (!session || !session.token || !AUTH_RECOVERY_ENABLED) {
+    return;
+  }
+  if (session.expiresAt && Date.now() >= session.expiresAt - AUTH_REFRESH_SKEW_SECONDS * 1000) {
+    recoverSession(session, journey);
+  }
+}
+
 function apiRequest(session, method, path, options = {}) {
   const expectedStatuses = options.expectedStatuses || [200];
   const name = options.name || `${method.toLowerCase()}-${path.replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '')}`;
@@ -235,21 +322,36 @@ function apiRequest(session, method, path, options = {}) {
   const type = options.type || 'workflow';
   const flow = options.flow || journey;
   const tags = requestTags(name, role, journey, type, flow);
-  const headers = {
-    Accept: 'application/json',
-    'Content-Type': 'application/json',
-    ...(options.headers || {}),
-  };
 
-  if (session && session.token) {
-    headers.Authorization = `Bearer ${session.token}`;
+  if (session && options.refresh !== false) {
+    ensureFreshSession(session, journey);
   }
 
-  const response = http.request(method, `${BASE_URL}${path}${toQuery(options.query)}`, jsonBody(options.body), {
-    headers,
-    tags,
-    timeout: options.timeout || REQUEST_TIMEOUT,
-  });
+  const send = () => {
+    const headers = {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+    };
+
+    if (session && session.token) {
+      headers.Authorization = `Bearer ${session.token}`;
+    }
+
+    return http.request(method, `${BASE_URL}${path}${toQuery(options.query)}`, jsonBody(options.body), {
+      headers,
+      tags,
+      timeout: options.timeout || REQUEST_TIMEOUT,
+    });
+  };
+
+  let response = send();
+  if (response.status === 401 && session && options.recoverAuth !== false && options.refresh !== false) {
+    authFailures.add(true, baseTags({ role, journey, flow: 'auth', name: `${name}-401` }));
+    if (recoverSession(session, journey)) {
+      response = send();
+    }
+  }
 
   const expected = isExpectedStatus(response, expectedStatuses);
   const serverError = response.status >= 500 || response.status === 0;
@@ -268,33 +370,38 @@ function apiRequest(session, method, path, options = {}) {
   return response;
 }
 
-function login(role, email, password) {
+function login(role, email, password, journey = 'setup') {
   const started = Date.now();
   const response = apiRequest(null, 'POST', '/api/v1/auth/login', {
     name: 'auth-login',
     role,
-    journey: 'setup',
+    journey,
     flow: 'auth',
     type: 'critical',
     expectedStatuses: [200],
     body: { email, password },
   });
-  loginDuration.add(response.timings.duration || Date.now() - started, baseTags({ role, journey: 'setup', name: 'auth-login' }));
+  loginDuration.add(response.timings.duration || Date.now() - started, baseTags({ role, journey, name: 'auth-login' }));
 
   const ok = response.status === 200;
-  authFailures.add(!ok, baseTags({ role, journey: 'setup', name: 'auth-login' }));
+  authFailures.add(!ok, baseTags({ role, journey, name: 'auth-login' }));
   assertExpected(response, [200], `${role} login`);
   const data = parseJson(response);
   if (!data.access_token) {
-    authFailures.add(true, baseTags({ role, journey: 'setup', name: 'auth-login' }));
+    authFailures.add(true, baseTags({ role, journey, name: 'auth-login' }));
     throw new Error(`${role} login did not return access_token`);
   }
 
-  return {
+  const session = {
     role,
     email,
-    token: data.access_token,
+    password,
+    token: '',
+    refreshToken: '',
+    expiresAt: 0,
   };
+  applyTokenResponse(session, data);
+  return session;
 }
 
 function verifySession(session) {
@@ -579,6 +686,8 @@ export function setup() {
     hardTargetVus: HARD_TARGET_VUS,
     hardJobsPerSession: HARD_JOBS_PER_SESSION,
     cleanupEnabled: CLEANUP_ENABLED,
+    authRecoveryEnabled: AUTH_RECOVERY_ENABLED,
+    authRefreshSkewSeconds: AUTH_REFRESH_SKEW_SECONDS,
     thresholds: {
       failureRate: FAILURE_RATE,
       workflowSuccessRate: WORKFLOW_SUCCESS_RATE,

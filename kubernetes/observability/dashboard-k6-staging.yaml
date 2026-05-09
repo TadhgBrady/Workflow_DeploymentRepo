@@ -383,6 +383,50 @@ data:
             "defaults": {"unit": "ms"},
             "overrides": []
           }
+        },
+        {
+          "id": 18,
+          "type": "stat",
+          "title": "Token Refresh Failure Rate",
+          "gridPos": {"x": 0, "y": 43, "w": 12, "h": 4},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {
+              "expr": "max(k6_token_refresh_failures_rate{environment=\"staging\",testid=~\"$testid\"}) or vector(0)",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "green", "value": null},
+                  {"color": "orange", "value": 0.005},
+                  {"color": "red", "value": 0.01}
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 19,
+          "type": "stat",
+          "title": "Auth Recoveries",
+          "gridPos": {"x": 12, "y": 43, "w": 12, "h": 4},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {
+              "expr": "sum(increase(k6_auth_recoveries_total{environment=\"staging\",testid=~\"$testid\"}[30m])) or vector(0)",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {"unit": "short"},
+            "overrides": []
+          }
         }
       ]
     }

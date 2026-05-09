@@ -58,6 +58,9 @@ The GitLab jobs still use the `K6_*` variables below for convenience. The Kubern
 | `K6_CLEANUP_FAILURE_RATE` | `0.02` | cleanup failure threshold for temporary records |
 | `K6_SCHEDULING_P95_MS` | `2500` medium, `4000` hard | scheduling action p95 threshold |
 | `K6_CONFLICT_P95_MS` | `2500` medium, `4000` hard | conflict-check p95 threshold |
+| `K6_AUTH_RECOVERY_ENABLED` | `true` | refresh access tokens before expiry and retry once after a 401 |
+| `K6_AUTH_REFRESH_SKEW_SECONDS` | `60` | refresh access tokens this many seconds before expiry |
+| `K6_AUTH_RETRY_DELAY_SECONDS` | `0.4` | jittered delay before token refresh or relogin recovery |
 
 ## Authenticated workflow credentials
 
@@ -69,16 +72,21 @@ The real workflow jobs default to the seeded staging emails:
 | Manager | `manager@demo.com` | `K6_MANAGER_PASSWORD` or shared `K6_USER_PASSWORD` |
 | Employee | `employee@demo.com` | `K6_EMPLOYEE_PASSWORD` or shared `K6_USER_PASSWORD` |
 
-Set `K6_USER_PASSWORD` as a masked GitLab CI/CD variable if all seeded users share the same password. Use the role-specific password variables if staging uses different credentials. The runner stores these values in a short-lived Kubernetes Secret and deletes it after the k6 Job finishes.
+The runner defaults to the seeded demo password `password123`, matching the staging fixture users. Set `K6_USER_PASSWORD` as a masked GitLab CI/CD variable if all seeded users share a different password. Use the role-specific password variables if staging uses different credentials. The runner stores these values in a short-lived Kubernetes Secret and deletes it after the k6 Job finishes.
+
+The real workflow script stores each role's refresh token from `/api/v1/auth/login`, refreshes access tokens before expiry via `/api/v1/auth/refresh`, and retries once after a 401. This keeps long medium/hard runs focused on workflow capacity instead of accidental JWT expiry.
+
+Every k6 GitLab job uploads a `k6-results/` artifact containing a timestamped Kubernetes log capture and a metadata JSON file with the test ID, profile, target URL, image version, commit SHA, and duration settings. Use that artifact together with the Grafana `testid` filter when recording evidence.
 
 ## Tuning workflow
 
 1. Run a staging deployment and open the manual `k6-baseline-staging` job.
 2. Start with `K6_PROFILE=baseline` and review the `Year4 Staging k6 Load Gate` Grafana dashboard.
-3. Run `k6-human-medium-staging` after setting the masked password variables. Record workflow success, cleanup failure rate, p95/p99 latency, scheduling latency, status-code mix, and any 5xx rate.
+3. Run `k6-human-medium-staging`. Record workflow success, cleanup failure rate, p95/p99 latency, scheduling latency, status-code mix, and any 5xx rate.
 4. Run `k6-human-hard-staging` only after medium succeeds. Watch scheduling latency, conflict-check latency, expected conflicts, server errors, pod CPU/memory, and database symptoms.
 5. Re-run baseline with `K6_PROFILE=stress-lite` or `K6_PROFILE=spike-lite` to compare public endpoint headroom with authenticated workflow headroom.
-6. Tighten `staging-smoke-load.js` thresholds only after the baseline and real workflow numbers are stable across several staging runs.
+6. Save the GitLab job URL, `k6-results/` artifact, image version, k6 `testid`, Grafana screenshot/table, p95/p99 latency, workflow success, auth failures, token refresh failures, cleanup failures, and observed bottlenecks for each run.
+7. Tighten `staging-smoke-load.js` thresholds only after the baseline and real workflow numbers are stable across several staging runs.
 
 ## Cleanup expectations
 
