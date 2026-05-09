@@ -556,14 +556,14 @@ function checkConflicts(session, journey, jobId, slot, employeeId, expectedStatu
   return parseJson(response, { has_conflicts: false, conflicts: [] });
 }
 
-function scheduleJob(session, journey, jobId, slot, employeeId, expectedStatuses = [200]) {
+function scheduleJob(session, journey, jobId, slot, expectedStatuses = [200]) {
   const response = apiRequest(session, 'POST', `/api/v1/jobs/${jobId}/schedule`, {
     name: 'jobs-schedule',
     journey,
     flow: 'scheduling',
     type: 'scheduling',
     expectedStatuses,
-    body: { ...slot, assigned_to: employeeId },
+    body: slot,
   });
   schedulingDuration.add(response.timings.duration, requestTags('jobs-schedule', session.role, journey, 'scheduling', 'scheduling'));
   assertExpected(response, expectedStatuses, 'schedule job');
@@ -726,7 +726,7 @@ export function ownerDailyWorkflow(data) {
       if (conflictResult.has_conflicts) {
         throw new Error('New owner workflow job unexpectedly has scheduling conflicts');
       }
-      scheduleJob(owner, journey, jobId, slot, employeeId);
+      scheduleJob(owner, journey, jobId, slot);
       humanPause();
       assertExpected(apiRequest(owner, 'GET', `/api/v1/jobs/${jobId}`, {
         name: 'jobs-detail', journey, flow: 'job-detail', expectedStatuses: [200],
@@ -763,7 +763,7 @@ export function employeeProcessingWorkflow(data) {
       const jobId = createJob(owner, journey, customerId, 'employee-job', { priority: 'normal' });
       state.jobIds.push(jobId);
       assignJob(owner, journey, jobId, employeeId);
-      scheduleJob(owner, journey, jobId, slot, employeeId);
+      scheduleJob(owner, journey, jobId, slot);
       humanPause();
       assertExpected(apiRequest(employee, 'GET', '/api/v1/jobs', {
         name: 'jobs-list', journey, flow: 'employee-queue', expectedStatuses: [200], query: { limit: 25 },
@@ -845,7 +845,7 @@ export function managerSchedulingWorkflow(data) {
         if (conflictResult.has_conflicts) {
           throw new Error('Manager scheduling job unexpectedly has conflicts');
         }
-        scheduleJob(manager, journey, jobId, slot, employeeId);
+        scheduleJob(manager, journey, jobId, slot);
         assertExpected(apiRequest(manager, 'GET', `/api/v1/jobs/${jobId}`, {
           name: 'jobs-detail', journey, flow: 'manager-job-detail', expectedStatuses: [200],
         }), [200], 'manager job detail');
@@ -886,14 +886,14 @@ export function conflictPressureWorkflow(data) {
       };
 
       assignJob(manager, journey, existingJobId, employeeId);
-      scheduleJob(manager, journey, existingJobId, slot, employeeId);
+      scheduleJob(manager, journey, existingJobId, slot);
       assignJob(manager, journey, competingJobId, employeeId);
       const conflictResult = checkConflicts(manager, journey, competingJobId, overlappingSlot, employeeId);
       if (!conflictResult.has_conflicts) {
         throw new Error('Expected overlapping schedule to report conflicts');
       }
       expectedConflicts.add(1, baseTags({ journey, role: 'manager', flow: 'scheduling', name: 'expected-conflict' }));
-      scheduleJob(manager, journey, competingJobId, overlappingSlot, employeeId, [409]);
+      scheduleJob(manager, journey, competingJobId, overlappingSlot, [409]);
       success = true;
     } catch (error) {
       workflowError = error;
