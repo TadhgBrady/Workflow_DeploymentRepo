@@ -29,9 +29,6 @@
 #   - RDS PostgreSQL + ElastiCache Redis (AWS-managed, Terraform-provisioned)
 #   - External Secrets Operator for secrets from AWS Secrets Manager
 #
-# Scale-up/down jobs at the bottom allow bringing staging or production
-# infrastructure up and down independently when needed.
-#
 # =============================================================================
 
 stages:
@@ -48,7 +45,6 @@ stages:
   - prod-validation     # Post-deploy smoke tests & health verification
   - destroy-staging     # Optional manual staging teardown after release/prod choices
   - verify-destroy      # Confirm staging cost resources are gone and bootstrap remains
-  - manual-ops          # Manual scale-up / scale-down jobs (independent)
 
 # =============================================================================
 # VARIABLES
@@ -1750,7 +1746,6 @@ wait-production-ready:
     - if: '$IMAGE_VERSION && ($PIPELINE_MODE == "auto" || $PIPELINE_MODE == "full-release")'
       when: on_success
   allow_failure: false
-
 # =============================================================================
 # PRODUCTION: Install cluster add-ons — cert-manager, ESO, NGINX Ingress
 # =============================================================================
@@ -1899,7 +1894,6 @@ install-addons-production:
     - if: '$IMAGE_VERSION && ($PIPELINE_MODE == "auto" || $PIPELINE_MODE == "full-release")'
       when: on_success
   allow_failure: false
-
 install-observability-production:
   stage: deploy-prod
   image: alpine:latest
@@ -2098,99 +2092,3 @@ smoke-tests-production:
     - if: '$IMAGE_VERSION && ($PIPELINE_MODE == "auto" || $PIPELINE_MODE == "full-release")'
       when: on_success
   allow_failure: false
-
-# =============================================================================
-# =============================================================================
-# MANUAL OVERRIDE: SCALE-UP / SCALE-DOWN JOBS
-# =============================================================================
-#
-# Manual-trigger jobs for controlling EKS node groups via AWS CLI.
-# These are independent of the deploy flow — use them from the GitLab UI.
-#
-# Typical workflow (Option C — separate clusters):
-#   1. scale-up-staging    → bring staging nodes up
-#   2. (pipeline deploys)  → validate in staging
-#   3. scale-up-production → bring production nodes up
-#   4. (pipeline deploys)  → canary rollout to production
-#   5. scale-down-staging  → staging no longer needed (auto after prod deploy)
-#   6. (after demo/use)    → scale-down-production
-#
-# EKS control plane (~$0.10/hr) still runs when nodes=0.
-# To fully destroy a cluster, use 'destroy-staging' or 'destroy-production'
-# in the infrastructure repo.
-
-.scale_up_base:
-  stage: manual-ops
-  image:
-    name: amazon/aws-cli:2.22.0
-    entrypoint: [""]
-  script:
-    - |
-      echo "Scaling ${ENV_LABEL} node group to ${DESIRED_SIZE} nodes..."
-      aws eks update-nodegroup-config \
-        --cluster-name ${TARGET_CLUSTER} \
-        --nodegroup-name ${TARGET_NODE_GROUP} \
-        --region $AWS_DEFAULT_REGION \
-        --scaling-config desiredSize=${DESIRED_SIZE},minSize=0,maxSize=${MAX_SIZE}
-
-      echo "Waiting for ${ENV_LABEL} nodes..."
-      aws eks wait nodegroup-active \
-        --cluster-name ${TARGET_CLUSTER} \
-        --nodegroup-name ${TARGET_NODE_GROUP} \
-        --region $AWS_DEFAULT_REGION
-      echo "✅ ${ENV_LABEL} scaled UP"
-  rules:
-    - when: manual
-  allow_failure: true
-
-.scale_down_base:
-  stage: manual-ops
-  image:
-    name: amazon/aws-cli:2.22.0
-    entrypoint: [""]
-  script:
-    - |
-      echo "Scaling ${ENV_LABEL} node group to 0 nodes..."
-      aws eks update-nodegroup-config \
-        --cluster-name ${TARGET_CLUSTER} \
-        --nodegroup-name ${TARGET_NODE_GROUP} \
-        --region $AWS_DEFAULT_REGION \
-        --scaling-config desiredSize=0,minSize=0,maxSize=${MAX_SIZE}
-      echo "✅ ${ENV_LABEL} scaled DOWN"
-  rules:
-    - when: manual
-  allow_failure: true
-
-manual-scale-up-staging:
-  extends: .scale_up_base
-  variables:
-    TARGET_CLUSTER: ${STAGING_CLUSTER_NAME}
-    TARGET_NODE_GROUP: ${STAGING_NODE_GROUP}
-    DESIRED_SIZE: "2"
-    MAX_SIZE: "3"
-    ENV_LABEL: STAGING
-
-manual-scale-down-staging:
-  extends: .scale_down_base
-  variables:
-    TARGET_CLUSTER: ${STAGING_CLUSTER_NAME}
-    TARGET_NODE_GROUP: ${STAGING_NODE_GROUP}
-    MAX_SIZE: "3"
-    ENV_LABEL: STAGING
-
-manual-scale-up-production:
-  extends: .scale_up_base
-  variables:
-    TARGET_CLUSTER: ${PROD_CLUSTER_NAME}
-    TARGET_NODE_GROUP: ${PROD_NODE_GROUP}
-    DESIRED_SIZE: "3"
-    MAX_SIZE: "5"
-    ENV_LABEL: PRODUCTION
-
-manual-scale-down-production:
-  extends: .scale_down_base
-  variables:
-    TARGET_CLUSTER: ${PROD_CLUSTER_NAME}
-    TARGET_NODE_GROUP: ${PROD_NODE_GROUP}
-    MAX_SIZE: "5"
-    ENV_LABEL: PRODUCTION

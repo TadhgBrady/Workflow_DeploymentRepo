@@ -156,11 +156,6 @@ if (Test-Path $ciFile) {
     Assert-ContainsText $ciText "promote-to-production:" "manual production promotion job exists"
     Assert-ContainsText $ciText "confirm-destroy-staging:" "manual staging destroy confirmation job exists"
     Assert-ContainsText $ciText "verify-staging-destroyed:" "staging destroy verification job exists"
-    Assert-ContainsText $ciText "manual-ops" "manual operations stage remains available"
-    Assert-ContainsText $ciText "manual-scale-up-staging:" "manual staging scale-up job exists"
-    Assert-ContainsText $ciText "manual-scale-down-staging:" "manual staging scale-down job exists"
-    Assert-ContainsText $ciText "manual-scale-up-production:" "manual production scale-up job exists"
-    Assert-ContainsText $ciText "manual-scale-down-production:" "manual production scale-down job exists"
     Assert-ContainsText $ciText 'DESTROY_ENV: "staging"' "staging destroy trigger targets only staging"
     Assert-ContainsText $ciText 'scripts/deployment/smoke-tests.sh' "shared smoke-test script is used"
     Assert-ContainsText $ciText "k6-load-staging:" "mandatory staging k6 medium load gate job exists"
@@ -175,6 +170,13 @@ if (Test-Path $ciFile) {
         $pipelineErrors++
     } else {
         Write-Host "  PASS cleanup job depends on manual staging destroy confirmation" -ForegroundColor Green
+    }
+
+    if ($ciText -match "manual-ops|manual-scale-(up|down)-(staging|production):") {
+        Write-Host "  FAIL manual ops scale jobs should not exist in this pipeline" -ForegroundColor Red
+        $pipelineErrors++
+    } else {
+        Write-Host "  PASS manual ops scale jobs are removed" -ForegroundColor Green
     }
 
     if ($ciText -notmatch "(?s)k6-load-staging:.*?needs:.*?-\s*staging-readiness.*?-\s*job:\s*deploy-staging\s*\r?\n\s*artifacts:\s*true") {
