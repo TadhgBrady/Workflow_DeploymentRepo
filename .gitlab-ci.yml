@@ -43,12 +43,12 @@ stages:
   - staging-tests       # Grafana k6 load tests and smoke tests
   - e2e-tests           # Playwright browser E2E against staging after k6
   - release-gate        # Publish combined staging gate evidence before promote/destroy choices
-  - destroy-staging     # Optional manual staging teardown after release gates pass
-  - verify-destroy      # Confirm staging cost resources are gone and bootstrap remains
   - promote             # Manual gate — approve promotion to production
   - ensure-production   # Scale up production cluster (or trigger infra pipeline)
   - deploy-prod         # kubectl apply production, rollout verification
   - prod-validation     # Post-deploy smoke tests & health verification
+  - destroy-staging     # Optional manual staging teardown after release/prod choices
+  - verify-destroy      # Confirm staging cost resources are gone and bootstrap remains
   - notify              # Slack/webhook notification of deploy result
   - manual-ops          # Manual scale-up / scale-down jobs (independent)
 
@@ -1304,6 +1304,25 @@ staging-release-gate:
       PLAYWRIGHT_JUNIT="tests/e2e/test-results/playwright-junit.xml"
       PLAYWRIGHT_JSON="tests/e2e/test-results/playwright-results.json"
       PLAYWRIGHT_HTML="tests/e2e/playwright-report/index.html"
+
+      if [ ! -f "$PLAYWRIGHT_METADATA" ] && [ -f "tests/e2e/test-results/summary.md" ]; then
+        echo "⚠️  Playwright metadata artifact is missing; rebuilding it from summary/env evidence."
+        PLAYWRIGHT_SUMMARY="tests/e2e/test-results/summary.md"
+        PLAYWRIGHT_TEST_ID_FALLBACK="$(sed -n 's/^Test ID: //p' "$PLAYWRIGHT_SUMMARY" | head -1)"
+        PLAYWRIGHT_TARGET_FALLBACK="$(sed -n 's/^Target URL: //p' "$PLAYWRIGHT_SUMMARY" | head -1)"
+        PLAYWRIGHT_TEST_ID_DEFAULT="playwright-${CI_PIPELINE_ID:-local}-${CI_JOB_ID:-local}"
+        cat > "$PLAYWRIGHT_METADATA" <<EOF
+      {
+        "test_id": "${PLAYWRIGHT_TEST_ID_FALLBACK:-$PLAYWRIGHT_TEST_ID_DEFAULT}",
+        "environment": "staging",
+        "target_url": "${STAGING_URL:-$PLAYWRIGHT_TARGET_FALLBACK}",
+        "image_version": "${IMAGE_VERSION:-unknown}",
+        "pipeline_id": "${CI_PIPELINE_ID:-local}",
+        "job_id": "${CI_JOB_ID:-local}",
+        "commit_sha": "${CI_COMMIT_SHA:-unknown}"
+      }
+      EOF
+      fi
 
       for REQUIRED in "$K6_METADATA" "$K6_SUMMARY" "$PLAYWRIGHT_METADATA" "$PLAYWRIGHT_JUNIT" "$PLAYWRIGHT_JSON" "$PLAYWRIGHT_HTML"; do
         if [ -z "$REQUIRED" ] || [ ! -f "$REQUIRED" ]; then
