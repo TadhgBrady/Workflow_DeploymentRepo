@@ -8,9 +8,9 @@
 # Pipeline Architecture (mode-aware stages):
 #
 #   validate → update-tags → ensure-staging (triggers infra repo) → deploy-staging
-#     → staging-readiness → staging-tests → e2e-tests → release-gate
-#       → [promote → ensure-production (triggers infra repo) → deploy-prod → prod-validation]
-#       → [optional destroy-staging → verify-destroy] → notify
+#     → staging-readiness → staging-tests → e2e-tests → promote
+#       → [ensure-production (triggers infra repo) → deploy-prod → prod-validation]
+#       → [optional destroy-staging → verify-destroy]
 #
 # PIPELINE_MODE controls how far a valid release goes:
 #   auto                  → full-release when IMAGE_VERSION exists, validate-only otherwise
@@ -42,14 +42,12 @@ stages:
   - staging-readiness   # Post-deploy pod/service/migration diagnostics before smoke tests
   - staging-tests       # Grafana k6 load tests and smoke tests
   - e2e-tests           # Playwright browser E2E against staging after k6
-  - release-gate        # Publish combined staging gate evidence before promote/destroy choices
-  - promote             # Manual gate — approve promotion to production
+  - promote             # Publish evidence, then choose production promotion or staging destroy
   - ensure-production   # Scale up production cluster (or trigger infra pipeline)
   - deploy-prod         # kubectl apply production, rollout verification
   - prod-validation     # Post-deploy smoke tests & health verification
   - destroy-staging     # Optional manual staging teardown after release/prod choices
   - verify-destroy      # Confirm staging cost resources are gone and bootstrap remains
-  - notify              # Slack/webhook notification of deploy result
   - manual-ops          # Manual scale-up / scale-down jobs (independent)
 
 # =============================================================================
@@ -1276,13 +1274,14 @@ playwright-e2e-staging:
   allow_failure: false
 
 # =============================================================================
-# STAGE 7: RELEASE GATE — Combined staging evidence for promotion
+# STAGE 7: PROMOTE — Combined staging evidence and release choices
 # =============================================================================
-# Promotion depends on this job, not on staging teardown. It records the exact
-# image version, target URL, k6 evidence, and Playwright evidence that passed.
+# This job records the exact image version, target URL, k6 evidence, and
+# Playwright evidence that passed. When it succeeds, the pipeline exposes the
+# manual choices to promote to production or destroy staging.
 
-staging-release-gate:
-  stage: release-gate
+promote:
+  stage: promote
   image: alpine:latest
   needs:
     - smoke-tests-staging
@@ -1295,7 +1294,7 @@ staging-release-gate:
   script:
     - |
       set -eu
-      EVIDENCE_DIR="staging-release-evidence"
+      EVIDENCE_DIR="promotion-evidence"
       mkdir -p "$EVIDENCE_DIR"
 
       K6_METADATA="$(find k6-results -name '*-metadata.json' | sort | head -1 || true)"
@@ -1348,10 +1347,10 @@ staging-release-gate:
         exit 1
       fi
 
-      cat > "$EVIDENCE_DIR/staging-release-gate.md" <<EOF
-      # Staging Release Gate
+      cat > "$EVIDENCE_DIR/promotion.md" <<EOF
+      # Promotion Evidence
 
-      Status: passed
+      Status: ready
       Image version: ${IMAGE_VERSION:-unknown}
       Source commit: ${SOURCE_COMMIT:-${CI_COMMIT_SHA:-unknown}}
       Target URL: $TARGET_URL
@@ -1375,9 +1374,9 @@ staging-release-gate:
       - Metadata: $PLAYWRIGHT_METADATA
       EOF
 
-      cat > "$EVIDENCE_DIR/staging-release-gate.json" <<EOF
+      cat > "$EVIDENCE_DIR/promotion.json" <<EOF
       {
-        "status": "passed",
+        "status": "ready",
         "image_version": "${IMAGE_VERSION:-unknown}",
         "source_commit": "${SOURCE_COMMIT:-${CI_COMMIT_SHA:-unknown}}",
         "target_url": "$TARGET_URL",
@@ -1391,11 +1390,11 @@ staging-release-gate:
       }
       EOF
 
-      cat "$EVIDENCE_DIR/staging-release-gate.md"
+      cat "$EVIDENCE_DIR/promotion.md"
   artifacts:
     when: always
     paths:
-      - staging-release-evidence/
+      - promotion-evidence/
       - k6-results/
       - tests/e2e/playwright-report/
       - tests/e2e/test-results/
@@ -1406,17 +1405,17 @@ staging-release-gate:
   allow_failure: false
 
 # =============================================================================
-# STAGE 8: DESTROY STAGING — Optional manual full teardown after release gates
+# PROMOTE OPTION: Destroy staging after validation
 # =============================================================================
-# This stage can destroy staging after validation succeeds. Normal promotion does
-# not depend on teardown; use PIPELINE_MODE=staging-teardown-test when teardown
-# proof is the primary purpose of the pipeline.
+# This manual choice can destroy staging after validation succeeds. Normal
+# production promotion does not depend on teardown; use
+# PIPELINE_MODE=staging-teardown-test when teardown proof is the primary purpose.
 
 confirm-destroy-staging:
-  stage: destroy-staging
+  stage: promote
   image: alpine:latest
   needs:
-    - staging-release-gate
+    - promote
   script:
     - |
       echo "═══════════════════════════════════════════════════════════════"
@@ -1425,7 +1424,7 @@ confirm-destroy-staging:
       echo "This will trigger a full Terraform destroy for STAGING only."
       echo "Expected destroyed cost resources: staging EKS, worker nodes, VPC/NAT, RDS, Redis, ELBs, security groups."
       echo "Expected preserved resources: Terraform S3/DynamoDB bootstrap and persistent secrets state."
-      echo "Production promotion is available after staging-release-gate; teardown is optional unless PIPELINE_MODE=staging-teardown-test."
+      echo "Production promotion is available from the promote stage; teardown is optional unless PIPELINE_MODE=staging-teardown-test."
   rules:
     - if: '$IMAGE_VERSION && $PIPELINE_MODE == "staging-teardown-test"'
       when: manual
@@ -1563,18 +1562,17 @@ verify-staging-destroyed:
       allow_failure: true
 
 # =============================================================================
-# STAGE 10: PROMOTE — Manual approval to deploy to production
+# PROMOTE OPTION: Proceed to production
 # =============================================================================
 #
-# Same manual gate pattern as the dev repo's trigger-deploy stage.
 # Updates the production overlay version label and commits back to repo.
-# The pipeline waits for manual approval before deploying to production.
+# The infra repo is then triggered to build/scale production before deploy.
 
 promote-to-production:
   stage: promote
   image: alpine:latest
   needs:
-    - staging-release-gate
+    - promote
   before_script:
     - apk add --no-cache git sed
   script:
@@ -1657,7 +1655,7 @@ promote-to-production:
       allow_failure: false
 
 # =============================================================================
-# STAGE 7a: ENSURE PRODUCTION — Trigger infra repo to bring production cluster up
+# PRODUCTION: Trigger infra repo to bring production cluster up
 # =============================================================================
 # Same cross-project trigger pattern as staging. Fires after manual promotion
 # is approved. The infra repo creates/scales the production cluster, and the
@@ -1754,7 +1752,7 @@ wait-production-ready:
   allow_failure: false
 
 # =============================================================================
-# STAGE 7b: INSTALL CLUSTER ADD-ONS — cert-manager, ESO, NGINX Ingress (PROD)
+# PRODUCTION: Install cluster add-ons — cert-manager, ESO, NGINX Ingress
 # =============================================================================
 
 install-addons-production:
@@ -1945,7 +1943,7 @@ install-observability-production:
   allow_failure: false
 
 # =============================================================================
-# STAGE 6b: DEPLOY PRODUCTION — kubectl apply + rollout verification
+# PRODUCTION: kubectl apply + rollout verification
 # =============================================================================
 
 deploy-production:
@@ -2081,7 +2079,7 @@ deploy-production:
   allow_failure: false
 
 # =============================================================================
-# STAGE 7: PRODUCTION VALIDATION — Post-deploy smoke tests
+# PRODUCTION: Post-deploy smoke tests
 # =============================================================================
 
 smoke-tests-production:
@@ -2102,60 +2100,6 @@ smoke-tests-production:
   allow_failure: false
 
 # =============================================================================
-# STAGE 8: NOTIFY — Deploy result notification
-# =============================================================================
-
-# =============================================================================
-# STAGE 9: NOTIFY — Deploy result notification
-# =============================================================================
-
-notify-success:
-  stage: notify
-  image: alpine:latest
-  needs:
-    - smoke-tests-production
-  before_script:
-    - apk add --no-cache curl
-  script:
-    - echo "═══════════════════════════════════════════════════════════════"
-    - echo "  ✅ DEPLOYMENT SUCCESSFUL"
-    - echo "═══════════════════════════════════════════════════════════════"
-    - echo ""
-    - 'echo "  Environment:  Production"'
-    - 'echo "  Version:      ${IMAGE_VERSION}"'
-    - 'echo "  Source:        ${SOURCE_COMMIT}"'
-    - 'echo "  Pipeline:     ${CI_PIPELINE_URL}"'
-    - echo ""
-    # TODO: Add Slack/Teams/webhook notification
-    # - |
-    #   curl -X POST "$SLACK_WEBHOOK_URL" -H "Content-Type: application/json" \
-    #     -d "{\"text\": \"✅ Production deploy complete — version ${IMAGE_VERSION}\"}"
-  rules:
-    - if: '$IMAGE_VERSION && ($PIPELINE_MODE == "auto" || $PIPELINE_MODE == "full-release")'
-      when: on_success
-  allow_failure: true
-
-notify-failure:
-  stage: notify
-  image: alpine:latest
-  before_script:
-    - apk add --no-cache curl
-  script:
-    - echo "═══════════════════════════════════════════════════════════════"
-    - echo "  ❌ DEPLOYMENT FAILED"
-    - echo "═══════════════════════════════════════════════════════════════"
-    - echo ""
-    - 'echo "  Environment:  Production"'
-    - 'echo "  Version:      ${IMAGE_VERSION}"'
-    - 'echo "  Pipeline:     ${CI_PIPELINE_URL}"'
-    - echo ""
-    - 'echo "  ACTION REQUIRED: Check deployment logs and kubectl rollout status"'
-    # TODO: Add Slack/Teams/webhook notification
-  rules:
-    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only"'
-      when: on_failure
-  allow_failure: true
-
 # =============================================================================
 # MANUAL OVERRIDE: SCALE-UP / SCALE-DOWN JOBS
 # =============================================================================

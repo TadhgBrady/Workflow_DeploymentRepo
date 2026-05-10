@@ -135,14 +135,14 @@ if (Test-Path $ciFile) {
     Assert-TextOrder $ciText "  - deploy-staging" "  - staging-readiness" "staging readiness runs after staging deploy stage"
     Assert-TextOrder $ciText "  - staging-readiness" "  - staging-tests" "staging readiness runs before staging tests"
     Assert-TextOrder $ciText "  - staging-tests" "  - e2e-tests" "staging tests run before Playwright E2E stage"
-    Assert-TextOrder $ciText "  - e2e-tests" "  - release-gate" "Playwright E2E runs before release gate"
-    Assert-TextOrder $ciText "  - release-gate" "  - promote" "release gate runs before production promotion stage"
+    Assert-TextOrder $ciText "  - e2e-tests" "  - promote" "Playwright E2E runs before promote stage"
     Assert-TextOrder $ciText "  - promote" "  - ensure-production" "production promotion runs before production infra ensure stage"
     Assert-TextOrder $ciText "  - ensure-production" "  - deploy-prod" "production infra ensure runs before production deploy stage"
     Assert-TextOrder $ciText "  - deploy-prod" "  - prod-validation" "production deploy runs before production validation stage"
     Assert-TextOrder $ciText "  - prod-validation" "  - destroy-staging" "optional staging destroy stage is after production flow"
     Assert-TextOrder $ciText "  - destroy-staging" "  - verify-destroy" "staging destroy runs before destroy verification"
-    Assert-TextOrder $ciText "staging-release-gate:" "promote-to-production:" "promotion job is defined after staging release gate"
+    Assert-TextOrder $ciText "promote:" "promote-to-production:" "production approval is defined after promote evidence"
+    Assert-TextOrder $ciText "promote:" "confirm-destroy-staging:" "staging destroy option is defined after promote evidence"
     Assert-TextOrder $ciText "confirm-destroy-staging:" "cleanup-staging-loadbalancers:" "manual destroy approval comes before cleanup job"
     Assert-TextOrder $ciText "cleanup-staging-loadbalancers:" "trigger-destroy-staging:" "load balancer cleanup comes before Terraform destroy trigger"
     Assert-TextOrder $ciText "trigger-destroy-staging:" "verify-staging-destroyed:" "destroy verification job is defined after staging destroy trigger"
@@ -152,9 +152,15 @@ if (Test-Path $ciFile) {
     Assert-ContainsText $ciText "preflight-staging:" "staging preflight job exists"
     Assert-ContainsText $ciText "staging-readiness:" "staging readiness job exists"
     Assert-ContainsText $ciText "playwright-e2e-staging:" "mandatory Playwright E2E job exists"
-    Assert-ContainsText $ciText "staging-release-gate:" "combined staging release gate job exists"
+    Assert-ContainsText $ciText "promote:" "combined promotion evidence job exists"
+    Assert-ContainsText $ciText "promote-to-production:" "manual production promotion job exists"
     Assert-ContainsText $ciText "confirm-destroy-staging:" "manual staging destroy confirmation job exists"
     Assert-ContainsText $ciText "verify-staging-destroyed:" "staging destroy verification job exists"
+    Assert-ContainsText $ciText "manual-ops" "manual operations stage remains available"
+    Assert-ContainsText $ciText "manual-scale-up-staging:" "manual staging scale-up job exists"
+    Assert-ContainsText $ciText "manual-scale-down-staging:" "manual staging scale-down job exists"
+    Assert-ContainsText $ciText "manual-scale-up-production:" "manual production scale-up job exists"
+    Assert-ContainsText $ciText "manual-scale-down-production:" "manual production scale-down job exists"
     Assert-ContainsText $ciText 'DESTROY_ENV: "staging"' "staging destroy trigger targets only staging"
     Assert-ContainsText $ciText 'scripts/deployment/smoke-tests.sh' "shared smoke-test script is used"
     Assert-ContainsText $ciText "k6-load-staging:" "mandatory staging k6 medium load gate job exists"
@@ -206,18 +212,18 @@ if (Test-Path $ciFile) {
         Write-Host "  PASS Playwright E2E is a hard gate after smoke and k6" -ForegroundColor Green
     }
 
-    if ($ciText -notmatch "(?s)staging-release-gate:.*?needs:.*?-\s*smoke-tests-staging.*?-\s*job:\s*k6-load-staging.*?-\s*job:\s*playwright-e2e-staging") {
-        Write-Host "  FAIL staging release gate must wait for smoke, k6, and Playwright evidence" -ForegroundColor Red
+    if ($ciText -notmatch "(?s)promote:.*?needs:.*?-\s*smoke-tests-staging.*?-\s*job:\s*k6-load-staging.*?-\s*job:\s*playwright-e2e-staging") {
+        Write-Host "  FAIL promote evidence job must wait for smoke, k6, and Playwright evidence" -ForegroundColor Red
         $pipelineErrors++
     } else {
-        Write-Host "  PASS staging release gate waits for smoke, k6, and Playwright evidence" -ForegroundColor Green
+        Write-Host "  PASS promote evidence job waits for smoke, k6, and Playwright evidence" -ForegroundColor Green
     }
 
-    if ($ciText -notmatch "(?s)confirm-destroy-staging:.*?needs:\s*\r?\n\s*-\s*staging-release-gate") {
-        Write-Host "  FAIL manual destroy approval must wait for staging-release-gate" -ForegroundColor Red
+    if ($ciText -notmatch "(?s)confirm-destroy-staging:.*?needs:\s*\r?\n\s*-\s*promote") {
+        Write-Host "  FAIL manual destroy approval must wait for promote evidence" -ForegroundColor Red
         $pipelineErrors++
     } else {
-        Write-Host "  PASS manual destroy approval waits for staging-release-gate" -ForegroundColor Green
+        Write-Host "  PASS manual destroy approval waits for promote evidence" -ForegroundColor Green
     }
 
     if ($ciText -notmatch "(?s)verify-staging-destroyed:.*?needs:\s*\r?\n\s*-\s*trigger-destroy-staging") {
@@ -227,11 +233,11 @@ if (Test-Path $ciFile) {
         Write-Host "  PASS destroy verification depends on staging destroy trigger" -ForegroundColor Green
     }
 
-    if ($ciText -notmatch "(?s)promote-to-production:.*?needs:\s*\r?\n\s*-\s*staging-release-gate") {
-        Write-Host "  FAIL production promotion must depend on staging-release-gate" -ForegroundColor Red
+    if ($ciText -notmatch "(?s)promote-to-production:.*?needs:\s*\r?\n\s*-\s*promote") {
+        Write-Host "  FAIL production promotion must depend on promote evidence" -ForegroundColor Red
         $pipelineErrors++
     } else {
-        Write-Host "  PASS production promotion is gated on staging release evidence" -ForegroundColor Green
+        Write-Host "  PASS production promotion is gated on promote evidence" -ForegroundColor Green
     }
 
     $promValuesFile = Join-Path $RepoRoot "helm/kube-prometheus-stack/values-staging.yaml"
