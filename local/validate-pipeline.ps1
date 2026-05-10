@@ -150,6 +150,7 @@ if (Test-Path $ciFile) {
     Assert-ContainsText $ciText 'PIPELINE_MODE: "auto"' "pipeline mode defaults to auto"
     Assert-ContainsText $ciText "validate-deployment-mode:" "deployment mode validation job exists"
     Assert-ContainsText $ciText "preflight-staging:" "staging preflight job exists"
+    Assert-ContainsText $ciText "-skip ClusterIssuer,ClusterSecretStore,ExternalSecret,Rollout" "CI kubeconform skips Argo Rollouts CRD"
     Assert-ContainsText $ciText "staging-readiness:" "staging readiness job exists"
     Assert-ContainsText $ciText "playwright-e2e-staging:" "mandatory Playwright E2E job exists"
     Assert-ContainsText $ciText "promote:" "combined promotion evidence job exists"

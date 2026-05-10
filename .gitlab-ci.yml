@@ -127,7 +127,7 @@ validate-manifests:
     - |
       for ENV in staging production; do
         echo "── Validating overlay: $ENV ──"
-        kustomize build kubernetes/overlays/$ENV | kubeconform -strict -summary -skip ClusterIssuer,ClusterSecretStore,ExternalSecret
+        kustomize build kubernetes/overlays/$ENV | kubeconform -strict -summary -skip ClusterIssuer,ClusterSecretStore,ExternalSecret,Rollout
         echo "── Validating overlay with kubectl embedded Kustomize: $ENV ──"
         kubectl kustomize kubernetes/overlays/$ENV > /dev/null
       done
