@@ -266,8 +266,8 @@ if (Test-Path $ciFile) {
         "scripts/deployment/sync-argocd-production.sh",
         "kubernetes/argocd/project-production.yaml",
         "kubernetes/argocd/application-production.yaml",
-        "kubernetes/overlays/staging/image-pins.yaml",
-        "kubernetes/overlays/production/image-pins.yaml"
+        "kubernetes/overlays/staging/image-pins/auth-service.yaml",
+        "kubernetes/overlays/production/image-pins/auth-service.yaml"
     )
     foreach ($relativePath in $gitOpsFiles) {
         if (Test-Path (Join-Path $RepoRoot $relativePath)) {

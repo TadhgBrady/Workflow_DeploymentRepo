@@ -298,7 +298,7 @@ update-image-tags:
       sh scripts/deployment/write-image-pins.sh "$IMAGE_VERSION" staging
     - git config user.email "cd-pipeline@gitlab.ci"
     - git config user.name "CD Pipeline"
-    - git add kubernetes/overlays/staging/kustomization.yaml kubernetes/overlays/staging/image-pins.yaml
+    - git add kubernetes/overlays/staging/kustomization.yaml kubernetes/overlays/staging/image-pins
     - 'git commit -m "ci: update staging version to ${IMAGE_VERSION} [skip ci] - Source: ${SOURCE_COMMIT}" || echo "No changes to commit"'
     - |
       # Push with a token that can write to this repository.
@@ -1589,7 +1589,7 @@ promote-to-production:
       sh scripts/deployment/write-image-pins.sh "$IMAGE_VERSION" production
     - git config user.email "cd-pipeline@gitlab.ci"
     - git config user.name "CD Pipeline"
-    - git add kubernetes/overlays/production/kustomization.yaml kubernetes/overlays/production/image-pins.yaml
+    - git add kubernetes/overlays/production/kustomization.yaml kubernetes/overlays/production/image-pins
     - 'git commit -m "ci: promote ${IMAGE_VERSION} to production [skip ci] - Source: ${SOURCE_COMMIT}" || echo "No changes to commit"'
     - |
       # Push with a token that can write to this repository.
@@ -2044,7 +2044,7 @@ deploy-production:
         echo "✅ cert-manager CRDs already available"
       fi
     # ── Pin images locally for validation/migration rendering. The committed
-    # production image-pins.yaml is the Argo CD source of truth.
+    # production image-pins directory is the Argo CD source of truth.
     - sh scripts/deployment/write-image-pins.sh "$IMAGE_VERSION" production
     - kubectl create namespace $PROD_NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
     - |

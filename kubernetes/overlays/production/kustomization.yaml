@@ -59,7 +59,19 @@ replicas:
 
 # Service type patch - use LoadBalancer for production (production access)
 patches:
-  - path: image-pins.yaml
+  - path: image-pins/auth-service.yaml
+  - path: image-pins/user-bl-service.yaml
+  - path: image-pins/user-db-access-service.yaml
+  - path: image-pins/job-bl-service-deployment.yaml
+  - path: image-pins/job-db-access-service-deployment.yaml
+  - path: image-pins/customer-bl-service.yaml
+  - path: image-pins/customer-db-access-service.yaml
+  - path: image-pins/admin-bl-service.yaml
+  - path: image-pins/maps-access-service.yaml
+  - path: image-pins/notification-service.yaml
+  - path: image-pins/frontend-deployment.yaml
+  - path: image-pins/nginx-gateway.yaml
+  - path: image-pins/migration-runner.yaml
   - path: nginx-service-patch.yaml
   - path: resource-limits-patch.yaml
   - path: nginx-resource-limits-patch.yaml
