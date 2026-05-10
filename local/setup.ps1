@@ -30,6 +30,10 @@ $DeployRepo = Split-Path $PSScriptRoot -Parent
 $LocalDir = $PSScriptRoot
 $OverlayDir = Join-Path $DeployRepo "kubernetes\overlays\local"
 
+if (-not $env:COMPOSE_PROGRESS) {
+    $env:COMPOSE_PROGRESS = "plain"
+}
+
 $CLUSTER_NAME = "local-dev"
 $NAMESPACE = "year4-project-local"
 $IMAGE_REPO = "bencev04/4th-year-proj-tadgh-bence"
@@ -172,7 +176,11 @@ Write-Ok "Mailpit UI at http://localhost:8026"
 # ── Step 2: Create kind cluster ─────────────────────────────────
 Write-Step "Creating kind cluster '$CLUSTER_NAME'"
 
-$existingClusters = kind get clusters 2>$null
+try {
+    $existingClusters = @(kind get clusters 2>$null)
+} catch {
+    $existingClusters = @()
+}
 if ($existingClusters -contains $CLUSTER_NAME) {
     Write-Warn "Cluster '$CLUSTER_NAME' already exists, reusing it"
 } else {
@@ -199,7 +207,8 @@ if ($BuildLocal) {
     Write-Ok "Build complete"
 
     # The local build uses different image names (from docker-compose), so tag them
-    $composeImages = docker compose -f "$DevRepo\docker-compose.yml" config --images 2>$null
+    $composeImages = docker compose -f "$DevRepo\docker-compose.yml" config --images 2>$null |
+        Where-Object { $_ -like "yr4-projectdevelopmentrepo-*" }
     foreach ($img in $composeImages) {
         if ($img) {
             $imagesToLoad = @($img)

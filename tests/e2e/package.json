@@ -1,0 +1,14 @@
+{
+  "name": "yr4-project-staging-e2e",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Playwright browser E2E tests for the year 4 project staging deployment.",
+  "scripts": {
+    "test": "playwright test",
+    "test:staging": "playwright test --project=chromium",
+    "test:list": "playwright test --list"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.59.1"
+  }
+}

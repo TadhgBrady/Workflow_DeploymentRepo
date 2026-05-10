@@ -33,8 +33,8 @@ prometheus:
   enabled: true
   prometheusSpec:
     replicas: 1
-    retention: 7d
-    retentionSize: 25GB
+    retention: 3d
+    retentionSize: 10GB
     scrapeInterval: 30s
     evaluationInterval: 30s
     enableRemoteWriteReceiver: true
@@ -45,10 +45,10 @@ prometheus:
     resources:
       requests:
         cpu: 300m
-        memory: 1Gi
+        memory: 768Mi
       limits:
         cpu: 1000m
-        memory: 2Gi
+        memory: 2560Mi
     storageSpec:
       volumeClaimTemplate:
         spec:

@@ -134,31 +134,32 @@ if (Test-Path $ciFile) {
 
     Assert-TextOrder $ciText "  - deploy-staging" "  - staging-readiness" "staging readiness runs after staging deploy stage"
     Assert-TextOrder $ciText "  - staging-readiness" "  - staging-tests" "staging readiness runs before staging tests"
-    Assert-TextOrder $ciText "  - staging-tests" "  - destroy-staging" "staging tests run before staging destroy stage"
+    Assert-TextOrder $ciText "  - staging-tests" "  - e2e-tests" "staging tests run before Playwright E2E stage"
+    Assert-TextOrder $ciText "  - e2e-tests" "  - release-gate" "Playwright E2E runs before release gate"
+    Assert-TextOrder $ciText "  - release-gate" "  - destroy-staging" "release gate runs before optional staging destroy stage"
     Assert-TextOrder $ciText "  - destroy-staging" "  - verify-destroy" "staging destroy runs before destroy verification"
     Assert-TextOrder $ciText "  - verify-destroy" "  - promote" "destroy verification stage runs before promotion stage"
+    Assert-TextOrder $ciText "staging-release-gate:" "promote-to-production:" "promotion job is defined after staging release gate"
     Assert-TextOrder $ciText "confirm-destroy-staging:" "cleanup-staging-loadbalancers:" "manual destroy approval comes before cleanup job"
     Assert-TextOrder $ciText "cleanup-staging-loadbalancers:" "trigger-destroy-staging:" "load balancer cleanup comes before Terraform destroy trigger"
     Assert-TextOrder $ciText "trigger-destroy-staging:" "verify-staging-destroyed:" "destroy verification job is defined after staging destroy trigger"
-    Assert-TextOrder $ciText "verify-staging-destroyed:" "promote-to-production:" "promotion job is defined after staging destroy verification"
 
     Assert-ContainsText $ciText 'PIPELINE_MODE: "auto"' "pipeline mode defaults to auto"
     Assert-ContainsText $ciText "validate-deployment-mode:" "deployment mode validation job exists"
     Assert-ContainsText $ciText "preflight-staging:" "staging preflight job exists"
     Assert-ContainsText $ciText "staging-readiness:" "staging readiness job exists"
+    Assert-ContainsText $ciText "playwright-e2e-staging:" "mandatory Playwright E2E job exists"
+    Assert-ContainsText $ciText "staging-release-gate:" "combined staging release gate job exists"
     Assert-ContainsText $ciText "confirm-destroy-staging:" "manual staging destroy confirmation job exists"
     Assert-ContainsText $ciText "verify-staging-destroyed:" "staging destroy verification job exists"
     Assert-ContainsText $ciText 'DESTROY_ENV: "staging"' "staging destroy trigger targets only staging"
     Assert-ContainsText $ciText 'scripts/deployment/smoke-tests.sh' "shared smoke-test script is used"
-    Assert-ContainsText $ciText "k6-load-staging:" "staging k6 load gate job exists"
-    Assert-ContainsText $ciText "k6-baseline-staging:" "manual staging k6 baseline job exists"
-    Assert-ContainsText $ciText "k6-human-medium-staging:" "manual staging k6 human medium job exists"
+    Assert-ContainsText $ciText "k6-load-staging:" "mandatory staging k6 medium load gate job exists"
     Assert-ContainsText $ciText "k6-human-hard-staging:" "manual staging k6 human hard job exists"
     Assert-ContainsText $ciText 'scripts/deployment/run-k6-staging.sh' "shared k6 runner script is used"
-    Assert-ContainsText $ciText 'tests/k6/baseline-exploration.js' "k6 baseline exploration script is wired in"
     Assert-ContainsText $ciText 'tests/k6/real-user-workflows.js' "k6 real user workflow script is wired in"
     Assert-ContainsText $ciText 'dashboard-k6-staging.yaml' "k6 Grafana dashboard is applied"
-    Assert-ContainsText $ciText 'k6-results/' "k6 jobs publish log and metadata artifacts"
+    Assert-ContainsText $ciText 'k6-results/' "k6 jobs publish log, metadata, and summary artifacts"
 
     if ($ciText -notmatch "(?s)cleanup-staging-loadbalancers:.*?needs:\s*\r?\n\s*-\s*confirm-destroy-staging") {
         Write-Host "  FAIL cleanup job must depend on confirm-destroy-staging" -ForegroundColor Red
@@ -174,18 +175,18 @@ if (Test-Path $ciFile) {
         Write-Host "  PASS k6 load gate depends on readiness and deploy-staging artifacts" -ForegroundColor Green
     }
 
-    if ($ciText -notmatch '(?s)k6-baseline-staging:.*?K6_SCRIPT_PATH:\s*"tests/k6/baseline-exploration.js".*?when:\s*manual.*?allow_failure:\s*true') {
-        Write-Host "  FAIL k6 baseline job must be manual, optional, and use the baseline script" -ForegroundColor Red
+    if ($ciText -notmatch '(?s)k6-load-staging:.*?K6_SCRIPT_PATH:\s*"tests/k6/real-user-workflows.js".*?K6_PROFILE:\s*"medium".*?K6_MEDIUM_TARGET_VUS:\s*"10".*?when:\s*on_success.*?allow_failure:\s*false') {
+        Write-Host "  FAIL k6 load gate must be mandatory and use the medium real-user workflow" -ForegroundColor Red
         $pipelineErrors++
     } else {
-        Write-Host "  PASS k6 baseline job is manual, optional, and uses the baseline script" -ForegroundColor Green
+        Write-Host "  PASS k6 load gate is mandatory and uses the medium real-user workflow" -ForegroundColor Green
     }
 
-    if ($ciText -notmatch '(?s)k6-human-medium-staging:.*?K6_SCRIPT_PATH:\s*"tests/k6/real-user-workflows.js".*?K6_PROFILE:\s*"medium".*?when:\s*manual.*?allow_failure:\s*true') {
-        Write-Host "  FAIL k6 human medium job must be manual, optional, and use the real workflow script" -ForegroundColor Red
+    if ($ciText -match '(?m)^k6-(baseline|human-medium)-staging:') {
+        Write-Host "  FAIL old optional baseline/medium k6 jobs should not remain in CI" -ForegroundColor Red
         $pipelineErrors++
     } else {
-        Write-Host "  PASS k6 human medium job is manual, optional, and uses the real workflow script" -ForegroundColor Green
+        Write-Host "  PASS old optional baseline/medium k6 jobs were removed from CI" -ForegroundColor Green
     }
 
     if ($ciText -notmatch '(?s)k6-human-hard-staging:.*?K6_SCRIPT_PATH:\s*"tests/k6/real-user-workflows.js".*?K6_PROFILE:\s*"hard".*?when:\s*manual.*?allow_failure:\s*true') {
@@ -195,11 +196,25 @@ if (Test-Path $ciFile) {
         Write-Host "  PASS k6 human hard job is manual, optional, and uses the real workflow script" -ForegroundColor Green
     }
 
-    if ($ciText -notmatch "(?s)confirm-destroy-staging:.*?needs:.*?-\s*smoke-tests-staging.*?-\s*k6-load-staging") {
-        Write-Host "  FAIL manual destroy approval must wait for smoke tests and k6" -ForegroundColor Red
+    if ($ciText -notmatch "(?s)playwright-e2e-staging:.*?needs:.*?-\s*smoke-tests-staging.*?-\s*k6-load-staging.*?allow_failure:\s*false") {
+        Write-Host "  FAIL Playwright E2E must be a hard gate after smoke and k6" -ForegroundColor Red
         $pipelineErrors++
     } else {
-        Write-Host "  PASS manual destroy approval waits for smoke tests and k6" -ForegroundColor Green
+        Write-Host "  PASS Playwright E2E is a hard gate after smoke and k6" -ForegroundColor Green
+    }
+
+    if ($ciText -notmatch "(?s)staging-release-gate:.*?needs:.*?-\s*smoke-tests-staging.*?-\s*job:\s*k6-load-staging.*?-\s*job:\s*playwright-e2e-staging") {
+        Write-Host "  FAIL staging release gate must wait for smoke, k6, and Playwright evidence" -ForegroundColor Red
+        $pipelineErrors++
+    } else {
+        Write-Host "  PASS staging release gate waits for smoke, k6, and Playwright evidence" -ForegroundColor Green
+    }
+
+    if ($ciText -notmatch "(?s)confirm-destroy-staging:.*?needs:\s*\r?\n\s*-\s*staging-release-gate") {
+        Write-Host "  FAIL manual destroy approval must wait for staging-release-gate" -ForegroundColor Red
+        $pipelineErrors++
+    } else {
+        Write-Host "  PASS manual destroy approval waits for staging-release-gate" -ForegroundColor Green
     }
 
     if ($ciText -notmatch "(?s)verify-staging-destroyed:.*?needs:\s*\r?\n\s*-\s*trigger-destroy-staging") {
@@ -209,11 +224,11 @@ if (Test-Path $ciFile) {
         Write-Host "  PASS destroy verification depends on staging destroy trigger" -ForegroundColor Green
     }
 
-    if ($ciText -notmatch "(?s)promote-to-production:.*?needs:\s*\r?\n\s*-\s*verify-staging-destroyed") {
-        Write-Host "  FAIL production promotion must depend on verify-staging-destroyed" -ForegroundColor Red
+    if ($ciText -notmatch "(?s)promote-to-production:.*?needs:\s*\r?\n\s*-\s*staging-release-gate") {
+        Write-Host "  FAIL production promotion must depend on staging-release-gate" -ForegroundColor Red
         $pipelineErrors++
     } else {
-        Write-Host "  PASS production promotion is gated on staging destroy verification" -ForegroundColor Green
+        Write-Host "  PASS production promotion is gated on staging release evidence" -ForegroundColor Green
     }
 
     $promValuesFile = Join-Path $RepoRoot "helm/kube-prometheus-stack/values-staging.yaml"
@@ -249,6 +264,8 @@ if (Test-Path $ciFile) {
     $k6RunnerScript = Join-Path $RepoRoot "scripts/deployment/run-k6-staging.sh"
     if (Test-Path $k6RunnerScript) {
         $k6RunnerText = Get-Content $k6RunnerScript -Raw
+        Assert-ContainsText $k6RunnerText 'SCRIPT_PATH="${K6_SCRIPT_PATH:-tests/k6/real-user-workflows.js}"' "k6 runner defaults to the real-user workflow script"
+        Assert-ContainsText $k6RunnerText 'K6_PROFILE="${K6_PROFILE:-medium}"' "k6 runner defaults to the medium profile"
         Assert-ContainsText $k6RunnerText "LOAD_TEST_DURATION" "k6 runner maps duration to non-reserved LOAD_TEST_* env vars"
         Assert-ContainsText $k6RunnerText "LOAD_TEST_MAX_VUS" "k6 runner maps max VUs to non-reserved LOAD_TEST_* env vars"
         Assert-ContainsText $k6RunnerText "K6_DEMO_USER_PASSWORD" "k6 runner defaults to seeded demo credentials for manual human workflows"

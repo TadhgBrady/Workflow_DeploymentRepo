@@ -187,6 +187,13 @@ patches:
         value: yr4-projectdevelopmentrepo-maps-access-service:latest
   - target:
       kind: Deployment
+      name: nginx-gateway
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/image
+        value: yr4-projectdevelopmentrepo-nginx-gateway:latest
+  - target:
+      kind: Deployment
       name: notification-service
     patch: |-
       - op: replace

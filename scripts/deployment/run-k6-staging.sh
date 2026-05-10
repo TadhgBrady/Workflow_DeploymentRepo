@@ -7,7 +7,7 @@ if [ -z "$BASE_URL" ]; then
   exit 1
 fi
 
-SCRIPT_PATH="${K6_SCRIPT_PATH:-tests/k6/staging-smoke-load.js}"
+SCRIPT_PATH="${K6_SCRIPT_PATH:-tests/k6/real-user-workflows.js}"
 if [ ! -f "$SCRIPT_PATH" ]; then
   echo "❌ k6 script not found: $SCRIPT_PATH"
   exit 1
@@ -17,41 +17,41 @@ SCRIPT_FILE="$(basename "$SCRIPT_PATH")"
 STAGING_NAMESPACE="${STAGING_NAMESPACE:-year4-project-staging}"
 MONITORING_NAMESPACE="${MONITORING_NAMESPACE:-monitoring}"
 K6_ENVIRONMENT="${K6_ENVIRONMENT:-staging}"
-K6_PROFILE="${K6_PROFILE:-gate}"
+K6_PROFILE="${K6_PROFILE:-medium}"
 K6_IMAGE="${K6_IMAGE:-grafana/k6:0.54.0}"
-K6_JOB_TIMEOUT="${K6_JOB_TIMEOUT:-12m}"
-K6_SCHEDULE_TIMEOUT="${K6_SCHEDULE_TIMEOUT:-3m}"
+K6_JOB_TIMEOUT="${K6_JOB_TIMEOUT:-30m}"
+K6_SCHEDULE_TIMEOUT="${K6_SCHEDULE_TIMEOUT:-5m}"
 K6_RESULTS_DIR="${K6_RESULTS_DIR:-k6-results}"
 K6_ITERATION_RATE="${K6_ITERATION_RATE:-1}"
 K6_SWEEP_RATE="${K6_SWEEP_RATE:-$K6_ITERATION_RATE}"
 K6_BROWSE_RATE="${K6_BROWSE_RATE:-2}"
 K6_STRESS_RATE="${K6_STRESS_RATE:-5}"
 K6_SPIKE_RATE="${K6_SPIKE_RATE:-10}"
-K6_WARMUP_DURATION="${K6_WARMUP_DURATION:-30s}"
-K6_DURATION="${K6_DURATION:-3m}"
-K6_COOLDOWN_DURATION="${K6_COOLDOWN_DURATION:-30s}"
-K6_PRE_ALLOCATED_VUS="${K6_PRE_ALLOCATED_VUS:-6}"
-K6_MAX_VUS="${K6_MAX_VUS:-20}"
-K6_THINK_TIME_SECONDS="${K6_THINK_TIME_SECONDS:-0.2}"
+K6_WARMUP_DURATION="${K6_WARMUP_DURATION:-1m}"
+K6_DURATION="${K6_DURATION:-6m}"
+K6_COOLDOWN_DURATION="${K6_COOLDOWN_DURATION:-1m}"
+K6_PRE_ALLOCATED_VUS="${K6_PRE_ALLOCATED_VUS:-12}"
+K6_MAX_VUS="${K6_MAX_VUS:-40}"
+K6_THINK_TIME_SECONDS="${K6_THINK_TIME_SECONDS:-0.6}"
 K6_THINK_TIME_JITTER_SECONDS="${K6_THINK_TIME_JITTER_SECONDS:-0.4}"
-K6_REQUEST_TIMEOUT="${K6_REQUEST_TIMEOUT:-10s}"
+K6_REQUEST_TIMEOUT="${K6_REQUEST_TIMEOUT:-15s}"
 K6_FAILURE_RATE="${K6_FAILURE_RATE:-0.02}"
 K6_CRITICAL_FAILURE_RATE="${K6_CRITICAL_FAILURE_RATE:-0.01}"
 K6_UNEXPECTED_STATUS_RATE="${K6_UNEXPECTED_STATUS_RATE:-0.02}"
 K6_SERVER_ERROR_RATE="${K6_SERVER_ERROR_RATE:-0.01}"
 K6_CHECK_RATE="${K6_CHECK_RATE:-0.95}"
-K6_LATENCY_P95_MS="${K6_LATENCY_P95_MS:-1500}"
-K6_LATENCY_P99_MS="${K6_LATENCY_P99_MS:-3000}"
+K6_LATENCY_P95_MS="${K6_LATENCY_P95_MS:-2000}"
+K6_LATENCY_P99_MS="${K6_LATENCY_P99_MS:-5000}"
 K6_MEDIUM_TARGET_VUS="${K6_MEDIUM_TARGET_VUS:-10}"
 K6_HARD_TARGET_VUS="${K6_HARD_TARGET_VUS:-24}"
 K6_HARD_JOBS_PER_SESSION="${K6_HARD_JOBS_PER_SESSION:-2}"
 K6_WORKFLOW_SUCCESS_RATE="${K6_WORKFLOW_SUCCESS_RATE:-0.95}"
 K6_AUTH_FAILURE_RATE="${K6_AUTH_FAILURE_RATE:-0.01}"
 K6_CLEANUP_FAILURE_RATE="${K6_CLEANUP_FAILURE_RATE:-0.02}"
-K6_SCHEDULING_P95_MS="${K6_SCHEDULING_P95_MS:-4000}"
-K6_SCHEDULING_P99_MS="${K6_SCHEDULING_P99_MS:-8000}"
-K6_CONFLICT_P95_MS="${K6_CONFLICT_P95_MS:-4000}"
-K6_CONFLICT_P99_MS="${K6_CONFLICT_P99_MS:-8000}"
+K6_SCHEDULING_P95_MS="${K6_SCHEDULING_P95_MS:-2500}"
+K6_SCHEDULING_P99_MS="${K6_SCHEDULING_P99_MS:-5000}"
+K6_CONFLICT_P95_MS="${K6_CONFLICT_P95_MS:-2500}"
+K6_CONFLICT_P99_MS="${K6_CONFLICT_P99_MS:-5000}"
 K6_CLEANUP_ENABLED="${K6_CLEANUP_ENABLED:-true}"
 K6_AUTH_RECOVERY_ENABLED="${K6_AUTH_RECOVERY_ENABLED:-true}"
 K6_AUTH_REFRESH_SKEW_SECONDS="${K6_AUTH_REFRESH_SKEW_SECONDS:-60}"
@@ -141,6 +141,7 @@ fi
 mkdir -p "$K6_RESULTS_DIR"
 K6_LOG_FILE="$K6_RESULTS_DIR/$JOB_NAME.log"
 K6_METADATA_FILE="$K6_RESULTS_DIR/$JOB_NAME-metadata.json"
+K6_SUMMARY_FILE="$K6_RESULTS_DIR/$JOB_NAME-summary.json"
 cat > "$K6_METADATA_FILE" <<EOF
 {
   "test_id": "$K6_TEST_ID",
@@ -172,13 +173,14 @@ echo "k6 image:          $K6_IMAGE"
 echo "Script:            $SCRIPT_PATH"
 echo "Profile:           $K6_PROFILE"
 echo "Test ID:           $K6_TEST_ID"
-echo "Iteration rate:    $K6_ITERATION_RATE endpoint sweeps/sec"
+echo "Virtual users:     medium_target=$K6_MEDIUM_TARGET_VUS hard_target=$K6_HARD_TARGET_VUS preallocated=$K6_PRE_ALLOCATED_VUS max=$K6_MAX_VUS"
 echo "Duration:          warmup=$K6_WARMUP_DURATION steady=$K6_DURATION cooldown=$K6_COOLDOWN_DURATION"
 echo "Human users:       owner=$K6_OWNER_EMAIL manager=$K6_MANAGER_EMAIL employee=$K6_EMPLOYEE_EMAIL"
 echo "Remote write URL:  $PROMETHEUS_RW_URL"
 echo "Job timeout:       $K6_JOB_TIMEOUT"
 echo "Schedule timeout:  $K6_SCHEDULE_TIMEOUT"
 echo "Result metadata:   $K6_METADATA_FILE"
+echo "JSON summary:      $K6_SUMMARY_FILE"
 echo "Log artifact:      $K6_LOG_FILE"
 
 kubectl delete job -n "$STAGING_NAMESPACE" \
@@ -350,11 +352,23 @@ spec:
               value: "$K6_PROMETHEUS_RW_TREND_STATS"
             - name: K6_PROMETHEUS_RW_STALE_MARKERS
               value: "$K6_PROMETHEUS_RW_STALE_MARKERS"
+          command:
+            - /bin/sh
+            - -c
           args:
-            - run
-            - --out
-            - experimental-prometheus-rw
-            - /scripts/$SCRIPT_FILE
+            - |
+              set +e
+              SUMMARY_FILE="/tmp/k6-summary.json"
+              k6 run --out experimental-prometheus-rw --summary-export "\$SUMMARY_FILE" /scripts/$SCRIPT_FILE
+              EXIT_CODE="\$?"
+              echo "__K6_SUMMARY_JSON_BEGIN__"
+              if [ -f "\$SUMMARY_FILE" ]; then
+                cat "\$SUMMARY_FILE"
+              else
+                echo "{}"
+              fi
+              echo "__K6_SUMMARY_JSON_END__"
+              exit "\$EXIT_CODE"
           volumeMounts:
             - name: k6-script
               mountPath: /scripts
@@ -419,7 +433,14 @@ kubectl get job "$JOB_NAME" -n "$STAGING_NAMESPACE" -o wide || true
 kubectl get pods -n "$STAGING_NAMESPACE" -l "job-name=$JOB_NAME" -o wide || true
 
 echo "--- k6 logs ---"
-kubectl logs -n "$STAGING_NAMESPACE" "job/$JOB_NAME" --all-containers=true --timestamps | tee "$K6_LOG_FILE" || true
+kubectl logs -n "$STAGING_NAMESPACE" "job/$JOB_NAME" --all-containers=true | tee "$K6_LOG_FILE" || true
+
+if awk '/__K6_SUMMARY_JSON_BEGIN__/{capture=1;next}/__K6_SUMMARY_JSON_END__/{capture=0}capture' "$K6_LOG_FILE" > "$K6_SUMMARY_FILE" && [ -s "$K6_SUMMARY_FILE" ]; then
+  echo "✅ k6 JSON summary saved to $K6_SUMMARY_FILE"
+else
+  echo "{}" > "$K6_SUMMARY_FILE"
+  echo "⚠️  k6 JSON summary marker was not found; wrote empty summary to $K6_SUMMARY_FILE"
+fi
 
 if [ "$RESULT" -ne 0 ]; then
   echo "--- k6 diagnostics ---"

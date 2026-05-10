@@ -1,14 +1,14 @@
 # k6 staging tests
 
-This folder contains the first baseline k6 suite for tuning staging performance gates over time.
+This folder contains the staging k6 suites for release load gates and exploratory capacity checks. The mandatory pipeline gate is the medium real-user workflow: 10 authenticated virtual users spread across owner, employee, and manager journeys.
 
 ## Test files
 
-- `staging-smoke-load.js` — automated CI gate. It is intentionally lightweight and blocks staging destroy/promotion when thresholds fail.
-- `baseline-exploration.js` — manual exploratory baseline suite. Use it to learn normal staging latency, failure rate, and capacity before tightening the gate.
-- `real-user-workflows.js` — manual authenticated workflow suite. Use it to exercise login-backed customer, job, calendar, status, scheduling, and conflict-check paths with temporary data cleanup.
+- `real-user-workflows.js` — mandatory authenticated release gate for the `medium` profile, plus optional `hard` profile exploration. It exercises login-backed customer, job, calendar, status, scheduling, notes, team-read, queue-read, and conflict-check paths with temporary data cleanup.
+- `baseline-exploration.js` — optional public-endpoint exploration suite. Use it manually when you want a quick comparison between public endpoint headroom and authenticated workflow headroom.
+- `staging-smoke-load.js` — lightweight k6 smoke script retained for ad hoc checks. The shell `smoke-tests-staging` job remains the pipeline health check; this script is no longer the release load gate.
 
-The smoke and baseline scripts are non-destructive and use the same safe public endpoints as the shell smoke tests. The real workflow script creates only temporary `k6-*` customers/jobs and deletes them at the end of each journey.
+The public smoke and baseline scripts are non-destructive. The real workflow script creates only temporary `k6-*` customers/jobs/notes and deletes them at the end of each journey.
 
 ## Profiles
 
@@ -28,7 +28,7 @@ The smoke and baseline scripts are non-destructive and use the same safe public 
 | `medium` | Realistic logged-in daily use | owner customer/job workflow, employee job processing, manager read workflow at about 10 VUs |
 | `hard` | Scheduling and contention pressure | manager scheduling, employee status updates, and expected conflict checks at about 24 VUs |
 
-The GitLab pipeline exposes `k6-baseline-staging`, `k6-human-medium-staging`, and `k6-human-hard-staging` as manual, allowed-to-fail jobs so they can be run while staging is up without blocking release flow. The automated `k6-load-staging` gate remains the only blocking k6 job.
+The GitLab pipeline runs `k6-load-staging` automatically with `real-user-workflows.js` and `K6_PROFILE=medium`. This job is mandatory and blocks `playwright-e2e-staging`, `staging-release-gate`, and production promotion when thresholds fail. The optional `k6-human-hard-staging` job remains manual and allowed to fail so scheduling/contention pressure can be explored without changing release policy.
 
 The GitLab jobs still use the `K6_*` variables below for convenience. The Kubernetes runner maps those values to `LOAD_TEST_*` environment variables inside the k6 pod, because some `K6_*` names are reserved by k6 itself. If you run these scripts directly with `k6 run`, use `LOAD_TEST_DURATION`, `LOAD_TEST_MAX_VUS`, and the other `LOAD_TEST_*` names instead of exporting custom `K6_*` values.
 
@@ -36,8 +36,8 @@ The GitLab jobs still use the `K6_*` variables below for convenience. The Kubern
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `K6_PROFILE` | `baseline` for manual baseline job | `smoke`, `baseline`, `stress-lite`, `spike-lite` |
-| `K6_DURATION` | `5m` in baseline script | steady-state duration |
+| `K6_PROFILE` | `medium` for the mandatory gate | `medium`, `hard`; public exploration also supports `smoke`, `baseline`, `stress-lite`, `spike-lite` |
+| `K6_DURATION` | `6m` for the mandatory gate | steady-state duration, after warmup and before cooldown |
 | `K6_SWEEP_RATE` | `1` | full endpoint sweeps per second |
 | `K6_BROWSE_RATE` | `2` | weighted single-endpoint browse requests per second |
 | `K6_STRESS_RATE` | `5` | target browse rate for `stress-lite` |
@@ -76,17 +76,28 @@ The runner defaults to the seeded demo password `password123`, matching the stag
 
 The real workflow script stores each role's refresh token from `/api/v1/auth/login`, refreshes access tokens before expiry via `/api/v1/auth/refresh`, and retries once after a 401. This keeps long medium/hard runs focused on workflow capacity instead of accidental JWT expiry.
 
-Every k6 GitLab job uploads a `k6-results/` artifact containing a timestamped Kubernetes log capture and a metadata JSON file with the test ID, profile, target URL, image version, commit SHA, and duration settings. Use that artifact together with the Grafana `testid` filter when recording evidence.
+Every k6 GitLab job uploads a `k6-results/` artifact containing the Kubernetes log capture, a metadata JSON file with the test ID, profile, target URL, image version, commit SHA, and duration settings, and a k6 JSON summary export with threshold results. Use that artifact together with the Grafana `testid` filter when recording evidence. The release gate also republishes those artifacts under `staging-release-evidence/` so a passing promotion has a single audit trail.
+
+## Viewing mandatory k6 evidence
+
+1. Open the GitLab `k6-load-staging` job and note the `Test ID` printed in the log.
+2. Download `k6-results/` from the job artifacts. The `*-metadata.json` file records the test ID and target, and `*-summary.json` records threshold results.
+3. Open Grafana dashboard `/d/year4-k6-staging` and filter by that `testid` to view request rate, active VUs, failed request rate, checks, latency, and server errors for the run.
+4. Open the `staging-release-gate` artifact for the combined release evidence that links this k6 run with the Playwright browser run.
+
+## Mandatory gate coverage
+
+The medium gate is designed as a release baseline, not a single-endpoint benchmark. It splits 10 VUs into owner daily work, employee processing, and manager read scenarios. Together those journeys cover auth login, `/me`, token refresh recovery, customer create/search/delete, customer notes, job create/detail/list/delete, assignment, scheduling, conflict checks, status updates, calendar reads, employee/user list reads, and queue reads.
+
+The gate also checks behavior, not just throughput. It fails on excess HTTP failures, unexpected statuses, 5xx responses, low check pass rate, low full-workflow success, auth recovery failures, cleanup failures, and p95/p99 latency regressions for critical requests, scheduling, and conflict checks. Test data uses fixed coordinates to avoid external geocoding noise, per-VU sessions to avoid artificial refresh-token collisions, and widened future schedule slots so normal workflows are spread across the scheduling domain.
 
 ## Tuning workflow
 
-1. Run a staging deployment and open the manual `k6-baseline-staging` job.
-2. Start with `K6_PROFILE=baseline` and review the `Year4 Staging k6 Load Gate` Grafana dashboard.
-3. Run `k6-human-medium-staging`. Record workflow success, cleanup failure rate, p95/p99 latency, scheduling latency, status-code mix, and any 5xx rate.
-4. Run `k6-human-hard-staging` only after medium succeeds. Watch scheduling latency, conflict-check latency, expected conflicts, server errors, pod CPU/memory, and database symptoms.
-5. Re-run baseline with `K6_PROFILE=stress-lite` or `K6_PROFILE=spike-lite` to compare public endpoint headroom with authenticated workflow headroom.
-6. Save the GitLab job URL, `k6-results/` artifact, image version, k6 `testid`, Grafana screenshot/table, p95/p99 latency, workflow success, auth failures, token refresh failures, cleanup failures, and observed bottlenecks for each run.
-7. Tighten `staging-smoke-load.js` thresholds only after the baseline and real workflow numbers are stable across several staging runs.
+1. Run a staging deployment and let the mandatory `k6-load-staging` job complete with `K6_PROFILE=medium`.
+2. Record workflow success, cleanup failure rate, p95/p99 latency, scheduling latency, conflict-check latency, status-code mix, server errors, image version, GitLab job URL, k6 `testid`, `k6-results/` artifact, and Grafana evidence.
+3. Run `k6-human-hard-staging` only after the mandatory medium gate is stable. Watch scheduling latency, conflict-check latency, expected conflicts, server errors, pod CPU/memory, and database symptoms.
+4. Use `baseline-exploration.js` manually when comparing public endpoint headroom with authenticated workflow headroom; it is not a release gate.
+5. Before raising the mandatory gate beyond 10 VUs, scale staging capacity or move to larger workers, then increase load progressively and preserve the same evidence trail.
 
 ## Cleanup expectations
 

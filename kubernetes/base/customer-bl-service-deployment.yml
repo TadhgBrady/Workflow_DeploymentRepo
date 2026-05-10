@@ -39,6 +39,8 @@ spec:
           value: "http://job-db-access-service"
         - name: AUTH_SERVICE_URL
           value: "http://auth-service"
+        - name: USER_SERVICE_URL
+          value: "http://user-db-access-service"
         - name: MAPS_SERVICE_URL
           value: "http://maps-access-service"
         resources:

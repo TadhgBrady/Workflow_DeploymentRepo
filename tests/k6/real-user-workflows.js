@@ -6,7 +6,10 @@ const rawBaseUrl = __ENV.STAGING_URL || __ENV.BASE_URL || '';
 const BASE_URL = rawBaseUrl.replace(/\/+$/, '');
 
 function loadTestEnv(name, fallback) {
-  return __ENV[`LOAD_TEST_${name}`] || __ENV[`K6_${name}`] || fallback;
+  if (name === 'TEST_ID' && __ENV.LOAD_TEST_ID) {
+    return __ENV.LOAD_TEST_ID;
+  }
+  return __ENV[`LOAD_TEST_${name}`] || __ENV[`K6_${name}`] || __ENV[name] || fallback;
 }
 
 function numberEnv(name, fallback) {
@@ -63,8 +66,21 @@ const SCHEDULING_P99_MS = numberEnv('SCHEDULING_P99_MS', PROFILE === 'hard' ? 80
 const CONFLICT_P95_MS = numberEnv('CONFLICT_P95_MS', PROFILE === 'hard' ? 4000 : 2500);
 const CONFLICT_P99_MS = numberEnv('CONFLICT_P99_MS', PROFILE === 'hard' ? 8000 : 5000);
 
+const TEST_LATITUDE = numberEnv('LATITUDE', 53.3498);
+const TEST_LONGITUDE = numberEnv('LONGITUDE', -6.2603);
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 const RUN_PREFIX = `k6-${TEST_ID}`.replace(/[^a-zA-Z0-9-]/g, '-').slice(0, 60);
+
+function hashString(value) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) % 1000000;
+  }
+  return hash;
+}
+
+const TEST_SLOT_OFFSET = hashString(TEST_ID) % 1400;
 
 http.setResponseCallback(http.expectedStatuses({ min: 200, max: 499 }));
 
@@ -84,6 +100,8 @@ const customerCreateDuration = new Trend('customer_create_duration', true);
 const jobCreateDuration = new Trend('job_create_duration', true);
 const schedulingDuration = new Trend('scheduling_duration', true);
 const conflictCheckDuration = new Trend('conflict_check_duration', true);
+
+const vuSessions = {};
 
 function baseTags(extra = {}) {
   return {
@@ -404,6 +422,27 @@ function login(role, email, password, journey = 'setup') {
   return session;
 }
 
+function roleCredentials(data, role) {
+  const fromSetup = (data && data[role]) || {};
+  const defaults = {
+    owner: { email: OWNER_EMAIL, password: OWNER_PASSWORD },
+    manager: { email: MANAGER_EMAIL, password: MANAGER_PASSWORD },
+    employee: { email: EMPLOYEE_EMAIL, password: EMPLOYEE_PASSWORD },
+  };
+  return {
+    email: fromSetup.email || defaults[role].email,
+    password: defaults[role].password,
+  };
+}
+
+function sessionForRole(data, role, journey) {
+  if (!vuSessions[role]) {
+    const credentials = roleCredentials(data, role);
+    vuSessions[role] = login(role, credentials.email, credentials.password, `${journey}-vu-login`);
+  }
+  return vuSessions[role];
+}
+
 function verifySession(session) {
   const response = apiRequest(session, 'GET', '/api/v1/auth/me', {
     name: 'auth-me',
@@ -447,9 +486,15 @@ function calendarRange(daysAhead, spanDays) {
 }
 
 function futureSlot(extraDays = 0, lengthHours = 2) {
-  const offsetDays = 30 + ((__VU * 17 + __ITER * 5 + extraDays) % 240);
+  const workdayStartHour = 6;
+  const workdayEndHour = 22;
+  const windowHours = Math.max(1, Math.ceil(lengthHours));
+  const windowsPerDay = Math.max(1, Math.floor((workdayEndHour - workdayStartHour) / windowHours));
+  const slotIndex = TEST_SLOT_OFFSET + ((__VU - 1) * 900) + (__ITER * 3) + (extraDays * 17);
+  const offsetDays = 30 + Math.floor(slotIndex / windowsPerDay);
+  const startHour = workdayStartHour + (slotIndex % windowsPerDay) * windowHours;
   const start = new Date(Date.now() + offsetDays * DAY_MS);
-  start.setUTCHours(8 + ((__VU + __ITER + extraDays) % 8), ((__VU * 7 + __ITER * 11) % 4) * 15, 0, 0);
+  start.setUTCHours(startHour, 0, 0, 0);
   const end = new Date(start.getTime() + lengthHours * 60 * 60 * 1000);
   return { start_time: start.toISOString(), end_time: end.toISOString() };
 }
@@ -474,6 +519,8 @@ function createCustomer(session, journey, label) {
       phone: '0850000000',
       company: 'K6 Load Test',
       address: '1 Load Test Street',
+      latitude: TEST_LATITUDE,
+      longitude: TEST_LONGITUDE,
       notify_email: false,
       notify_whatsapp: false,
     },
@@ -502,6 +549,8 @@ function createJob(session, journey, customerId, label, extra = {}) {
       priority: extra.priority || 'normal',
       estimated_duration: extra.estimated_duration || 90,
       address: '1 Load Test Street',
+      latitude: TEST_LATITUDE,
+      longitude: TEST_LONGITUDE,
       notes: RUN_PREFIX,
       send_welcome_email: false,
       send_welcome_whatsapp: false,
@@ -699,7 +748,12 @@ export function setup() {
     },
   }, null, 2));
 
-  return { owner, manager, employee, employeeId };
+  return {
+    owner: { email: OWNER_EMAIL },
+    manager: { email: MANAGER_EMAIL },
+    employee: { email: EMPLOYEE_EMAIL },
+    employeeId,
+  };
 }
 
 export function ownerDailyWorkflow(data) {
@@ -710,8 +764,9 @@ export function ownerDailyWorkflow(data) {
   let workflowError = null;
 
   group('owner daily workflow', () => {
+    const owner = sessionForRole(data, 'owner', journey);
     try {
-      const { owner, employeeId } = data;
+      const { employeeId } = data;
       browseCommonReadPaths(owner, journey, employeeId);
       humanPause();
       const customerId = createCustomer(owner, journey, 'owner-customer');
@@ -740,7 +795,7 @@ export function ownerDailyWorkflow(data) {
     } catch (error) {
       workflowError = error;
     } finally {
-      cleanupCreatedResources(data.owner, journey, state);
+      cleanupCreatedResources(owner, journey, state);
       finishWorkflow(journey, 'owner', started, success, workflowError);
     }
   });
@@ -755,8 +810,10 @@ export function employeeProcessingWorkflow(data) {
   let workflowError = null;
 
   group('employee processing workflow', () => {
+    const owner = sessionForRole(data, 'owner', journey);
+    const employee = sessionForRole(data, 'employee', journey);
     try {
-      const { owner, employee, employeeId } = data;
+      const { employeeId } = data;
       const customerId = createCustomer(owner, journey, 'employee-customer');
       state.customerIds.push(customerId);
       const slot = futureSlot(10);
@@ -780,7 +837,7 @@ export function employeeProcessingWorkflow(data) {
     } catch (error) {
       workflowError = error;
     } finally {
-      cleanupCreatedResources(data.owner, journey, state);
+      cleanupCreatedResources(owner, journey, state);
       finishWorkflow(journey, 'employee', started, success, workflowError);
     }
   });
@@ -794,8 +851,9 @@ export function managerReadWorkflow(data) {
   let workflowError = null;
 
   group('manager read workflow', () => {
+    const manager = sessionForRole(data, 'manager', journey);
     try {
-      const { manager, employeeId } = data;
+      const { employeeId } = data;
       assertExpected(apiRequest(manager, 'GET', '/api/v1/employees', {
         name: 'employees-list', journey, flow: 'team-read', expectedStatuses: [200], query: { limit: 50 },
       }), [200], 'employees list');
@@ -826,8 +884,10 @@ export function managerSchedulingWorkflow(data) {
   let workflowError = null;
 
   group('manager scheduling workflow', () => {
+    const owner = sessionForRole(data, 'owner', journey);
+    const manager = sessionForRole(data, 'manager', journey);
     try {
-      const { owner, manager, employeeId } = data;
+      const { employeeId } = data;
       browseCalendar(manager, journey, 0, 60, employeeId);
       assertExpected(apiRequest(manager, 'GET', '/api/v1/employees', {
         name: 'employees-list', journey, flow: 'team-read', expectedStatuses: [200], query: { limit: 50 },
@@ -856,7 +916,7 @@ export function managerSchedulingWorkflow(data) {
     } catch (error) {
       workflowError = error;
     } finally {
-      cleanupCreatedResources(data.owner, journey, state);
+      cleanupCreatedResources(owner, journey, state);
       finishWorkflow(journey, 'manager', started, success, workflowError);
     }
   });
@@ -871,8 +931,10 @@ export function conflictPressureWorkflow(data) {
   let workflowError = null;
 
   group('conflict pressure workflow', () => {
+    const owner = sessionForRole(data, 'owner', journey);
+    const manager = sessionForRole(data, 'manager', journey);
     try {
-      const { owner, manager, employeeId } = data;
+      const { employeeId } = data;
       const customerId = createCustomer(owner, journey, 'conflict-customer');
       state.customerIds.push(customerId);
       const existingJobId = createJob(owner, journey, customerId, 'conflict-existing', { priority: 'urgent' });
@@ -898,7 +960,7 @@ export function conflictPressureWorkflow(data) {
     } catch (error) {
       workflowError = error;
     } finally {
-      cleanupCreatedResources(data.owner, journey, state);
+      cleanupCreatedResources(owner, journey, state);
       finishWorkflow(journey, 'manager', started, success, workflowError);
     }
   });
