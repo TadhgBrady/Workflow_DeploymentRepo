@@ -137,7 +137,7 @@ validate-manifests:
       done
       for ENV in staging production; do
         echo "── Validating service mesh manifests: $ENV ──"
-        kustomize build kubernetes/service-mesh/$ENV | kubeconform -strict -summary -skip PeerAuthentication,Telemetry,Gateway,VirtualService,PodMonitor,ServiceMonitor
+        kustomize build kubernetes/service-mesh/$ENV | kubeconform -strict -summary -skip PeerAuthentication,Telemetry,Gateway,VirtualService,DestinationRule,AuthorizationPolicy,PodMonitor,ServiceMonitor
         echo "── Validating service mesh with kubectl embedded Kustomize: $ENV ──"
         kubectl kustomize kubernetes/service-mesh/$ENV > /dev/null
       done
@@ -904,6 +904,8 @@ install-observability-staging:
       kubectl apply -f kubernetes/observability/dashboard-staging-overview.yaml
       kubectl apply -f kubernetes/observability/dashboard-logging-troubleshooting.yaml
       kubectl apply -f kubernetes/observability/dashboard-system-metrics.yaml
+      kubectl apply -f kubernetes/observability/dashboard-operations-hub.yaml
+      kubectl apply -f kubernetes/observability/dashboard-istio-mesh.yaml
       kubectl apply -f kubernetes/observability/dashboard-k6-staging.yaml
 
       kubectl rollout status deployment -l app.kubernetes.io/name=grafana -n "$MONITORING_NAMESPACE" --timeout=300s
@@ -2005,6 +2007,8 @@ install-observability-production:
       kubectl apply -f kubernetes/observability/servicemonitor-fluent-bit-production.yaml
       kubectl apply -f kubernetes/observability/dashboard-logging-troubleshooting.yaml
       kubectl apply -f kubernetes/observability/dashboard-system-metrics.yaml
+      kubectl apply -f kubernetes/observability/dashboard-operations-hub.yaml
+      kubectl apply -f kubernetes/observability/dashboard-istio-mesh.yaml
 
       kubectl rollout status deployment -l app.kubernetes.io/name=grafana -n "$MONITORING_NAMESPACE" --timeout=300s
       kubectl get pods -n "$MONITORING_NAMESPACE"

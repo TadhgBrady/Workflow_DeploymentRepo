@@ -1,0 +1,11 @@
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: audit-app-namespace-access
+  namespace: year4-project-staging
+  labels:
+    policy.year4-project/mode: audit
+spec:
+  action: AUDIT
+  rules:
+    - {}

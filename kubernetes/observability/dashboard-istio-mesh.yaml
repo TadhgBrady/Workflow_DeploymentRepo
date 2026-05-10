@@ -1,0 +1,118 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-year4-istio-mesh
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+    app.kubernetes.io/name: year4-istio-mesh
+    app.kubernetes.io/part-of: year4-project-observability
+data:
+  year4-istio-mesh.json: |
+    {
+      "uid": "year4-istio-mesh",
+      "title": "Year4 Istio Mesh",
+      "tags": ["year4-project", "istio", "mesh", "mtls"],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "30s",
+      "time": {"from": "now-3h", "to": "now"},
+      "templating": {
+        "list": [
+          {
+            "name": "namespace",
+            "label": "namespace",
+            "type": "custom",
+            "query": "year4-project-staging,year4-project",
+            "current": {"text": "year4-project-staging", "value": "year4-project-staging"},
+            "options": [
+              {"selected": true, "text": "year4-project-staging", "value": "year4-project-staging"},
+              {"selected": false, "text": "year4-project", "value": "year4-project"}
+            ]
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "text",
+          "title": "Mesh Security Baseline",
+          "gridPos": {"h": 6, "w": 24, "x": 0, "y": 0},
+          "options": {
+            "mode": "markdown",
+            "content": "Current baseline: application namespaces are mesh-injected, sidecar clients use `ISTIO_MUTUAL` DestinationRules, and PeerAuthentication remains `PERMISSIVE` until staging gates prove `STRICT` is safe. Kiali is the source for live topology and mTLS edge validation."
+          }
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Istiod Targets Up",
+          "gridPos": {"h": 4, "w": 6, "x": 0, "y": 6},
+          "targets": [{"expr": "sum(up{namespace=\"istio-system\"}) or vector(0)", "refId": "A"}]
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Gateway Request Rate",
+          "gridPos": {"h": 4, "w": 6, "x": 6, "y": 6},
+          "targets": [{"expr": "sum(rate(istio_requests_total{source_workload=~\"istio-ingressgateway|unknown\",destination_workload_namespace=~\"$namespace\"}[5m])) or vector(0)", "refId": "A"}]
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Gateway 5xx Rate",
+          "gridPos": {"h": 4, "w": 6, "x": 12, "y": 6},
+          "targets": [{"expr": "sum(rate(istio_requests_total{destination_workload_namespace=~\"$namespace\",response_code=~\"5..\"}[5m])) or vector(0)", "refId": "A"}]
+        },
+        {
+          "id": 5,
+          "type": "stat",
+          "title": "Envoy Sidecars",
+          "gridPos": {"h": 4, "w": 6, "x": 18, "y": 6},
+          "targets": [{"expr": "sum(kube_pod_container_info{namespace=~\"$namespace\",container=\"istio-proxy\"}) or vector(0)", "refId": "A"}]
+        },
+        {
+          "id": 6,
+          "type": "timeseries",
+          "title": "Requests By Source And Destination",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 10},
+          "targets": [{"expr": "sum by (source_workload, destination_workload) (rate(istio_requests_total{destination_workload_namespace=~\"$namespace\"}[5m]))", "legendFormat": "{{source_workload}} -> {{destination_workload}}", "refId": "A"}]
+        },
+        {
+          "id": 7,
+          "type": "timeseries",
+          "title": "5xx By Destination",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 10},
+          "targets": [{"expr": "sum by (destination_workload) (rate(istio_requests_total{destination_workload_namespace=~\"$namespace\",response_code=~\"5..\"}[5m]))", "legendFormat": "{{destination_workload}}", "refId": "A"}]
+        },
+        {
+          "id": 8,
+          "type": "timeseries",
+          "title": "p95 Request Duration",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 18},
+          "targets": [{"expr": "histogram_quantile(0.95, sum by (le, destination_workload) (rate(istio_request_duration_milliseconds_bucket{destination_workload_namespace=~\"$namespace\"}[5m])))", "legendFormat": "{{destination_workload}}", "refId": "A"}]
+        },
+        {
+          "id": 9,
+          "type": "timeseries",
+          "title": "Canary Traffic By Service",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 18},
+          "targets": [{"expr": "sum by (destination_service_name) (rate(istio_requests_total{destination_workload_namespace=~\"$namespace\",destination_service_name=~\".*canary\"}[5m]))", "legendFormat": "{{destination_service_name}}", "refId": "A"}]
+        },
+        {
+          "id": 10,
+          "type": "timeseries",
+          "title": "Proxy CPU By Pod",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 26},
+          "targets": [{"expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=~\"$namespace\",container=\"istio-proxy\"}[5m]))", "legendFormat": "{{pod}}", "refId": "A"}]
+        },
+        {
+          "id": 11,
+          "type": "timeseries",
+          "title": "Proxy Memory By Pod",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 26},
+          "targets": [{"expr": "sum by (pod) (container_memory_working_set_bytes{namespace=~\"$namespace\",container=\"istio-proxy\"})", "legendFormat": "{{pod}}", "refId": "A"}]
+        }
+      ]
+    }

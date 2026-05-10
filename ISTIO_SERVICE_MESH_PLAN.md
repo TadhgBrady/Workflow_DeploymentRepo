@@ -27,11 +27,16 @@ The mesh foundation is now wired into the deployment repository:
   through `istio-ingressgateway` and routes to `nginx-gateway` with Istio.
 - Production Rollouts define stable/canary Services and Istio traffic routing so
   `setWeight` controls request-level traffic weights, not only pod counts.
+- Live Grafana Operations Hub and Istio Mesh dashboards are applied as
+  `grafana_dashboard` ConfigMaps by the observability jobs.
+- Baseline `DestinationRule` resources make sidecar-to-sidecar application
+  traffic use `ISTIO_MUTUAL`; audit-mode `AuthorizationPolicy` resources are in
+  place as non-breaking policy scaffolding.
 - Migration and k6 Jobs opt out of sidecar injection so one-shot Jobs can finish.
 
 This implements the staging and production mesh foundation plus production
-request-level canary routing. Prometheus-backed automated analysis remains the
-next hardening phase.
+request-level canary routing. Prometheus-backed automated analysis, `STRICT`
+mTLS, and enforcing authorization policies remain the next hardening phase.
 
 ## Why Istio Helps This Project
 
@@ -240,14 +245,32 @@ Acceptance criteria:
 - Analysis results are visible in Argo Rollouts status.
 - Grafana has a rollout dashboard showing the same metrics used by the gate.
 
+### Phase 4b: Policy Hardening - Next
+
+The current policy baseline is intentionally safe for the existing release path:
+`PeerAuthentication` stays `PERMISSIVE`, sidecar clients use `ISTIO_MUTUAL`, and
+authorization policy starts in `AUDIT` mode. This lets staging collect Kiali and
+Grafana evidence before the mesh begins rejecting traffic.
+
+Recommended hardening order:
+
+- Switch staging `PeerAuthentication` to `STRICT` first.
+- Confirm smoke, k6, and Playwright pass through the Istio ingressgateway.
+- Add explicit `ALLOW` policies for ingressgateway to nginx-gateway and known
+  service-to-service paths.
+- Add namespace default-deny only after the allow list is proven.
+- Promote the same policy sequence to production after one clean staging gate.
+
 ### Phase 5: Production Hardening
 
 After traffic routing and analysis are stable, harden the mesh.
 
 Recommended changes:
 
-- Move mTLS from `PERMISSIVE` to `STRICT` for the app namespace.
-- Add `AuthorizationPolicy` resources service by service.
+- Move mTLS from `PERMISSIVE` to `STRICT` for the app namespace after staging
+  proves all app traffic is mesh-compatible.
+- Change `AuthorizationPolicy` from audit scaffolding to service-by-service
+  enforced allow rules.
 - Add outbound traffic policy for external calls, especially maps/email APIs.
 - Add resource requests/limits for Envoy sidecars.
 - Tune Fluent Bit to reduce noisy Envoy access logs if CloudWatch cost rises.

@@ -4,6 +4,8 @@ kind: Kustomization
 resources:
   - peer-authentication.yaml
   - telemetry.yaml
+  - destination-rules.yaml
+  - authorization-policy-audit.yaml
   - ingress-gateway.yaml
   - virtualservice-nginx-gateway.yaml
   - podmonitor-istio-proxies.yaml

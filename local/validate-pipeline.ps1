@@ -162,7 +162,7 @@ if (Test-Path $ciFile) {
     Assert-ContainsText $ciText 'scripts/deployment/bootstrap-istio-production.sh' "production mesh bootstrap script is wired in"
     Assert-ContainsText $ciText 'scripts/deployment/discover-loadbalancer-url.sh "$ISTIO_INGRESS_SERVICE" "$ISTIO_NAMESPACE" STAGING_URL' "staging URL is discovered from Istio ingressgateway"
     Assert-ContainsText $ciText 'scripts/deployment/discover-loadbalancer-url.sh "$ISTIO_INGRESS_SERVICE" "$ISTIO_NAMESPACE" PROD_URL' "production URL is discovered from Istio ingressgateway"
-    Assert-ContainsText $ciText "-skip PeerAuthentication,Telemetry,Gateway,VirtualService,PodMonitor,ServiceMonitor" "CI kubeconform skips service mesh CRDs"
+    Assert-ContainsText $ciText "-skip PeerAuthentication,Telemetry,Gateway,VirtualService,DestinationRule,AuthorizationPolicy,PodMonitor,ServiceMonitor" "CI kubeconform skips service mesh CRDs"
     Assert-ContainsText $ciText 'scripts/deployment/write-image-pins.sh "$IMAGE_VERSION" production' "production promotion/deploy writes GitOps image pins"
     Assert-ContainsText $ciText 'scripts/deployment/sync-argocd-production.sh' "production deploy uses Argo CD sync script"
     Assert-ContainsText $ciText "kubectl-argo-rollouts" "production deploy installs Argo Rollouts kubectl plugin"
@@ -175,6 +175,8 @@ if (Test-Path $ciFile) {
     Assert-ContainsText $ciText 'scripts/deployment/run-k6-staging.sh' "shared k6 runner script is used"
     Assert-ContainsText $ciText 'tests/k6/real-user-workflows.js' "k6 real user workflow script is wired in"
     Assert-ContainsText $ciText 'dashboard-k6-staging.yaml' "k6 Grafana dashboard is applied"
+    Assert-ContainsText $ciText 'dashboard-operations-hub.yaml' "Operations Hub dashboard is applied by CI"
+    Assert-ContainsText $ciText 'dashboard-istio-mesh.yaml' "Istio mesh dashboard is applied by CI"
     Assert-ContainsText $ciText 'k6-results/' "k6 jobs publish log, metadata, and summary artifacts"
 
     if ($ciText -notmatch "(?s)cleanup-staging-loadbalancers:.*?needs:\s*\r?\n\s*-\s*confirm-destroy-staging") {
@@ -295,8 +297,14 @@ if (Test-Path $ciFile) {
         "kubernetes/service-mesh/istiod-values.yaml",
         "kubernetes/service-mesh/gateway-values.yaml",
         "kubernetes/service-mesh/kiali-values.yaml",
+        "kubernetes/observability/dashboard-operations-hub.yaml",
+        "kubernetes/observability/dashboard-istio-mesh.yaml",
         "kubernetes/service-mesh/staging/kustomization.yaml",
+        "kubernetes/service-mesh/staging/destination-rules.yaml",
+        "kubernetes/service-mesh/staging/authorization-policy-audit.yaml",
         "kubernetes/service-mesh/production/kustomization.yaml",
+        "kubernetes/service-mesh/production/destination-rules.yaml",
+        "kubernetes/service-mesh/production/authorization-policy-audit.yaml",
         "kubernetes/service-mesh/production/virtualservices-rollout-services.yaml",
         "kubernetes/overlays/production/canary-services.yaml",
         "kubernetes/overlays/production/rollout-traffic-routing/auth-service.yaml",
@@ -595,6 +603,21 @@ foreach ($env in @("staging", "production")) {
         $meshRenderedText = $meshRendered -join "`n"
         Write-Host "  PASS service mesh kustomize build succeeded" -ForegroundColor Green
 
+        $destinationRuleCount = ([regex]::Matches($meshRenderedText, "(?m)^kind:\s*DestinationRule\s*$")).Count
+        $authorizationPolicyCount = ([regex]::Matches($meshRenderedText, "(?m)^kind:\s*AuthorizationPolicy\s*$")).Count
+        if ($destinationRuleCount -ge 1 -and $meshRenderedText.Contains("mode: ISTIO_MUTUAL")) {
+            Write-Host "  PASS service mesh renders ISTIO_MUTUAL DestinationRules" -ForegroundColor Green
+        } else {
+            Write-Host "  FAIL service mesh must render at least one ISTIO_MUTUAL DestinationRule" -ForegroundColor Red
+            $totalErrors++
+        }
+        if ($authorizationPolicyCount -ge 1 -and $meshRenderedText.Contains("action: AUDIT")) {
+            Write-Host "  PASS service mesh renders baseline audit AuthorizationPolicy" -ForegroundColor Green
+        } else {
+            Write-Host "  FAIL service mesh must render baseline audit AuthorizationPolicy" -ForegroundColor Red
+            $totalErrors++
+        }
+
         if ($env -eq "production") {
             $virtualServiceCount = ([regex]::Matches($meshRenderedText, "(?m)^kind:\s*VirtualService\s*$")).Count
             if ($virtualServiceCount -ge 12) {
@@ -615,7 +638,7 @@ foreach ($env in @("staging", "production")) {
         Write-Host "  PASS service mesh kubectl kustomize succeeded" -ForegroundColor Green
 
         $meshConformResult = $meshRenderedText | kubeconform -strict -summary `
-            -skip "PeerAuthentication,Telemetry,Gateway,VirtualService,PodMonitor,ServiceMonitor" 2>&1
+            -skip "PeerAuthentication,Telemetry,Gateway,VirtualService,DestinationRule,AuthorizationPolicy,PodMonitor,ServiceMonitor" 2>&1
         if ($LASTEXITCODE -ne 0) {
             Write-Host "  FAIL service mesh kubeconform validation failed:" -ForegroundColor Red
             $meshConformResult | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }

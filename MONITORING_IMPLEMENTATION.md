@@ -101,6 +101,13 @@ service topology, mTLS status, Istio config validation, and live traffic flow.
 Prometheus scrapes Istio proxy and istiod metrics through the service mesh
 PodMonitor/ServiceMonitor resources.
 
+The live kube-prometheus-stack Grafana instance loads the Operations Hub and
+Istio Mesh dashboards from `kubernetes/observability` ConfigMaps labelled
+`grafana_dashboard: "1"`. These dashboards show mesh request rate, 5xx rate,
+p95 latency, sidecar coverage, gateway traffic, canary traffic, and proxy
+resource usage. Kiali remains the place to confirm the live service graph and
+mTLS edge status.
+
 See `ISTIO_SERVICE_MESH_PLAN.md` for the implemented mesh foundation,
 production request-level canaries, and the remaining Prometheus-backed analysis
 hardening work.
