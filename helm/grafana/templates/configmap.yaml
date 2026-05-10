@@ -75,6 +75,129 @@ data:
 apiVersion: v1
 kind: ConfigMap
 metadata:
+  name: {{ include "grafana.fullname" . }}-dashboard-operations
+  labels:
+    {{- include "grafana.labels" . | nindent 4 }}
+data:
+  operations-hub.json: |
+    {
+      "annotations": {"list": []},
+      "editable": true,
+      "graphTooltip": 1,
+      "refresh": "30s",
+      "schemaVersion": 39,
+      "tags": ["operations", "gitops", "rollouts", "mesh"],
+      "time": {"from": "now-6h", "to": "now"},
+      "timezone": "UTC",
+      "title": "Year 4 Operations Hub",
+      "uid": "operations-hub",
+      "version": 1,
+      "templating": {
+        "list": [
+          {
+            "current": {"selected": false, "text": "{{ .Values.operationsHub.appNamespace }}", "value": "{{ .Values.operationsHub.appNamespace }}"},
+            "hide": 0,
+            "label": "Namespace",
+            "name": "namespace",
+            "options": [{"selected": true, "text": "{{ .Values.operationsHub.appNamespace }}", "value": "{{ .Values.operationsHub.appNamespace }}"}],
+            "query": "{{ .Values.operationsHub.appNamespace }}",
+            "type": "constant"
+          }
+        ]
+      },
+      "panels": [
+        {
+          "gridPos": {"h": 7, "w": 24, "x": 0, "y": 0},
+          "id": 1,
+          "options": {
+            "content": "### Operations Hub\nUse this page as the starting point for release and runtime checks. Grafana owns metrics, SLOs, release evidence, and historical views; Kiali owns mesh topology; Argo owns GitOps and rollout state; CloudWatch owns log investigation.\n\n| Workflow | Open |\n| --- | --- |\n| GitOps sync and drift | [Argo CD]({{ .Values.operationsHub.argoCdUrl }}) |\n| Canary rollout status | [Argo Rollouts]({{ .Values.operationsHub.argoRolloutsUrl }}) |\n| Service mesh graph | [Kiali]({{ .Values.operationsHub.kialiUrl }}) |\n| Release pipeline | [GitLab pipelines]({{ .Values.operationsHub.gitlabPipelinesUrl }}) |\n| Logs and incidents | [CloudWatch Logs]({{ .Values.operationsHub.cloudWatchLogsUrl }}) |\n| Load gate evidence | [k6 staging dashboard]({{ .Values.operationsHub.k6DashboardUrl }}) |",
+            "mode": "markdown"
+          },
+          "title": "Release And Runtime Navigation",
+          "type": "text"
+        },
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {"defaults": {"unit": "short"}},
+          "gridPos": {"h": 4, "w": 6, "x": 0, "y": 7},
+          "id": 2,
+          "targets": [{"expr": "count(kube_pod_status_ready{namespace=\"$namespace\",condition=\"true\"} == 1) or vector(0)", "refId": "A"}],
+          "title": "Ready Pods",
+          "type": "stat"
+        },
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {"defaults": {"unit": "short"}},
+          "gridPos": {"h": 4, "w": 6, "x": 6, "y": 7},
+          "id": 3,
+          "targets": [{"expr": "count(kube_pod_status_phase{namespace=\"$namespace\",phase=\"Failed\"} == 1) or vector(0)", "refId": "A"}],
+          "title": "Failed Pods",
+          "type": "stat"
+        },
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {"defaults": {"unit": "reqps"}},
+          "gridPos": {"h": 4, "w": 6, "x": 12, "y": 7},
+          "id": 4,
+          "targets": [{"expr": "sum(rate(istio_requests_total{destination_workload_namespace=\"$namespace\"}[5m])) or vector(0)", "refId": "A"}],
+          "title": "Istio Request Rate",
+          "type": "stat"
+        },
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {"defaults": {"unit": "percentunit"}},
+          "gridPos": {"h": 4, "w": 6, "x": 18, "y": 7},
+          "id": 5,
+          "targets": [{"expr": "(sum(rate(istio_requests_total{destination_workload_namespace=\"$namespace\",response_code=~\"5..\"}[5m])) / clamp_min(sum(rate(istio_requests_total{destination_workload_namespace=\"$namespace\"}[5m])), 1)) or vector(0)", "refId": "A"}],
+          "title": "Istio 5xx Rate",
+          "type": "stat"
+        },
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {"defaults": {"unit": "short"}},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 11},
+          "id": 6,
+          "options": {"legend": {"displayMode": "table", "placement": "bottom"}},
+          "targets": [{"expr": "sum by (pod) (increase(kube_pod_container_status_restarts_total{namespace=\"$namespace\"}[1h]))", "legendFormat": "$pod", "refId": "A"}],
+          "title": "Pod Restarts In Last Hour",
+          "type": "timeseries"
+        },
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {"defaults": {"unit": "percentunit"}},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 11},
+          "id": 7,
+          "options": {"legend": {"displayMode": "table", "placement": "bottom"}},
+          "targets": [{"expr": "sum by (destination_workload) (rate(istio_requests_total{destination_workload_namespace=\"$namespace\",response_code=~\"5..\"}[5m])) / clamp_min(sum by (destination_workload) (rate(istio_requests_total{destination_workload_namespace=\"$namespace\"}[5m])), 1)", "legendFormat": "$destination_workload", "refId": "A"}],
+          "title": "Mesh Error Rate By Workload",
+          "type": "timeseries"
+        },
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {"defaults": {"unit": "short"}},
+          "gridPos": {"h": 7, "w": 12, "x": 0, "y": 19},
+          "id": 8,
+          "options": {"showHeader": true},
+          "targets": [{"expr": "sum by (deployment) (kube_deployment_status_replicas_ready{namespace=\"$namespace\"})", "format": "table", "instant": true, "refId": "A"}],
+          "title": "Deployment Ready Replicas",
+          "type": "table"
+        },
+        {
+          "datasource": "Prometheus",
+          "fieldConfig": {"defaults": {"unit": "short"}},
+          "gridPos": {"h": 7, "w": 12, "x": 12, "y": 19},
+          "id": 9,
+          "options": {"showHeader": true},
+          "targets": [{"expr": "sum by (name) (rate(fluentbit_output_errors_total[5m]))", "format": "table", "instant": true, "refId": "A"}],
+          "title": "Fluent Bit Output Errors",
+          "type": "table"
+        }
+      ]
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
   name: {{ include "grafana.fullname" . }}-dashboard-fluent
   labels:
     {{- include "grafana.labels" . | nindent 4 }}

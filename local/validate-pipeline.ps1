@@ -154,6 +154,10 @@ if (Test-Path $ciFile) {
     Assert-ContainsText $ciText "playwright-e2e-staging:" "mandatory Playwright E2E job exists"
     Assert-ContainsText $ciText "promote:" "combined promotion evidence job exists"
     Assert-ContainsText $ciText "promote-to-production:" "manual production promotion job exists"
+    Assert-ContainsText $ciText "install-argocd-production:" "production Argo CD bootstrap job exists"
+    Assert-ContainsText $ciText 'scripts/deployment/write-image-pins.sh "$IMAGE_VERSION" production' "production promotion/deploy writes GitOps image pins"
+    Assert-ContainsText $ciText 'scripts/deployment/sync-argocd-production.sh' "production deploy uses Argo CD sync script"
+    Assert-ContainsText $ciText "kubectl-argo-rollouts" "production deploy installs Argo Rollouts kubectl plugin"
     Assert-ContainsText $ciText "confirm-destroy-staging:" "manual staging destroy confirmation job exists"
     Assert-ContainsText $ciText "verify-staging-destroyed:" "staging destroy verification job exists"
     Assert-ContainsText $ciText 'DESTROY_ENV: "staging"' "staging destroy trigger targets only staging"
@@ -242,6 +246,51 @@ if (Test-Path $ciFile) {
         Write-Host "  PASS production promotion is gated on promote evidence" -ForegroundColor Green
     }
 
+    if ($ciText -notmatch "(?s)deploy-production:.*?needs:\s*\r?\n\s*-\s*install-argocd-production") {
+        Write-Host "  FAIL production deploy must depend on Argo CD bootstrap" -ForegroundColor Red
+        $pipelineErrors++
+    } else {
+        Write-Host "  PASS production deploy depends on Argo CD bootstrap" -ForegroundColor Green
+    }
+
+    if ($ciText -match "kubectl apply -k kubernetes/overlays/production") {
+        Write-Host "  FAIL production deploy should not directly apply the full production overlay" -ForegroundColor Red
+        $pipelineErrors++
+    } else {
+        Write-Host "  PASS production deploy does not directly apply the full production overlay" -ForegroundColor Green
+    }
+
+    $gitOpsFiles = @(
+        "scripts/deployment/write-image-pins.sh",
+        "scripts/deployment/bootstrap-argocd-production.sh",
+        "scripts/deployment/sync-argocd-production.sh",
+        "kubernetes/argocd/project-production.yaml",
+        "kubernetes/argocd/application-production.yaml",
+        "kubernetes/overlays/staging/image-pins.yaml",
+        "kubernetes/overlays/production/image-pins.yaml"
+    )
+    foreach ($relativePath in $gitOpsFiles) {
+        if (Test-Path (Join-Path $RepoRoot $relativePath)) {
+            Write-Host "  PASS GitOps file exists: $relativePath" -ForegroundColor Green
+        } else {
+            Write-Host "  FAIL GitOps file is missing: $relativePath" -ForegroundColor Red
+            $pipelineErrors++
+        }
+    }
+
+    $grafanaConfigFile = Join-Path $RepoRoot "helm/grafana/templates/configmap.yaml"
+    $grafanaDeploymentFile = Join-Path $RepoRoot "helm/grafana/templates/deployment.yaml"
+    if ((Test-Path $grafanaConfigFile) -and (Test-Path $grafanaDeploymentFile)) {
+        $grafanaConfigText = Get-Content $grafanaConfigFile -Raw
+        $grafanaDeploymentText = Get-Content $grafanaDeploymentFile -Raw
+        Assert-ContainsText $grafanaConfigText "operations-hub.json" "Grafana Operations Hub dashboard is provisioned"
+        Assert-ContainsText $grafanaConfigText '"uid": "operations-hub"' "Grafana Operations Hub has a stable UID"
+        Assert-ContainsText $grafanaDeploymentText "dashboard-operations" "Grafana deployment mounts Operations Hub dashboard"
+    } else {
+        Write-Host "  FAIL Grafana chart files are missing" -ForegroundColor Red
+        $pipelineErrors++
+    }
+
     $promValuesFile = Join-Path $RepoRoot "helm/kube-prometheus-stack/values-staging.yaml"
     if (Test-Path $promValuesFile) {
         $promValuesText = Get-Content $promValuesFile -Raw
@@ -325,8 +374,30 @@ foreach ($env in $overlays) {
         Write-Host "  PASS kustomize build succeeded" -ForegroundColor Green
 
         # Count resources
-        $resourceCount = ($renderedText | Select-String -Pattern "^kind:" -AllMatches).Matches.Count
+        $resourceCount = ($renderedText | Select-String -Pattern "(?m)^kind:" -AllMatches).Matches.Count
         Write-Host "       $resourceCount resources rendered" -ForegroundColor DarkGray
+
+        $rolloutCount = ($renderedText | Select-String -Pattern "(?m)^kind:\s*Rollout$" -AllMatches).Matches.Count
+        $deploymentCount = ($renderedText | Select-String -Pattern "(?m)^kind:\s*Deployment$" -AllMatches).Matches.Count
+        if ($env -eq "production") {
+            if ($rolloutCount -gt 0 -and $deploymentCount -eq 0) {
+                Write-Host "  PASS production overlay renders Argo Rollouts ($rolloutCount) instead of Deployments" -ForegroundColor Green
+            } else {
+                Write-Host "  FAIL production overlay must render Rollouts and no Deployments (Rollouts: $rolloutCount, Deployments: $deploymentCount)" -ForegroundColor Red
+                $totalErrors++
+            }
+
+            $rolloutReplicaTwoCount = ([regex]::Matches($renderedText, "(?ms)^kind:\s*Rollout\s*$.*?^\s+replicas:\s*2\s*$")).Count
+            if ($rolloutCount -gt 0 -and $rolloutReplicaTwoCount -eq $rolloutCount) {
+                Write-Host "  PASS production Rollouts use 2 replicas" -ForegroundColor Green
+            } else {
+                Write-Host "  FAIL production Rollouts must all use 2 replicas (Rollouts: $rolloutCount, replicas=2: $rolloutReplicaTwoCount)" -ForegroundColor Red
+                $totalErrors++
+            }
+        } elseif ($rolloutCount -gt 0) {
+            Write-Host "  FAIL non-production overlay should not render Argo Rollouts" -ForegroundColor Red
+            $totalErrors++
+        }
     } catch {
         Write-Host "  FAIL kustomize build error: $_" -ForegroundColor Red
         $totalErrors++
@@ -365,7 +436,7 @@ foreach ($env in $overlays) {
     Write-Host "`n  [3/4] Running kubeconform..." -ForegroundColor White
     try {
         $conformResult = $renderedText | kubeconform -strict -summary `
-            -skip "ClusterIssuer,ClusterSecretStore,ExternalSecret" 2>&1
+            -skip "ClusterIssuer,ClusterSecretStore,ExternalSecret,Rollout" 2>&1
         if ($LASTEXITCODE -ne 0) {
             Write-Host "  FAIL kubeconform validation failed:" -ForegroundColor Red
             $conformResult | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }

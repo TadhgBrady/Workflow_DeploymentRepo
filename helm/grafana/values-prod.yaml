@@ -88,6 +88,15 @@ envValueFrom:
         name: grafana-admin
         key: admin-password
 
+operationsHub:
+  appNamespace: year4-project
+  argoCdUrl: http://localhost:8080
+  argoRolloutsUrl: http://localhost:3100
+  kialiUrl: http://localhost:20001
+  cloudWatchLogsUrl: https://eu-west-1.console.aws.amazon.com/cloudwatch/home?region=eu-west-1#logsV2:log-groups
+  gitlabPipelinesUrl: https://gitlab.comp.dkit.ie/finalproject/Prototypes/yr4-projectdeploymentrepo/-/pipelines
+  k6DashboardUrl: /d/year4-k6-staging/year4-staging-k6-load-gate
+
 config:
   datasources:
     - name: Prometheus

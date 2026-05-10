@@ -288,20 +288,17 @@ update-image-tags:
         *'$'*) echo "❌ IMAGE_VERSION contains literal dollar sign: $IMAGE_VERSION"; echo "   Bridge job did not expand the variable. Fix trigger-deploy in dev repo."; exit 1 ;;
       esac
     - |
-      # ── Update version label in staging overlay for GitOps tracking ──
-      # NOTE: Kustomize 'images:' with newTag cannot handle per-service tags
-      # (all services share bencev04/4th-year-proj-tadgh-bence with different
-      # tag prefixes like auth-service-latest, admin-bl-service-latest).
-      # Actual image pinning happens in deploy-staging via sed.
+      # ── Update version label and image pins in staging overlay for GitOps tracking ──
       # Rebase onto latest main first to avoid non-fast-forward push failures.
       git fetch origin main
       git checkout -B main origin/main
       cd kubernetes/overlays/staging
       sed -i "s|app.kubernetes.io/version: .*|app.kubernetes.io/version: \"${IMAGE_VERSION}\"|" kustomization.yaml
       cd "$CI_PROJECT_DIR"
+      sh scripts/deployment/write-image-pins.sh "$IMAGE_VERSION" staging
     - git config user.email "cd-pipeline@gitlab.ci"
     - git config user.name "CD Pipeline"
-    - git add kubernetes/overlays/staging/kustomization.yaml
+    - git add kubernetes/overlays/staging/kustomization.yaml kubernetes/overlays/staging/image-pins.yaml
     - 'git commit -m "ci: update staging version to ${IMAGE_VERSION} [skip ci] - Source: ${SOURCE_COMMIT}" || echo "No changes to commit"'
     - |
       # Push with a token that can write to this repository.
@@ -963,7 +960,7 @@ deploy-staging:
         echo "✅ cert-manager CRDs already available"
       fi
     # ── Pin images to exact version when triggered by dev repo ──
-    - sh scripts/deployment/pin-images.sh "$IMAGE_VERSION" kubernetes/base/*-deployment.y*ml kubernetes/overlays/staging/migration-job.yaml
+    - sh scripts/deployment/write-image-pins.sh "$IMAGE_VERSION" staging
     - kubectl create namespace $STAGING_NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
     # Validate the exact rendered overlay before any live mutation that could take staging down.
     - |
@@ -1589,9 +1586,10 @@ promote-to-production:
         exit 1
       fi
       cd "$CI_PROJECT_DIR"
+      sh scripts/deployment/write-image-pins.sh "$IMAGE_VERSION" production
     - git config user.email "cd-pipeline@gitlab.ci"
     - git config user.name "CD Pipeline"
-    - git add kubernetes/overlays/production/kustomization.yaml
+    - git add kubernetes/overlays/production/kustomization.yaml kubernetes/overlays/production/image-pins.yaml
     - 'git commit -m "ci: promote ${IMAGE_VERSION} to production [skip ci] - Source: ${SOURCE_COMMIT}" || echo "No changes to commit"'
     - |
       # Push with a token that can write to this repository.
@@ -1644,7 +1642,7 @@ promote-to-production:
         git rebase FETCH_HEAD
       done
     - echo ""
-    - echo "✅ Production overlay updated — kubectl deploy will proceed next"
+    - echo "✅ Production overlay updated — Argo CD sync will proceed next"
   rules:
     - if: '$IMAGE_VERSION && ($PIPELINE_MODE == "auto" || $PIPELINE_MODE == "full-release")'
       when: manual
@@ -1936,15 +1934,39 @@ install-observability-production:
       when: on_success
   allow_failure: false
 
+install-argocd-production:
+  stage: deploy-prod
+  image: alpine:latest
+  resource_group: production-gitops-bootstrap
+  needs:
+    - install-observability-production
+  before_script:
+    - apk add --no-cache curl bash tar gzip python3 py3-pip
+    - pip3 install --break-system-packages awscli
+    - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
+    - chmod +x kubectl && mv kubectl /usr/local/bin/
+    - curl -sL "https://get.helm.sh/helm-v3.17.0-linux-amd64.tar.gz" | tar xz -C /tmp
+    - mv /tmp/linux-amd64/helm /usr/local/bin/
+    - aws eks update-kubeconfig --name $PROD_CLUSTER_NAME --region $AWS_DEFAULT_REGION
+  script:
+    - echo "═══════════════════════════════════════════════════════════════"
+    - echo "  Bootstrapping Argo CD and Argo Rollouts for PRODUCTION"
+    - echo "═══════════════════════════════════════════════════════════════"
+    - sh scripts/deployment/bootstrap-argocd-production.sh
+  rules:
+    - if: '$IMAGE_VERSION && ($PIPELINE_MODE == "auto" || $PIPELINE_MODE == "full-release")'
+      when: on_success
+  allow_failure: false
+
 # =============================================================================
-# PRODUCTION: kubectl apply + rollout verification
+# PRODUCTION: Argo CD sync + rollout verification
 # =============================================================================
 
 deploy-production:
   stage: deploy-prod
   image: alpine:latest
   needs:
-    - install-observability-production
+    - install-argocd-production
   before_script:
     - apk add --no-cache curl bash tar gzip python3 py3-pip sed
     - pip3 install --break-system-packages awscli
@@ -1954,11 +1976,17 @@ deploy-production:
     # Install Helm (direct binary download — fallback addon installation)
     - curl -sL "https://get.helm.sh/helm-v3.17.0-linux-amd64.tar.gz" | tar xz -C /tmp
     - mv /tmp/linux-amd64/helm /usr/local/bin/
+    # Install Argo CD CLI for in-cluster core syncs
+    - curl -sSL -o /usr/local/bin/argocd "https://github.com/argoproj/argo-cd/releases/download/v2.12.6/argocd-linux-amd64"
+    - chmod +x /usr/local/bin/argocd
+    # Install Argo Rollouts kubectl plugin for canary rollout status and diagnostics
+    - curl -sSL -o /usr/local/bin/kubectl-argo-rollouts "https://github.com/argoproj/argo-rollouts/releases/download/v1.7.2/kubectl-argo-rollouts-linux-amd64"
+    - chmod +x /usr/local/bin/kubectl-argo-rollouts
     # Configure kubeconfig for the production EKS cluster
     - aws eks update-kubeconfig --name $PROD_CLUSTER_NAME --region $AWS_DEFAULT_REGION
   script:
     - echo "═══════════════════════════════════════════════════════════════"
-    - echo "  Deploying to PRODUCTION via kubectl apply"
+    - echo "  Deploying to PRODUCTION via Argo CD sync"
     - 'echo "  Image version: ${IMAGE_VERSION}"'
     - echo "═══════════════════════════════════════════════════════════════"
     # Ensure ESO is installed (fallback if install-addons-production was skipped/retried)
@@ -2015,9 +2043,9 @@ deploy-production:
       else
         echo "✅ cert-manager CRDs already available"
       fi
-    # ── Pin images to exact version when triggered by dev repo ──
-    - sh scripts/deployment/pin-images.sh "$IMAGE_VERSION" kubernetes/base/*-deployment.y*ml
-    - sh scripts/deployment/pin-images.sh "$IMAGE_VERSION" kubernetes/overlays/production/migration-job.yaml
+    # ── Pin images locally for validation/migration rendering. The committed
+    # production image-pins.yaml is the Argo CD source of truth.
+    - sh scripts/deployment/write-image-pins.sh "$IMAGE_VERSION" production
     - kubectl create namespace $PROD_NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
     - |
       echo "Validating production Kustomize overlay with kubectl before apply..."
@@ -2028,7 +2056,7 @@ deploy-production:
     - sh scripts/deployment/sync-external-secrets.sh "$PROD_NAMESPACE" 180
     - sh scripts/deployment/run-migration-job.sh "$PROD_NAMESPACE" /tmp/production-rendered.yaml 300s
     - kubectl apply --dry-run=server -k kubernetes/overlays/production > /dev/null
-    - kubectl apply -k kubernetes/overlays/production
+    - sh scripts/deployment/sync-argocd-production.sh
     # Force ESO to re-sync secrets from AWS before checking rollouts
     - sh scripts/deployment/sync-external-secrets.sh "$PROD_NAMESPACE" 180
     - sh scripts/deployment/wait-deployment-rollout.sh "$PROD_NAMESPACE" 300
@@ -2065,6 +2093,10 @@ deploy-production:
     - echo ""
     - echo "✅ Production deployment complete"
   artifacts:
+    when: always
+    expire_in: 1 week
+    paths:
+      - argocd-production-app.json
     reports:
       dotenv: production-deploy.env
   rules:

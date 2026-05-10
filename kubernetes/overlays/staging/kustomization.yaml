@@ -61,6 +61,7 @@ replicas:
 # Ingress resource excluded — staging uses nginx-gateway LoadBalancer directly
 # Recreate strategy — avoids 2x pods during rollout on small staging cluster
 patches:
+  - path: image-pins.yaml
   - path: nginx-service-patch.yaml
   # Keep staging scheduling predictable on the small node group. This inline
   # JSON6902 patch is compatible with both standalone kustomize and

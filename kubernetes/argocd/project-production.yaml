@@ -1,0 +1,22 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: year4-project-production
+  namespace: argocd
+spec:
+  description: Year 4 project production GitOps application
+  sourceRepos:
+    - https://gitlab.comp.dkit.ie/finalproject/Prototypes/yr4-projectdeploymentrepo.git
+  destinations:
+    - namespace: year4-project
+      server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: external-secrets.io
+      kind: ClusterSecretStore
+    - group: cert-manager.io
+      kind: ClusterIssuer
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"

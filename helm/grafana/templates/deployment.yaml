@@ -30,8 +30,10 @@ spec:
           command:
             - sh
             - -c
-            - mkdir -p /var/lib/grafana/dashboards && cp /etc/grafana/dashboards-cluster/*.json /var/lib/grafana/dashboards/ 2>/dev/null; cp /etc/grafana/dashboards-services/*.json /var/lib/grafana/dashboards/ 2>/dev/null; true
+            - mkdir -p /var/lib/grafana/dashboards && for dir in /etc/grafana/dashboards-operations /etc/grafana/dashboards-cluster /etc/grafana/dashboards-services; do cp "$dir"/*.json /var/lib/grafana/dashboards/ 2>/dev/null || true; done
           volumeMounts:
+            - name: dashboard-operations
+              mountPath: /etc/grafana/dashboards-operations
             - name: dashboard-cluster
               mountPath: /etc/grafana/dashboards-cluster
             - name: dashboard-services
@@ -94,6 +96,9 @@ spec:
         - name: dashboards-provisioning
           configMap:
             name: {{ include "grafana.fullname" . }}-dashboards
+        - name: dashboard-operations
+          configMap:
+            name: {{ include "grafana.fullname" . }}-dashboard-operations
         - name: dashboard-cluster
           configMap:
             name: {{ include "grafana.fullname" . }}-dashboard-cluster

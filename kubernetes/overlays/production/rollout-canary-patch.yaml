@@ -1,0 +1,20 @@
+- op: replace
+  path: /apiVersion
+  value: argoproj.io/v1alpha1
+- op: replace
+  path: /kind
+  value: Rollout
+- op: add
+  path: /spec/replicas
+  value: 2
+- op: add
+  path: /spec/strategy
+  value:
+    canary:
+      maxUnavailable: 0
+      maxSurge: 1
+      steps:
+        - setWeight: 50
+        - pause:
+            duration: 90s
+        - setWeight: 100

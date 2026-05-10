@@ -20,7 +20,7 @@ labels:
 commonAnnotations:
   environment: production
   deployment.type: production
-  description: "Production deployment with full replicas and LoadBalancer"
+  description: "Production deployment with cost-conscious replicas and LoadBalancer"
   cloudwatch.aws.amazon.com/auto-annotate-dotnet: "false"
   cloudwatch.aws.amazon.com/auto-annotate-java: "false"
   cloudwatch.aws.amazon.com/auto-annotate-nodejs: "false"
@@ -30,38 +30,44 @@ commonAnnotations:
   instrumentation.opentelemetry.io/inject-nodejs: "false"
   instrumentation.opentelemetry.io/inject-python: "false"
 
-# Production uses full replicas
+# Production uses two replicas to reduce steady-state cost while preserving basic HA.
 replicas:
   - name: auth-service
-    count: 3
+    count: 2
   - name: user-bl-service
-    count: 3
+    count: 2
   - name: user-db-access-service
-    count: 3
+    count: 2
   - name: job-bl-service-deployment
-    count: 3
+    count: 2
   - name: job-db-access-service-deployment
-    count: 3
+    count: 2
   - name: customer-bl-service
-    count: 3
+    count: 2
   - name: customer-db-access-service
-    count: 3
+    count: 2
   - name: admin-bl-service
-    count: 3
+    count: 2
   - name: maps-access-service
-    count: 3
+    count: 2
   - name: notification-service
-    count: 3
+    count: 2
   - name: frontend-deployment
-    count: 3
+    count: 2
   - name: nginx-gateway
-    count: 3
+    count: 2
 
 # Service type patch - use LoadBalancer for production (production access)
 patches:
+  - path: image-pins.yaml
   - path: nginx-service-patch.yaml
   - path: resource-limits-patch.yaml
   - path: nginx-resource-limits-patch.yaml
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+    path: rollout-canary-patch.yaml
 
 # Generated ConfigMaps
 generatorOptions:

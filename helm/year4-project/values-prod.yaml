@@ -11,8 +11,8 @@ namespace:
 image:
   tag: latest
 
-# Production uses full replicas
-replicaCount: 3
+# Production uses two replicas to reduce steady-state cost while preserving basic HA
+replicaCount: 2
 
 # Production resources
 resources:
@@ -23,41 +23,41 @@ resources:
     memory: "1Gi"
     cpu: "1000m"
 
-# All services with high replicas
+# All services use the production cost-conscious replica target
 nginx:
-  replicaCount: 3
+  replicaCount: 2
   service:
     type: LoadBalancer
 
 authService:
-  replicaCount: 3
+  replicaCount: 2
 
 userBlService:
-  replicaCount: 3
+  replicaCount: 2
 
 userDbService:
-  replicaCount: 3
+  replicaCount: 2
 
 jobBlService:
-  replicaCount: 3
+  replicaCount: 2
 
 jobDbService:
-  replicaCount: 3
+  replicaCount: 2
 
 customerBlService:
-  replicaCount: 3
+  replicaCount: 2
 
 customerDbService:
-  replicaCount: 3
+  replicaCount: 2
 
 adminBlService:
-  replicaCount: 3
+  replicaCount: 2
 
 adminDbService:
-  replicaCount: 3
+  replicaCount: 2
 
 frontend:
-  replicaCount: 3
+  replicaCount: 2
 
 env:
   ENVIRONMENT: production
@@ -66,7 +66,7 @@ env:
 # Enable autoscaling for production
 autoscaling:
   enabled: true
-  minReplicas: 3
+  minReplicas: 2
   maxReplicas: 10
   targetCPUUtilizationPercentage: 70
   targetMemoryUtilizationPercentage: 80
@@ -84,4 +84,4 @@ ingress:
 # Pod disruption budget for production
 podDisruptionBudget:
   enabled: true
-  minAvailable: 2
+  minAvailable: 1

@@ -74,17 +74,30 @@
 
 ### Visualization (Grafana)
 **Pre-configured Dashboards**:
-1. **Cluster Overview**: CPU, memory, pod count, restart rates
-2. **Fluent Bit**: Input/output rates, errors, retries
-3. **Infrastructure Health**: Node metrics, disk I/O, network
-4. **Pod Status**: Restarts, phase distribution, namespace counts
-5. **Application Alerts** (staging/prod): Top consumers, failed pods
+1. **Operations Hub**: Starting page with health panels and links to Argo CD, Argo Rollouts, Kiali, CloudWatch Logs, GitLab pipelines, and k6 evidence
+2. **Cluster Overview**: CPU, memory, pod count, restart rates
+3. **Fluent Bit**: Input/output rates, errors, retries
+4. **Infrastructure Health**: Node metrics, disk I/O, network
+5. **Pod Status**: Restarts, phase distribution, namespace counts
+6. **Application Alerts** (staging/prod): Top consumers, failed pods
 
 **Features**:
 - Auto-provisioned datasources (Prometheus)
 - Auto-provisioned dashboards
 - Environment-specific metrics
 - High availability setup (staging/prod)
+
+### Service Mesh Dashboard Direction
+
+Istio/Kiali is planned as an additive mesh visibility layer, not a replacement
+for Grafana. Grafana remains the primary dashboard for Prometheus metrics,
+release evidence, SLOs, k6 results, Fluent Bit health, and long-term trend
+views. The Operations Hub dashboard is the main entry point and links to Kiali,
+Argo CD, Argo Rollouts, CloudWatch, and GitLab. Kiali should be added for
+service topology, mTLS status, Istio config validation, and live stable/canary
+traffic flow during Argo Rollouts.
+
+See `ISTIO_SERVICE_MESH_PLAN.md` for the phased implementation plan.
 
 ### HA & Resilience
 
