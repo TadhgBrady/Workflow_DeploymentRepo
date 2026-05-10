@@ -2,6 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 const baseURL = process.env.STAGING_URL || process.env.PLAYWRIGHT_BASE_URL || 'http://localhost';
 const isCI = !!process.env.CI;
+const workers = Number(process.env.PLAYWRIGHT_WORKERS || '1');
 
 export default defineConfig({
   testDir: './specs',
@@ -12,7 +13,7 @@ export default defineConfig({
   fullyParallel: false,
   forbidOnly: isCI,
   retries: isCI ? 2 : 0,
-  workers: isCI ? 1 : undefined,
+  workers: isCI ? 1 : workers,
   reporter: [
     ['list'],
     ['html', { outputFolder: 'playwright-report', open: 'never' }],
