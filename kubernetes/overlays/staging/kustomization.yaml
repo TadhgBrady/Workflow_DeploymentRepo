@@ -13,7 +13,7 @@ resources:
 labels:
   - pairs:
       app.kubernetes.io/name: year4-project
-      app.kubernetes.io/version: "32c76d3a"
+      app.kubernetes.io/version: "5e4b8a3f"
       environment: staging
       managed-by: kustomize
 
