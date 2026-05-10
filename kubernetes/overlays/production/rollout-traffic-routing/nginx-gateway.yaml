@@ -1,0 +1,14 @@
+- op: add
+  path: /spec/strategy/canary/stableService
+  value: nginx-gateway
+- op: add
+  path: /spec/strategy/canary/canaryService
+  value: nginx-gateway-canary
+- op: add
+  path: /spec/strategy/canary/trafficRouting
+  value:
+    istio:
+      virtualService:
+        name: nginx-gateway
+        routes:
+          - primary

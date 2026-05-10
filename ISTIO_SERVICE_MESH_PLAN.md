@@ -10,6 +10,29 @@ Kiali should be added as the mesh topology and traffic-flow dashboard. It should
 not replace Grafana. Grafana remains the primary time-series dashboard for
 metrics, SLOs, k6 evidence, rollout analysis, and long-term trend views.
 
+## Implemented State
+
+The mesh foundation is now wired into the deployment repository:
+
+- `scripts/deployment/bootstrap-istio.sh` installs Istio base, istiod, the Istio
+  ingress gateway, and Kiali with Helm.
+- `install-service-mesh-staging` runs after staging observability and before the
+  staging app deploy.
+- `install-service-mesh-production` runs after production observability and
+  before Argo CD/Rollouts bootstrap.
+- `kubernetes/service-mesh/staging` and `kubernetes/service-mesh/production`
+  define namespace-scoped `PeerAuthentication`, `Telemetry`, `Gateway`,
+  `VirtualService`, `PodMonitor`, and `ServiceMonitor` resources.
+- The app nginx gateway service is internal `ClusterIP`; external traffic enters
+  through `istio-ingressgateway` and routes to `nginx-gateway` with Istio.
+- Production Rollouts define stable/canary Services and Istio traffic routing so
+  `setWeight` controls request-level traffic weights, not only pod counts.
+- Migration and k6 Jobs opt out of sidecar injection so one-shot Jobs can finish.
+
+This implements the staging and production mesh foundation plus production
+request-level canary routing. Prometheus-backed automated analysis remains the
+next hardening phase.
+
 ## Why Istio Helps This Project
 
 The current production Rollout implementation uses Argo Rollouts with canary
@@ -99,7 +122,7 @@ Observability:
 
 ## Implementation Phases
 
-### Phase 1: Mesh Foundation in Staging
+### Phase 1: Mesh Foundation in Staging - Implemented
 
 Install Istio in staging first, before production.
 
@@ -127,7 +150,7 @@ Acceptance criteria:
 - Existing Fluent Bit logs still reach CloudWatch.
 - Staging release gates still pass.
 
-### Phase 2: Production Mesh Bootstrap
+### Phase 2: Production Mesh Bootstrap - Implemented
 
 Add production mesh install after production add-ons and observability, but
 before Argo CD syncs the application.
@@ -160,7 +183,7 @@ Acceptance criteria:
 - Kiali is installed but not publicly exposed without authentication.
 - Production smoke tests pass through the Istio ingress path.
 
-### Phase 3: Argo Rollouts Traffic Routing
+### Phase 3: Argo Rollouts Traffic Routing - Implemented
 
 Move from pod-level canary to Istio request-level canary.
 
@@ -265,8 +288,8 @@ Cost controls:
 - Limit Envoy access logs in production unless debugging.
 - Keep Prometheus retention appropriate for the project environment.
 - Use staging to estimate sidecar overhead before enabling production.
-- Keep the current two-replica pod-level canary at 50 percent then 100 percent
-  until Istio request-level traffic routing is implemented.
+- Keep the two-replica production canary at 50 percent then 100 percent until
+  Prometheus-backed analysis and rollback thresholds are tuned.
 
 ## Risks and Mitigations
 
@@ -276,7 +299,7 @@ Cost controls:
 | Sidecars increase resource pressure | Add resource requests/limits and monitor node headroom |
 | Dashboard sprawl | Define ownership: Grafana for metrics, Kiali for mesh, Argo for deployment |
 | CloudWatch log cost rises | Filter noisy Envoy logs in Fluent Bit |
-| Rollout routing misconfiguration | Validate with Kiali and staging tests before production |
+| Rollout routing misconfiguration | Validate VirtualServices locally and verify traffic in Kiali during staging/prod gates |
 | Too much complexity for final delivery | Implement phases 1-3, document phases 4-5 as hardening if time runs out |
 
 ## Recommendation
@@ -285,6 +308,6 @@ The best implementation path is not to replace Grafana with Kiali. Keep Grafana
 as the central observability dashboard, add Kiali for mesh-specific topology, and
 use Argo CD/Rollouts dashboards for deployment state.
 
-Implement Istio in phases, starting with staging sidecar injection and Kiali.
-Then wire Argo Rollouts to Istio traffic routing in production. Add automated
-Prometheus-backed analysis once exact traffic shifting is proven.
+Istio, Kiali, and production Rollouts traffic routing are now wired. The next
+step is automated Prometheus-backed analysis once exact traffic shifting is
+proven in the staging and production gates.

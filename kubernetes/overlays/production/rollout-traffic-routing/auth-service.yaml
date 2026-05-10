@@ -1,0 +1,14 @@
+- op: add
+  path: /spec/strategy/canary/stableService
+  value: auth-service
+- op: add
+  path: /spec/strategy/canary/canaryService
+  value: auth-service-canary
+- op: add
+  path: /spec/strategy/canary/trafficRouting
+  value:
+    istio:
+      virtualService:
+        name: auth-service
+        routes:
+          - primary

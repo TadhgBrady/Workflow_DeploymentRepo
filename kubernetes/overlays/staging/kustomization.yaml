@@ -57,8 +57,8 @@ replicas:
   - name: nginx-gateway
     count: 1
 
-# Service type patch - use LoadBalancer for staging (cloud access)
-# Ingress resource excluded — staging uses nginx-gateway LoadBalancer directly
+# Service type patch - keep nginx internal; Istio ingressgateway owns external access.
+# Ingress resource excluded; mesh Gateway/VirtualService route traffic to nginx-gateway.
 # Recreate strategy — avoids 2x pods during rollout on small staging cluster
 patches:
   - path: image-pins/auth-service.yaml

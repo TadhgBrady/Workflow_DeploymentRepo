@@ -1,0 +1,14 @@
+- op: add
+  path: /spec/strategy/canary/stableService
+  value: frontend-service
+- op: add
+  path: /spec/strategy/canary/canaryService
+  value: frontend-service-canary
+- op: add
+  path: /spec/strategy/canary/trafficRouting
+  value:
+    istio:
+      virtualService:
+        name: frontend-service
+        routes:
+          - primary

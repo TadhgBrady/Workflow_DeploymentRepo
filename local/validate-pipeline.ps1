@@ -156,6 +156,13 @@ if (Test-Path $ciFile) {
     Assert-ContainsText $ciText "promote:" "combined promotion evidence job exists"
     Assert-ContainsText $ciText "promote-to-production:" "manual production promotion job exists"
     Assert-ContainsText $ciText "install-argocd-production:" "production Argo CD bootstrap job exists"
+    Assert-ContainsText $ciText "install-service-mesh-staging:" "staging Istio/Kiali bootstrap job exists"
+    Assert-ContainsText $ciText "install-service-mesh-production:" "production Istio/Kiali bootstrap job exists"
+    Assert-ContainsText $ciText 'scripts/deployment/bootstrap-istio-staging.sh' "staging mesh bootstrap script is wired in"
+    Assert-ContainsText $ciText 'scripts/deployment/bootstrap-istio-production.sh' "production mesh bootstrap script is wired in"
+    Assert-ContainsText $ciText 'scripts/deployment/discover-loadbalancer-url.sh "$ISTIO_INGRESS_SERVICE" "$ISTIO_NAMESPACE" STAGING_URL' "staging URL is discovered from Istio ingressgateway"
+    Assert-ContainsText $ciText 'scripts/deployment/discover-loadbalancer-url.sh "$ISTIO_INGRESS_SERVICE" "$ISTIO_NAMESPACE" PROD_URL' "production URL is discovered from Istio ingressgateway"
+    Assert-ContainsText $ciText "-skip PeerAuthentication,Telemetry,Gateway,VirtualService,PodMonitor,ServiceMonitor" "CI kubeconform skips service mesh CRDs"
     Assert-ContainsText $ciText 'scripts/deployment/write-image-pins.sh "$IMAGE_VERSION" production' "production promotion/deploy writes GitOps image pins"
     Assert-ContainsText $ciText 'scripts/deployment/sync-argocd-production.sh' "production deploy uses Argo CD sync script"
     Assert-ContainsText $ciText "kubectl-argo-rollouts" "production deploy installs Argo Rollouts kubectl plugin"
@@ -254,6 +261,20 @@ if (Test-Path $ciFile) {
         Write-Host "  PASS production deploy depends on Argo CD bootstrap" -ForegroundColor Green
     }
 
+    if ($ciText -notmatch "(?s)deploy-staging:.*?needs:\s*\r?\n\s*-\s*install-service-mesh-staging") {
+        Write-Host "  FAIL staging deploy must depend on service mesh bootstrap" -ForegroundColor Red
+        $pipelineErrors++
+    } else {
+        Write-Host "  PASS staging deploy depends on service mesh bootstrap" -ForegroundColor Green
+    }
+
+    if ($ciText -notmatch "(?s)install-argocd-production:.*?needs:\s*\r?\n\s*-\s*install-service-mesh-production") {
+        Write-Host "  FAIL production Argo CD bootstrap must depend on service mesh bootstrap" -ForegroundColor Red
+        $pipelineErrors++
+    } else {
+        Write-Host "  PASS production Argo CD bootstrap depends on service mesh bootstrap" -ForegroundColor Green
+    }
+
     if ($ciText -match "kubectl apply -k kubernetes/overlays/production") {
         Write-Host "  FAIL production deploy should not directly apply the full production overlay" -ForegroundColor Red
         $pipelineErrors++
@@ -265,8 +286,20 @@ if (Test-Path $ciFile) {
         "scripts/deployment/write-image-pins.sh",
         "scripts/deployment/bootstrap-argocd-production.sh",
         "scripts/deployment/sync-argocd-production.sh",
+        "scripts/deployment/bootstrap-istio.sh",
+        "scripts/deployment/bootstrap-istio-staging.sh",
+        "scripts/deployment/bootstrap-istio-production.sh",
+        "scripts/deployment/discover-loadbalancer-url.sh",
         "kubernetes/argocd/project-production.yaml",
         "kubernetes/argocd/application-production.yaml",
+        "kubernetes/service-mesh/istiod-values.yaml",
+        "kubernetes/service-mesh/gateway-values.yaml",
+        "kubernetes/service-mesh/kiali-values.yaml",
+        "kubernetes/service-mesh/staging/kustomization.yaml",
+        "kubernetes/service-mesh/production/kustomization.yaml",
+        "kubernetes/service-mesh/production/virtualservices-rollout-services.yaml",
+        "kubernetes/overlays/production/canary-services.yaml",
+        "kubernetes/overlays/production/rollout-traffic-routing/auth-service.yaml",
         "kubernetes/overlays/staging/image-pins/auth-service.yaml",
         "kubernetes/overlays/production/image-pins/auth-service.yaml"
     )
@@ -336,6 +369,7 @@ if (Test-Path $ciFile) {
         Assert-ContainsText $k6RunnerText "LOAD_TEST_AUTH_REFRESH_SKEW_SECONDS" "k6 runner maps auth token refresh controls"
         Assert-ContainsText $k6RunnerText "K6_METADATA_FILE" "k6 runner writes per-run metadata artifacts"
         Assert-ContainsText $k6RunnerText "secretKeyRef" "k6 runner uses a Kubernetes Secret for human workflow credentials"
+        Assert-ContainsText $k6RunnerText 'sidecar.istio.io/inject: "false"' "k6 Kubernetes job opts out of Istio sidecar injection"
         if ($k6RunnerText -match "(?m)^\s*- name: K6_(?!PROMETHEUS_RW_)[A-Z0-9_]+\s*$") {
             Write-Host "  FAIL k6 runner must not pass custom K6_* env vars into the k6 pod" -ForegroundColor Red
             $pipelineErrors++
@@ -345,6 +379,28 @@ if (Test-Path $ciFile) {
     } else {
         Write-Host "  FAIL shared k6 runner script is missing" -ForegroundColor Red
         $pipelineErrors++
+    }
+
+    foreach ($migrationPath in @("kubernetes/overlays/staging/migration-job.yaml", "kubernetes/overlays/production/migration-job.yaml")) {
+        $fullMigrationPath = Join-Path $RepoRoot $migrationPath
+        if (Test-Path $fullMigrationPath) {
+            $migrationText = Get-Content $fullMigrationPath -Raw
+            Assert-ContainsText $migrationText 'sidecar.istio.io/inject: "false"' "migration Job opts out of Istio sidecar injection: $migrationPath"
+        } else {
+            Write-Host "  FAIL migration Job file is missing: $migrationPath" -ForegroundColor Red
+            $pipelineErrors++
+        }
+    }
+
+    foreach ($servicePatchPath in @("kubernetes/overlays/staging/nginx-service-patch.yaml", "kubernetes/overlays/production/nginx-service-patch.yaml")) {
+        $fullServicePatchPath = Join-Path $RepoRoot $servicePatchPath
+        if (Test-Path $fullServicePatchPath) {
+            $servicePatchText = Get-Content $fullServicePatchPath -Raw
+            Assert-ContainsText $servicePatchText "type: ClusterIP" "nginx gateway stays internal behind Istio ingress: $servicePatchPath"
+        } else {
+            Write-Host "  FAIL nginx service patch is missing: $servicePatchPath" -ForegroundColor Red
+            $pipelineErrors++
+        }
     }
 
     $totalErrors += $pipelineErrors
@@ -393,6 +449,23 @@ foreach ($env in $overlays) {
                 Write-Host "  PASS production Rollouts use 2 replicas" -ForegroundColor Green
             } else {
                 Write-Host "  FAIL production Rollouts must all use 2 replicas (Rollouts: $rolloutCount, replicas=2: $rolloutReplicaTwoCount)" -ForegroundColor Red
+                $totalErrors++
+            }
+
+            $stableServiceCount = ([regex]::Matches($renderedText, "(?m)^\s+stableService:\s+\S+\s*$")).Count
+            $canaryServiceCount = ([regex]::Matches($renderedText, "(?m)^\s+canaryService:\s+\S+\s*$")).Count
+            $trafficRoutingCount = ([regex]::Matches($renderedText, "(?m)^\s+trafficRouting:\s*$")).Count
+            $canaryServiceResourceCount = ([regex]::Matches($renderedText, "(?ms)^kind:\s*Service\s*$.*?^\s+name:\s+[^\r\n]+-canary\s*$")).Count
+            if ($rolloutCount -gt 0 -and $stableServiceCount -eq $rolloutCount -and $canaryServiceCount -eq $rolloutCount -and $trafficRoutingCount -eq $rolloutCount) {
+                Write-Host "  PASS production Rollouts use Istio stable/canary traffic routing" -ForegroundColor Green
+            } else {
+                Write-Host "  FAIL production Rollouts must all define stableService, canaryService, and trafficRouting (Rollouts: $rolloutCount, stable: $stableServiceCount, canary: $canaryServiceCount, routing: $trafficRoutingCount)" -ForegroundColor Red
+                $totalErrors++
+            }
+            if ($canaryServiceResourceCount -eq $rolloutCount) {
+                Write-Host "  PASS production renders canary Services for all Rollouts" -ForegroundColor Green
+            } else {
+                Write-Host "  FAIL production must render one canary Service per Rollout (Rollouts: $rolloutCount, canary Services: $canaryServiceResourceCount)" -ForegroundColor Red
                 $totalErrors++
             }
         } elseif ($rolloutCount -gt 0) {
@@ -496,6 +569,66 @@ foreach ($env in $overlays) {
         } else {
             Write-Host "  SKIP kubectl not found" -ForegroundColor Yellow
         }
+    }
+}
+
+foreach ($env in @("staging", "production")) {
+    $meshPath = Join-Path (Join-Path $KubernetesDir "service-mesh") $env
+    if (-not (Test-Path $meshPath)) {
+        Write-Host "`n[$env] Service mesh directory not found: $meshPath" -ForegroundColor Red
+        $totalErrors++
+        continue
+    }
+
+    Write-Host ("`n" + ("-" * 41)) -ForegroundColor Cyan
+    Write-Host "  Validating service mesh: $env" -ForegroundColor Cyan
+    Write-Host ("-" * 41) -ForegroundColor Cyan
+
+    try {
+        $meshRendered = kustomize build $meshPath 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  FAIL service mesh kustomize build failed:" -ForegroundColor Red
+            $meshRendered | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
+            $totalErrors++
+            continue
+        }
+        $meshRenderedText = $meshRendered -join "`n"
+        Write-Host "  PASS service mesh kustomize build succeeded" -ForegroundColor Green
+
+        if ($env -eq "production") {
+            $virtualServiceCount = ([regex]::Matches($meshRenderedText, "(?m)^kind:\s*VirtualService\s*$")).Count
+            if ($virtualServiceCount -ge 12) {
+                Write-Host "  PASS production service mesh renders rollout VirtualServices" -ForegroundColor Green
+            } else {
+                Write-Host "  FAIL production service mesh must render rollout VirtualServices (found: $virtualServiceCount)" -ForegroundColor Red
+                $totalErrors++
+            }
+        }
+
+        $kubectlMeshRendered = kubectl kustomize $meshPath 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  FAIL service mesh kubectl kustomize failed:" -ForegroundColor Red
+            $kubectlMeshRendered | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
+            $totalErrors++
+            continue
+        }
+        Write-Host "  PASS service mesh kubectl kustomize succeeded" -ForegroundColor Green
+
+        $meshConformResult = $meshRenderedText | kubeconform -strict -summary `
+            -skip "PeerAuthentication,Telemetry,Gateway,VirtualService,PodMonitor,ServiceMonitor" 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  FAIL service mesh kubeconform validation failed:" -ForegroundColor Red
+            $meshConformResult | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
+            $totalErrors++
+        } else {
+            Write-Host "  PASS service mesh kubeconform validation passed" -ForegroundColor Green
+            $meshConformResult | Where-Object { $_ -match "Summary" } | ForEach-Object {
+                Write-Host "       $_" -ForegroundColor DarkGray
+            }
+        }
+    } catch {
+        Write-Host "  FAIL service mesh validation error: $_" -ForegroundColor Red
+        $totalErrors++
     }
 }
 

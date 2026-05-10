@@ -1,0 +1,252 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: auth-service
+  namespace: year4-project
+spec:
+  hosts:
+    - auth-service
+    - auth-service.year4-project.svc.cluster.local
+  http:
+    - name: primary
+      route:
+        - destination:
+            host: auth-service.year4-project.svc.cluster.local
+            port:
+              number: 80
+          weight: 100
+        - destination:
+            host: auth-service-canary.year4-project.svc.cluster.local
+            port:
+              number: 80
+          weight: 0
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: user-bl-service
+  namespace: year4-project
+spec:
+  hosts:
+    - user-bl-service
+    - user-bl-service.year4-project.svc.cluster.local
+  http:
+    - name: primary
+      route:
+        - destination:
+            host: user-bl-service.year4-project.svc.cluster.local
+            port:
+              number: 80
+          weight: 100
+        - destination:
+            host: user-bl-service-canary.year4-project.svc.cluster.local
+            port:
+              number: 80
+          weight: 0
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: user-db-access-service
+  namespace: year4-project
+spec:
+  hosts:
+    - user-db-access-service
+    - user-db-access-service.year4-project.svc.cluster.local
+  http:
+    - name: primary
+      route:
+        - destination:
+            host: user-db-access-service.year4-project.svc.cluster.local
+            port:
+              number: 80
+          weight: 100
+        - destination:
+            host: user-db-access-service-canary.year4-project.svc.cluster.local
+            port:
+              number: 80
+          weight: 0
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: job-bl-service
+  namespace: year4-project
+spec:
+  hosts:
+    - job-bl-service
+    - job-bl-service.year4-project.svc.cluster.local
+  http:
+    - name: primary
+      route:
+        - destination:
+            host: job-bl-service.year4-project.svc.cluster.local
+            port:
+              number: 80
+          weight: 100
+        - destination:
+            host: job-bl-service-canary.year4-project.svc.cluster.local
+            port:
+              number: 80
+          weight: 0
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: job-db-access-service
+  namespace: year4-project
+spec:
+  hosts:
+    - job-db-access-service
+    - job-db-access-service.year4-project.svc.cluster.local
+  http:
+    - name: primary
+      route:
+        - destination:
+            host: job-db-access-service.year4-project.svc.cluster.local
+            port:
+              number: 80
+          weight: 100
+        - destination:
+            host: job-db-access-service-canary.year4-project.svc.cluster.local
+            port:
+              number: 80
+          weight: 0
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: customer-bl-service
+  namespace: year4-project
+spec:
+  hosts:
+    - customer-bl-service
+    - customer-bl-service.year4-project.svc.cluster.local
+  http:
+    - name: primary
+      route:
+        - destination:
+            host: customer-bl-service.year4-project.svc.cluster.local
+            port:
+              number: 80
+          weight: 100
+        - destination:
+            host: customer-bl-service-canary.year4-project.svc.cluster.local
+            port:
+              number: 80
+          weight: 0
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: customer-db-access-service
+  namespace: year4-project
+spec:
+  hosts:
+    - customer-db-access-service
+    - customer-db-access-service.year4-project.svc.cluster.local
+  http:
+    - name: primary
+      route:
+        - destination:
+            host: customer-db-access-service.year4-project.svc.cluster.local
+            port:
+              number: 80
+          weight: 100
+        - destination:
+            host: customer-db-access-service-canary.year4-project.svc.cluster.local
+            port:
+              number: 80
+          weight: 0
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: admin-bl-service
+  namespace: year4-project
+spec:
+  hosts:
+    - admin-bl-service
+    - admin-bl-service.year4-project.svc.cluster.local
+  http:
+    - name: primary
+      route:
+        - destination:
+            host: admin-bl-service.year4-project.svc.cluster.local
+            port:
+              number: 80
+          weight: 100
+        - destination:
+            host: admin-bl-service-canary.year4-project.svc.cluster.local
+            port:
+              number: 80
+          weight: 0
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: maps-access-service
+  namespace: year4-project
+spec:
+  hosts:
+    - maps-access-service
+    - maps-access-service.year4-project.svc.cluster.local
+  http:
+    - name: primary
+      route:
+        - destination:
+            host: maps-access-service.year4-project.svc.cluster.local
+            port:
+              number: 80
+          weight: 100
+        - destination:
+            host: maps-access-service-canary.year4-project.svc.cluster.local
+            port:
+              number: 80
+          weight: 0
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: notification-service
+  namespace: year4-project
+spec:
+  hosts:
+    - notification-service
+    - notification-service.year4-project.svc.cluster.local
+  http:
+    - name: primary
+      route:
+        - destination:
+            host: notification-service.year4-project.svc.cluster.local
+            port:
+              number: 80
+          weight: 100
+        - destination:
+            host: notification-service-canary.year4-project.svc.cluster.local
+            port:
+              number: 80
+          weight: 0
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: frontend-service
+  namespace: year4-project
+spec:
+  hosts:
+    - frontend-service
+    - frontend-service.year4-project.svc.cluster.local
+  http:
+    - name: primary
+      route:
+        - destination:
+            host: frontend-service.year4-project.svc.cluster.local
+            port:
+              number: 80
+          weight: 100
+        - destination:
+            host: frontend-service-canary.year4-project.svc.cluster.local
+            port:
+              number: 80
+          weight: 0

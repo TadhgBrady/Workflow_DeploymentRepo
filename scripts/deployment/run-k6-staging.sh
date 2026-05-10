@@ -220,6 +220,8 @@ spec:
   ttlSecondsAfterFinished: 3600
   template:
     metadata:
+      annotations:
+        sidecar.istio.io/inject: "false"
       labels:
         app.kubernetes.io/name: k6-staging-load
         app.kubernetes.io/part-of: year4-project-observability

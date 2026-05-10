@@ -8,6 +8,7 @@ resources:
   - ../../base
   - external-secrets.yaml
   - migration-job.yaml
+  - canary-services.yaml
 
 # Production-specific configuration
 labels:
@@ -20,7 +21,7 @@ labels:
 commonAnnotations:
   environment: production
   deployment.type: production
-  description: "Production deployment with cost-conscious replicas and LoadBalancer"
+  description: "Production deployment with cost-conscious replicas and Istio ingress"
   cloudwatch.aws.amazon.com/auto-annotate-dotnet: "false"
   cloudwatch.aws.amazon.com/auto-annotate-java: "false"
   cloudwatch.aws.amazon.com/auto-annotate-nodejs: "false"
@@ -57,7 +58,7 @@ replicas:
   - name: nginx-gateway
     count: 2
 
-# Service type patch - use LoadBalancer for production (production access)
+# Service type patch - keep nginx internal; Istio ingressgateway owns external access.
 patches:
   - path: image-pins/auth-service.yaml
   - path: image-pins/user-bl-service.yaml
@@ -76,10 +77,91 @@ patches:
   - path: resource-limits-patch.yaml
   - path: nginx-resource-limits-patch.yaml
   - target:
+      kind: Ingress
+      name: api-ingress
+    patch: |
+      $patch: delete
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: api-ingress
+  - target:
       group: apps
       version: v1
       kind: Deployment
     path: rollout-canary-patch.yaml
+  - target:
+      group: argoproj.io
+      version: v1alpha1
+      kind: Rollout
+      name: auth-service
+    path: rollout-traffic-routing/auth-service.yaml
+  - target:
+      group: argoproj.io
+      version: v1alpha1
+      kind: Rollout
+      name: user-bl-service
+    path: rollout-traffic-routing/user-bl-service.yaml
+  - target:
+      group: argoproj.io
+      version: v1alpha1
+      kind: Rollout
+      name: user-db-access-service
+    path: rollout-traffic-routing/user-db-access-service.yaml
+  - target:
+      group: argoproj.io
+      version: v1alpha1
+      kind: Rollout
+      name: job-bl-service-deployment
+    path: rollout-traffic-routing/job-bl-service-deployment.yaml
+  - target:
+      group: argoproj.io
+      version: v1alpha1
+      kind: Rollout
+      name: job-db-access-service-deployment
+    path: rollout-traffic-routing/job-db-access-service-deployment.yaml
+  - target:
+      group: argoproj.io
+      version: v1alpha1
+      kind: Rollout
+      name: customer-bl-service
+    path: rollout-traffic-routing/customer-bl-service.yaml
+  - target:
+      group: argoproj.io
+      version: v1alpha1
+      kind: Rollout
+      name: customer-db-access-service
+    path: rollout-traffic-routing/customer-db-access-service.yaml
+  - target:
+      group: argoproj.io
+      version: v1alpha1
+      kind: Rollout
+      name: admin-bl-service
+    path: rollout-traffic-routing/admin-bl-service.yaml
+  - target:
+      group: argoproj.io
+      version: v1alpha1
+      kind: Rollout
+      name: maps-access-service
+    path: rollout-traffic-routing/maps-access-service.yaml
+  - target:
+      group: argoproj.io
+      version: v1alpha1
+      kind: Rollout
+      name: notification-service
+    path: rollout-traffic-routing/notification-service.yaml
+  - target:
+      group: argoproj.io
+      version: v1alpha1
+      kind: Rollout
+      name: frontend-deployment
+    path: rollout-traffic-routing/frontend-deployment.yaml
+  - target:
+      group: argoproj.io
+      version: v1alpha1
+      kind: Rollout
+      name: nginx-gateway
+    path: rollout-traffic-routing/nginx-gateway.yaml
 
 # Generated ConfigMaps
 generatorOptions:

@@ -81,6 +81,10 @@ variables:
   KUBE_PROM_STACK_RELEASE: "monitoring"
   LOKI_RELEASE: "loki"
   FLUENT_BIT_RELEASE: "fluent-bit"
+  ISTIO_NAMESPACE: "istio-system"
+  ISTIO_VERSION: "1.23.2"
+  ISTIO_INGRESS_SERVICE: "istio-ingressgateway"
+  KIALI_RELEASE: "kiali"
 
   # -- Staging k6 load gate defaults (safe smoke-load profile) --
   K6_IMAGE: "grafana/k6:0.54.0"
@@ -131,6 +135,12 @@ validate-manifests:
         echo "── Validating overlay with kubectl embedded Kustomize: $ENV ──"
         kubectl kustomize kubernetes/overlays/$ENV > /dev/null
       done
+      for ENV in staging production; do
+        echo "── Validating service mesh manifests: $ENV ──"
+        kustomize build kubernetes/service-mesh/$ENV | kubeconform -strict -summary -skip PeerAuthentication,Telemetry,Gateway,VirtualService,PodMonitor,ServiceMonitor
+        echo "── Validating service mesh with kubectl embedded Kustomize: $ENV ──"
+        kubectl kustomize kubernetes/service-mesh/$ENV > /dev/null
+      done
       echo "── Validating observability manifests ──"
       kubeconform -strict -summary -skip ServiceMonitor,PrometheusRule kubernetes/observability/*.yaml
     - echo ""
@@ -145,11 +155,13 @@ validate-manifests:
 validate-helm:
   stage: validate
   image:
-    name: alpine/helm:3.14.0
+    name: alpine/helm:3.17.0
     entrypoint: [""]
   before_script:
     - helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
     - helm repo add grafana https://grafana.github.io/helm-charts
+    - helm repo add istio https://istio-release.storage.googleapis.com/charts
+    - helm repo add kiali-server https://kiali.org/helm-charts
     - helm repo update
   script:
     - echo "═══════════════════════════════════════════════════════════════"
@@ -170,10 +182,37 @@ validate-helm:
         --namespace "$MONITORING_NAMESPACE" \
         --debug > /dev/null
 
+      echo "── helm template: kube-prometheus-stack production values ──"
+      helm template "$KUBE_PROM_STACK_RELEASE" prometheus-community/kube-prometheus-stack \
+        -f helm/kube-prometheus-stack/values-prod.yaml \
+        --namespace "$MONITORING_NAMESPACE" \
+        --debug > /dev/null
+
       echo "── helm template: Loki staging values ──"
       helm template "$LOKI_RELEASE" grafana/loki \
         -f helm/loki/values-staging.yaml \
         --namespace "$MONITORING_NAMESPACE" \
+        --debug > /dev/null
+
+      echo "── helm template: Istio control plane values ──"
+      helm template istiod istio/istiod \
+        --version "$ISTIO_VERSION" \
+        -f kubernetes/service-mesh/istiod-values.yaml \
+        --namespace "$ISTIO_NAMESPACE" \
+        --debug > /dev/null
+
+      echo "── helm template: Istio ingress gateway values ──"
+      helm template "$ISTIO_INGRESS_SERVICE" istio/gateway \
+        --version "$ISTIO_VERSION" \
+        -f kubernetes/service-mesh/gateway-values.yaml \
+        --namespace "$ISTIO_NAMESPACE" \
+        --skip-schema-validation \
+        --debug > /dev/null
+
+      echo "── helm template: Kiali values ──"
+      helm template "$KIALI_RELEASE" kiali-server/kiali-server \
+        -f kubernetes/service-mesh/kiali-values.yaml \
+        --namespace "$ISTIO_NAMESPACE" \
         --debug > /dev/null
     - echo ""
     - echo "✅ All Helm templates render successfully"
@@ -655,8 +694,7 @@ install-addons-staging:
       sh scripts/deployment/ensure-external-secret-store.sh
 
       # 3. NGINX Ingress Controller — SKIPPED for staging
-      # Staging uses nginx-gateway LoadBalancer directly (no Ingress resource needed).
-      # The ingress-nginx controller is only installed for production (TLS via cert-manager).
+      # Staging external access is handled by the Istio ingressgateway installed later.
       echo "--- Skipping NGINX Ingress Controller (not needed for staging) ---"
 
       echo ""
@@ -881,14 +919,42 @@ install-observability-staging:
   allow_failure: false
 
 # =============================================================================
-# STAGE 3b: DEPLOY STAGING — kubectl apply + rollout verification
+# STAGE 3b: SERVICE MESH STAGING — Istio, Kiali, mesh routing
+# =============================================================================
+
+install-service-mesh-staging:
+  stage: deploy-staging
+  image: alpine:latest
+  resource_group: staging-service-mesh
+  needs:
+    - install-observability-staging
+  before_script:
+    - apk add --no-cache curl bash tar gzip python3 py3-pip
+    - pip3 install --break-system-packages awscli
+    - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
+    - chmod +x kubectl && mv kubectl /usr/local/bin/
+    - curl -sL "https://get.helm.sh/helm-v3.17.0-linux-amd64.tar.gz" | tar xz -C /tmp
+    - mv /tmp/linux-amd64/helm /usr/local/bin/
+    - aws eks update-kubeconfig --name $STAGING_CLUSTER_NAME --region $AWS_DEFAULT_REGION
+  script:
+    - echo "═══════════════════════════════════════════════════════════════"
+    - echo "  Installing Istio, Kiali, and mesh routing for STAGING"
+    - echo "═══════════════════════════════════════════════════════════════"
+    - sh scripts/deployment/bootstrap-istio-staging.sh
+  rules:
+    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only"'
+      when: on_success
+  allow_failure: false
+
+# =============================================================================
+# STAGE 3c: DEPLOY STAGING — kubectl apply + rollout verification
 # =============================================================================
 
 deploy-staging:
   stage: deploy-staging
   image: alpine:latest
   needs:
-    - install-observability-staging
+    - install-service-mesh-staging
   before_script:
     - apk add --no-cache curl bash tar gzip python3 py3-pip sed
     - pip3 install --break-system-packages awscli
@@ -981,36 +1047,7 @@ deploy-staging:
     # Force ESO to re-sync secrets from AWS (picks up any recent secret value changes)
     - sh scripts/deployment/sync-external-secrets.sh "$STAGING_NAMESPACE" 180
     - sh scripts/deployment/wait-deployment-rollout.sh "$STAGING_NAMESPACE" 300
-    - |
-      echo ""
-      echo "Waiting for LoadBalancer external hostname..."
-      for i in $(seq 1 60); do
-        LB_HOST=$(kubectl get svc nginx-gateway -n $STAGING_NAMESPACE \
-          -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
-        LB_IP=$(kubectl get svc nginx-gateway -n $STAGING_NAMESPACE \
-          -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
-
-        if [ -n "$LB_HOST" ]; then
-          echo "STAGING_URL=http://$LB_HOST" > staging-deploy.env
-          echo "✅ Staging URL: http://$LB_HOST"
-          break
-        fi
-
-        if [ -n "$LB_IP" ]; then
-          echo "STAGING_URL=http://$LB_IP" > staging-deploy.env
-          echo "✅ Staging URL: http://$LB_IP"
-          break
-        fi
-
-        echo "  Attempt $i/60 — waiting for LB provisioning..."
-        sleep 10
-      done
-      if [ -z "$LB_HOST" ] && [ -z "$LB_IP" ]; then
-        echo "⚠️  LoadBalancer hostname not available yet (may still be provisioning)"
-        kubectl get svc nginx-gateway -n $STAGING_NAMESPACE -o wide || true
-        kubectl describe svc nginx-gateway -n $STAGING_NAMESPACE || true
-        echo "STAGING_URL=" > staging-deploy.env
-      fi
+    - sh scripts/deployment/discover-loadbalancer-url.sh "$ISTIO_INGRESS_SERVICE" "$ISTIO_NAMESPACE" STAGING_URL staging-deploy.env
     - echo ""
     - echo "✅ Staging deployment complete"
   artifacts:
@@ -1871,20 +1908,12 @@ install-addons-production:
 
       sh scripts/deployment/ensure-external-secret-store.sh
 
-      # 3. NGINX Ingress Controller
-      echo "--- Installing NGINX Ingress Controller ---"
-      retry_cmd 4 10 helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
-      retry_cmd 4 10 helm repo update ingress-nginx
-      helm status ingress-nginx -n ingress-nginx 2>/dev/null \
-        && STATUS=$(helm status ingress-nginx -n ingress-nginx -o json | grep -o '"status":"[^"]*"' | head -1) \
-        || STATUS=""
-      if echo "$STATUS" | grep -q 'failed\|pending-'; then
-        echo "  Previous release in bad state ($STATUS) — rolling back..."
-        helm rollback ingress-nginx 0 -n ingress-nginx 2>/dev/null || helm uninstall ingress-nginx -n ingress-nginx 2>/dev/null || true
+      # 3. NGINX Ingress Controller - removed in favor of Istio ingressgateway.
+      echo "--- Ensuring legacy ingress-nginx is not running ---"
+      if helm status ingress-nginx -n ingress-nginx >/dev/null 2>&1; then
+        helm uninstall ingress-nginx -n ingress-nginx || true
       fi
-      retry_cmd 4 20 helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
-        --namespace ingress-nginx --create-namespace \
-        --atomic --timeout 900s
+      kubectl delete namespace ingress-nginx --ignore-not-found=true --wait=false
 
       echo ""
       echo "✅ All production add-ons installed successfully"
@@ -1899,12 +1928,14 @@ install-observability-production:
   needs:
     - install-addons-production
   before_script:
-    - apk add --no-cache curl bash tar gzip python3 py3-pip
+    - apk add --no-cache curl bash tar gzip python3 py3-pip openssl
     - pip3 install --break-system-packages awscli
     - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
     - chmod +x kubectl && mv kubectl /usr/local/bin/
     - curl -sL "https://get.helm.sh/helm-v3.17.0-linux-amd64.tar.gz" | tar xz -C /tmp
     - mv /tmp/linux-amd64/helm /usr/local/bin/
+    - helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+    - helm repo update
     - aws eks update-kubeconfig --name $PROD_CLUSTER_NAME --region $AWS_DEFAULT_REGION
   script:
     - |
@@ -1913,8 +1944,51 @@ install-observability-production:
       echo "═══════════════════════════════════════════════════════════════"
 
       kubectl apply -f kubernetes/observability/storageclass-gp3.yaml
+      kubectl create namespace "$MONITORING_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+      kubectl create namespace "$LOGGING_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+      kubectl label namespace "$MONITORING_NAMESPACE" app.kubernetes.io/name=monitoring app.kubernetes.io/part-of=year4-project-observability environment=production --overwrite
+      kubectl label namespace "$LOGGING_NAMESPACE" app.kubernetes.io/name=logging app.kubernetes.io/part-of=year4-project-observability environment=production --overwrite
+      kubectl apply -f kubernetes/observability/limitrange-observability.yaml
+      kubectl apply -f kubernetes/observability/resourcequota-observability.yaml
 
       sh scripts/deployment/check-cloudwatch-observability.sh "$PROD_CLUSTER_NAME"
+
+      kubectl delete job \
+        kube-prometheus-stack-admission-create \
+        kube-prometheus-stack-admission-patch \
+        -n "$MONITORING_NAMESPACE" --ignore-not-found=true --wait=false
+
+      KUBE_PROM_STATUS=$(helm status "$KUBE_PROM_STACK_RELEASE" -n "$MONITORING_NAMESPACE" -o json 2>/dev/null | grep -o '"status":"[^"]*"' | head -1 | cut -d'"' -f4 || true)
+      case "$KUBE_PROM_STATUS" in
+        pending-install|pending-upgrade|pending-rollback)
+          echo "⚠️  kube-prometheus-stack release is $KUBE_PROM_STATUS — clearing stale Helm operation lock..."
+          helm rollback "$KUBE_PROM_STACK_RELEASE" 0 -n "$MONITORING_NAMESPACE" 2>/dev/null || true
+          helm uninstall "$KUBE_PROM_STACK_RELEASE" -n "$MONITORING_NAMESPACE" 2>/dev/null || true
+          sleep 10
+          ;;
+      esac
+
+      GRAFANA_USER="${GRAFANA_ADMIN_USER:-admin}"
+      GRAFANA_PASSWORD="${GRAFANA_ADMIN_PASSWORD:-$(openssl rand -base64 24)}"
+      kubectl create secret generic grafana-admin \
+        --namespace "$MONITORING_NAMESPACE" \
+        --from-literal=admin-user="$GRAFANA_USER" \
+        --from-literal=admin-password="$GRAFANA_PASSWORD" \
+        --dry-run=client -o yaml | kubectl apply -f -
+
+      echo "--- Installing lightweight production kube-prometheus-stack ---"
+      if ! helm upgrade --install "$KUBE_PROM_STACK_RELEASE" prometheus-community/kube-prometheus-stack \
+        -f helm/kube-prometheus-stack/values-prod.yaml \
+        --namespace "$MONITORING_NAMESPACE" --create-namespace \
+        --wait --timeout 600s; then
+        echo "❌ production kube-prometheus-stack install/upgrade failed. Diagnostics:"
+        helm status "$KUBE_PROM_STACK_RELEASE" -n "$MONITORING_NAMESPACE" || true
+        kubectl get pods -n "$MONITORING_NAMESPACE" -o wide || true
+        kubectl get jobs -n "$MONITORING_NAMESPACE" || true
+        kubectl get pvc -n "$MONITORING_NAMESPACE" || true
+        kubectl get events -n "$MONITORING_NAMESPACE" --sort-by=.lastTimestamp | tail -100 || true
+        exit 1
+      fi
 
       FLUENT_BIT_ROLE_ARN="${FLUENT_BIT_ROLE_ARN:-$(aws iam get-role \
         --role-name yr4-project-production-fluent-bit-role \
@@ -1928,7 +2002,38 @@ install-observability-production:
         --wait --timeout 300s
 
       kubectl rollout status daemonset/$FLUENT_BIT_RELEASE -n "$LOGGING_NAMESPACE" --timeout=180s
-      echo "✅ Production observability foundation installed"
+      kubectl apply -f kubernetes/observability/servicemonitor-fluent-bit-production.yaml
+      kubectl apply -f kubernetes/observability/dashboard-logging-troubleshooting.yaml
+      kubectl apply -f kubernetes/observability/dashboard-system-metrics.yaml
+
+      kubectl rollout status deployment -l app.kubernetes.io/name=grafana -n "$MONITORING_NAMESPACE" --timeout=300s
+      kubectl get pods -n "$MONITORING_NAMESPACE"
+      kubectl get pods -n "$LOGGING_NAMESPACE"
+      echo "✅ Production kube-prometheus-stack, Fluent Bit, and dashboards installed"
+  rules:
+    - if: '$IMAGE_VERSION && ($PIPELINE_MODE == "auto" || $PIPELINE_MODE == "full-release")'
+      when: on_success
+  allow_failure: false
+
+install-service-mesh-production:
+  stage: deploy-prod
+  image: alpine:latest
+  resource_group: production-service-mesh
+  needs:
+    - install-observability-production
+  before_script:
+    - apk add --no-cache curl bash tar gzip python3 py3-pip
+    - pip3 install --break-system-packages awscli
+    - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
+    - chmod +x kubectl && mv kubectl /usr/local/bin/
+    - curl -sL "https://get.helm.sh/helm-v3.17.0-linux-amd64.tar.gz" | tar xz -C /tmp
+    - mv /tmp/linux-amd64/helm /usr/local/bin/
+    - aws eks update-kubeconfig --name $PROD_CLUSTER_NAME --region $AWS_DEFAULT_REGION
+  script:
+    - echo "═══════════════════════════════════════════════════════════════"
+    - echo "  Installing Istio, Kiali, and mesh routing for PRODUCTION"
+    - echo "═══════════════════════════════════════════════════════════════"
+    - sh scripts/deployment/bootstrap-istio-production.sh
   rules:
     - if: '$IMAGE_VERSION && ($PIPELINE_MODE == "auto" || $PIPELINE_MODE == "full-release")'
       when: on_success
@@ -1939,7 +2044,7 @@ install-argocd-production:
   image: alpine:latest
   resource_group: production-gitops-bootstrap
   needs:
-    - install-observability-production
+    - install-service-mesh-production
   before_script:
     - apk add --no-cache curl bash tar gzip python3 py3-pip
     - pip3 install --break-system-packages awscli
@@ -2060,36 +2165,7 @@ deploy-production:
     # Force ESO to re-sync secrets from AWS before checking rollouts
     - sh scripts/deployment/sync-external-secrets.sh "$PROD_NAMESPACE" 180
     - sh scripts/deployment/wait-deployment-rollout.sh "$PROD_NAMESPACE" 300
-    - |
-      echo ""
-      echo "Waiting for LoadBalancer external hostname..."
-      for i in $(seq 1 60); do
-        LB_HOST=$(kubectl get svc nginx-gateway -n $PROD_NAMESPACE \
-          -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
-        LB_IP=$(kubectl get svc nginx-gateway -n $PROD_NAMESPACE \
-          -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
-
-        if [ -n "$LB_HOST" ]; then
-          echo "PROD_URL=http://$LB_HOST" > production-deploy.env
-          echo "✅ Production URL: http://$LB_HOST"
-          break
-        fi
-
-        if [ -n "$LB_IP" ]; then
-          echo "PROD_URL=http://$LB_IP" > production-deploy.env
-          echo "✅ Production URL: http://$LB_IP"
-          break
-        fi
-
-        echo "  Attempt $i/60 — waiting for LB provisioning..."
-        sleep 10
-      done
-      if [ -z "$LB_HOST" ] && [ -z "$LB_IP" ]; then
-        echo "⚠️  LoadBalancer hostname not available yet"
-        kubectl get svc nginx-gateway -n $PROD_NAMESPACE -o wide || true
-        kubectl describe svc nginx-gateway -n $PROD_NAMESPACE || true
-        echo "PROD_URL=" > production-deploy.env
-      fi
+    - sh scripts/deployment/discover-loadbalancer-url.sh "$ISTIO_INGRESS_SERVICE" "$ISTIO_NAMESPACE" PROD_URL production-deploy.env
     - echo ""
     - echo "✅ Production deployment complete"
   artifacts:

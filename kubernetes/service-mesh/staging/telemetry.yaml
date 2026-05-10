@@ -1,0 +1,9 @@
+apiVersion: telemetry.istio.io/v1
+kind: Telemetry
+metadata:
+  name: app-mesh-default
+  namespace: year4-project-staging
+spec:
+  metrics:
+    - providers:
+        - name: prometheus

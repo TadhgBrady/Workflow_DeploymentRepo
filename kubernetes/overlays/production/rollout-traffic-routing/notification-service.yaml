@@ -1,0 +1,14 @@
+- op: add
+  path: /spec/strategy/canary/stableService
+  value: notification-service
+- op: add
+  path: /spec/strategy/canary/canaryService
+  value: notification-service-canary
+- op: add
+  path: /spec/strategy/canary/trafficRouting
+  value:
+    istio:
+      virtualService:
+        name: notification-service
+        routes:
+          - primary

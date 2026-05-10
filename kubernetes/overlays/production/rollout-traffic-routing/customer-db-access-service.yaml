@@ -1,0 +1,14 @@
+- op: add
+  path: /spec/strategy/canary/stableService
+  value: customer-db-access-service
+- op: add
+  path: /spec/strategy/canary/canaryService
+  value: customer-db-access-service-canary
+- op: add
+  path: /spec/strategy/canary/trafficRouting
+  value:
+    istio:
+      virtualService:
+        name: customer-db-access-service
+        routes:
+          - primary

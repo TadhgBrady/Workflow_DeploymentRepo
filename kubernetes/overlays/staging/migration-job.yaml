@@ -10,6 +10,8 @@ spec:
   ttlSecondsAfterFinished: 300
   template:
     metadata:
+      annotations:
+        sidecar.istio.io/inject: "false"
       labels:
         app: migration-runner
     spec:

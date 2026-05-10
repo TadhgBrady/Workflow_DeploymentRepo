@@ -3,4 +3,4 @@ kind: Service
 metadata:
   name: nginx-gateway
 spec:
-  type: LoadBalancer
+  type: ClusterIP

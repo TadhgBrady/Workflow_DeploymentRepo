@@ -70,7 +70,7 @@
 ### Metrics Storage
 - **Dev**: 10Gi, 7-day retention
 - **Staging**: 50Gi, 30-day retention
-- **Prod**: 100Gi, 90-day retention
+- **Prod**: 10Gi, 2-day retention for the lightweight mesh/operations stack
 
 ### Visualization (Grafana)
 **Pre-configured Dashboards**:
@@ -87,23 +87,29 @@
 - Environment-specific metrics
 - High availability setup (staging/prod)
 
-### Service Mesh Dashboard Direction
+### Service Mesh Dashboards
 
-Istio/Kiali is planned as an additive mesh visibility layer, not a replacement
-for Grafana. Grafana remains the primary dashboard for Prometheus metrics,
-release evidence, SLOs, k6 results, Fluent Bit health, and long-term trend
-views. The Operations Hub dashboard is the main entry point and links to Kiali,
-Argo CD, Argo Rollouts, CloudWatch, and GitLab. Kiali should be added for
-service topology, mTLS status, Istio config validation, and live stable/canary
-traffic flow during Argo Rollouts.
+Istio/Kiali is installed as an additive mesh visibility layer, not a replacement
+for Grafana. The pipeline installs Istio base, istiod, the Istio ingress gateway,
+and Kiali in `istio-system`, then labels only the app namespace for sidecar
+injection. Grafana remains the primary dashboard for Prometheus metrics, release
+evidence, SLOs, k6 results, Fluent Bit health, and long-term trend views.
 
-See `ISTIO_SERVICE_MESH_PLAN.md` for the phased implementation plan.
+The Operations Hub dashboard is the main entry point and links to Kiali, Argo CD,
+Argo Rollouts, CloudWatch, and GitLab. Kiali is kept internal and is used for
+service topology, mTLS status, Istio config validation, and live traffic flow.
+Prometheus scrapes Istio proxy and istiod metrics through the service mesh
+PodMonitor/ServiceMonitor resources.
+
+See `ISTIO_SERVICE_MESH_PLAN.md` for the implemented mesh foundation,
+production request-level canaries, and the remaining Prometheus-backed analysis
+hardening work.
 
 ### HA & Resilience
 
 | Aspect | Dev | Staging | Prod |
 |--------|-----|---------|------|
-| Replicas | 1 | 2 | 3 |
+| Replicas | 1 | 1-2 | 2 |
 | Pod Anti-affinity | — | Preferred | Required |
 | Dedicated Nodes | — | — | Yes |
 | Storage Class | standard | gp2 | gp3 |

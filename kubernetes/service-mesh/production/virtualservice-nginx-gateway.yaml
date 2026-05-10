@@ -1,0 +1,23 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: nginx-gateway
+  namespace: year4-project
+spec:
+  hosts:
+    - "*"
+  gateways:
+    - year4-project-gateway
+  http:
+    - name: primary
+      route:
+        - destination:
+            host: nginx-gateway.year4-project.svc.cluster.local
+            port:
+              number: 80
+          weight: 100
+        - destination:
+            host: nginx-gateway-canary.year4-project.svc.cluster.local
+            port:
+              number: 80
+          weight: 0

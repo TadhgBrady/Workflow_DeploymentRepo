@@ -1,0 +1,14 @@
+- op: add
+  path: /spec/strategy/canary/stableService
+  value: user-bl-service
+- op: add
+  path: /spec/strategy/canary/canaryService
+  value: user-bl-service-canary
+- op: add
+  path: /spec/strategy/canary/trafficRouting
+  value:
+    istio:
+      virtualService:
+        name: user-bl-service
+        routes:
+          - primary
