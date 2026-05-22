@@ -150,7 +150,7 @@ if (Test-Path $ciFile) {
     Assert-ContainsText $ciText 'PIPELINE_MODE: "auto"' "pipeline mode defaults to auto"
     Assert-ContainsText $ciText "validate-deployment-mode:" "deployment mode validation job exists"
     Assert-ContainsText $ciText "preflight-staging:" "staging preflight job exists"
-    Assert-ContainsText $ciText "-skip ClusterIssuer,ClusterSecretStore,ExternalSecret,Rollout" "CI kubeconform skips Argo Rollouts CRD"
+    Assert-ContainsText $ciText "-skip ClusterIssuer,ClusterSecretStore,ExternalSecret,Rollout,AnalysisTemplate" "CI kubeconform skips Argo Rollouts CRDs"
     Assert-ContainsText $ciText "staging-readiness:" "staging readiness job exists"
     Assert-ContainsText $ciText "playwright-e2e-staging:" "mandatory Playwright E2E job exists"
     Assert-ContainsText $ciText "promote:" "combined promotion evidence job exists"
@@ -158,6 +158,9 @@ if (Test-Path $ciFile) {
     Assert-ContainsText $ciText "install-argocd-production:" "production Argo CD bootstrap job exists"
     Assert-ContainsText $ciText "install-service-mesh-staging:" "staging Istio/Kiali bootstrap job exists"
     Assert-ContainsText $ciText "install-service-mesh-production:" "production Istio/Kiali bootstrap job exists"
+    Assert-ContainsText $ciText 'scripts/deployment/install-karpenter.sh "$STAGING_CLUSTER_NAME" staging' "staging Karpenter installer is wired in"
+    Assert-ContainsText $ciText 'scripts/deployment/install-karpenter.sh "$PROD_CLUSTER_NAME" production' "production Karpenter installer is wired in"
+    Assert-ContainsText $ciText "kubernetes/autoscaling/karpenter/`$ENV" "CI validates Karpenter autoscaling manifests"
     Assert-ContainsText $ciText 'scripts/deployment/bootstrap-istio-staging.sh' "staging mesh bootstrap script is wired in"
     Assert-ContainsText $ciText 'scripts/deployment/bootstrap-istio-production.sh' "production mesh bootstrap script is wired in"
     Assert-ContainsText $ciText 'scripts/deployment/discover-loadbalancer-url.sh "$ISTIO_INGRESS_SERVICE" "$ISTIO_NAMESPACE" STAGING_URL' "staging URL is discovered from Istio ingressgateway"
@@ -175,8 +178,10 @@ if (Test-Path $ciFile) {
     Assert-ContainsText $ciText 'scripts/deployment/run-k6-staging.sh' "shared k6 runner script is used"
     Assert-ContainsText $ciText 'tests/k6/real-user-workflows.js' "k6 real user workflow script is wired in"
     Assert-ContainsText $ciText 'dashboard-k6-staging.yaml' "k6 Grafana dashboard is applied"
+    Assert-ContainsText $ciText 'dashboard-autoscaling.yaml' "Autoscaling Grafana dashboard is applied"
     Assert-ContainsText $ciText 'dashboard-operations-hub.yaml' "Operations Hub dashboard is applied by CI"
     Assert-ContainsText $ciText 'dashboard-istio-mesh.yaml' "Istio mesh dashboard is applied by CI"
+    Assert-ContainsText $ciText 'scripts/deployment/validate-autoscaling.sh "$ENV"' "CI validates autoscaling guardrails per overlay"
     Assert-ContainsText $ciText 'k6-results/' "k6 jobs publish log, metadata, and summary artifacts"
 
     if ($ciText -notmatch "(?s)cleanup-staging-loadbalancers:.*?needs:\s*\r?\n\s*-\s*confirm-destroy-staging") {
@@ -288,16 +293,21 @@ if (Test-Path $ciFile) {
         "scripts/deployment/write-image-pins.sh",
         "scripts/deployment/bootstrap-argocd-production.sh",
         "scripts/deployment/sync-argocd-production.sh",
+        "scripts/deployment/install-karpenter.sh",
+        "scripts/deployment/validate-autoscaling.sh",
         "scripts/deployment/bootstrap-istio.sh",
         "scripts/deployment/bootstrap-istio-staging.sh",
         "scripts/deployment/bootstrap-istio-production.sh",
         "scripts/deployment/discover-loadbalancer-url.sh",
+        "kubernetes/argocd/kustomization.yaml",
         "kubernetes/argocd/project-production.yaml",
+        "kubernetes/argocd/application-production-service-mesh.yaml",
         "kubernetes/argocd/application-production.yaml",
         "kubernetes/service-mesh/istiod-values.yaml",
         "kubernetes/service-mesh/gateway-values.yaml",
         "kubernetes/service-mesh/kiali-values.yaml",
         "kubernetes/observability/dashboard-operations-hub.yaml",
+        "kubernetes/observability/dashboard-autoscaling.yaml",
         "kubernetes/observability/dashboard-istio-mesh.yaml",
         "kubernetes/service-mesh/staging/kustomization.yaml",
         "kubernetes/service-mesh/staging/destination-rules.yaml",
@@ -306,8 +316,20 @@ if (Test-Path $ciFile) {
         "kubernetes/service-mesh/production/destination-rules.yaml",
         "kubernetes/service-mesh/production/authorization-policy-audit.yaml",
         "kubernetes/service-mesh/production/virtualservices-rollout-services.yaml",
+        "kubernetes/overlays/production/analysis-templates.yaml",
         "kubernetes/overlays/production/canary-services.yaml",
+        "kubernetes/overlays/production/pod-disruption-budgets.yaml",
+        "kubernetes/overlays/production/workload-scheduling-patch.yaml",
+        "kubernetes/overlays/staging/pod-disruption-budgets.yaml",
+        "kubernetes/overlays/staging/workload-scheduling-patch.yaml",
+        "kubernetes/base/priority-classes.yaml",
         "kubernetes/overlays/production/rollout-traffic-routing/auth-service.yaml",
+        "kubernetes/autoscaling/karpenter/staging/kustomization.yaml",
+        "kubernetes/autoscaling/karpenter/staging/ec2nodeclass.yaml",
+        "kubernetes/autoscaling/karpenter/staging/nodepool.yaml",
+        "kubernetes/autoscaling/karpenter/production/kustomization.yaml",
+        "kubernetes/autoscaling/karpenter/production/ec2nodeclass.yaml",
+        "kubernetes/autoscaling/karpenter/production/nodepool.yaml",
         "kubernetes/overlays/staging/image-pins/auth-service.yaml",
         "kubernetes/overlays/production/image-pins/auth-service.yaml"
     )
@@ -414,6 +436,80 @@ if (Test-Path $ciFile) {
     $totalErrors += $pipelineErrors
 }
 
+$argocdPath = Join-Path $KubernetesDir "argocd"
+if (Test-Path $argocdPath) {
+    Write-Host "`n-----------------------------------------" -ForegroundColor Cyan
+    Write-Host "  Validating Argo CD manifests" -ForegroundColor Cyan
+    Write-Host "-----------------------------------------" -ForegroundColor Cyan
+    try {
+        $argocdRendered = kubectl kustomize $argocdPath 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  FAIL Argo CD kubectl kustomize failed:" -ForegroundColor Red
+            $argocdRendered | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
+            $totalErrors++
+        } else {
+            Write-Host "  PASS Argo CD kubectl kustomize succeeded" -ForegroundColor Green
+        }
+    } catch {
+        Write-Host "  FAIL Argo CD validation error: $_" -ForegroundColor Red
+        $totalErrors++
+    }
+}
+
+foreach ($env in $overlays) {
+    $karpenterPath = Join-Path (Join-Path (Join-Path $KubernetesDir "autoscaling") "karpenter") $env
+    if (-not (Test-Path $karpenterPath)) {
+        Write-Host "`n[$env] Karpenter autoscaling directory not found: $karpenterPath" -ForegroundColor Yellow
+        continue
+    }
+
+    Write-Host "`n-----------------------------------------" -ForegroundColor Cyan
+    Write-Host "  Validating Karpenter autoscaling: $env" -ForegroundColor Cyan
+    Write-Host "-----------------------------------------" -ForegroundColor Cyan
+
+    try {
+        $karpenterRendered = kustomize build $karpenterPath 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  FAIL Karpenter kustomize build failed:" -ForegroundColor Red
+            $karpenterRendered | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
+            $totalErrors++
+            continue
+        }
+        $karpenterRenderedText = $karpenterRendered -join "`n"
+        Write-Host "  PASS Karpenter kustomize build succeeded" -ForegroundColor Green
+
+        $nodePoolCount = ($karpenterRenderedText | Select-String -Pattern "(?m)^kind:\s*NodePool$" -AllMatches).Matches.Count
+        $nodeClassCount = ($karpenterRenderedText | Select-String -Pattern "(?m)^kind:\s*EC2NodeClass$" -AllMatches).Matches.Count
+        if ($nodePoolCount -eq 1 -and $nodeClassCount -eq 1) {
+            Write-Host "  PASS Karpenter renders one NodePool and one EC2NodeClass" -ForegroundColor Green
+        } else {
+            Write-Host "  FAIL Karpenter must render one NodePool and one EC2NodeClass (NodePools: $nodePoolCount, EC2NodeClasses: $nodeClassCount)" -ForegroundColor Red
+            $totalErrors++
+        }
+
+        $karpenterConform = $karpenterRenderedText | kubeconform -strict -summary -skip "EC2NodeClass,NodePool" 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  FAIL Karpenter kubeconform validation failed:" -ForegroundColor Red
+            $karpenterConform | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
+            $totalErrors++
+        } else {
+            Write-Host "  PASS Karpenter kubeconform validation passed" -ForegroundColor Green
+        }
+
+        $kubectlKarpenterRendered = kubectl kustomize $karpenterPath 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  FAIL Karpenter kubectl kustomize failed:" -ForegroundColor Red
+            $kubectlKarpenterRendered | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
+            $totalErrors++
+        } else {
+            Write-Host "  PASS Karpenter kubectl kustomize succeeded" -ForegroundColor Green
+        }
+    } catch {
+        Write-Host "  FAIL Karpenter validation error: $_" -ForegroundColor Red
+        $totalErrors++
+    }
+}
+
 foreach ($env in $overlays) {
     $overlayPath = Join-Path (Join-Path $KubernetesDir "overlays") $env
     if (-not (Test-Path $overlayPath)) {
@@ -444,6 +540,7 @@ foreach ($env in $overlays) {
 
         $rolloutCount = ($renderedText | Select-String -Pattern "(?m)^kind:\s*Rollout$" -AllMatches).Matches.Count
         $deploymentCount = ($renderedText | Select-String -Pattern "(?m)^kind:\s*Deployment$" -AllMatches).Matches.Count
+        $hpaCount = ($renderedText | Select-String -Pattern "(?m)^kind:\s*HorizontalPodAutoscaler$" -AllMatches).Matches.Count
         if ($env -eq "production") {
             if ($rolloutCount -gt 0 -and $deploymentCount -eq 0) {
                 Write-Host "  PASS production overlay renders Argo Rollouts ($rolloutCount) instead of Deployments" -ForegroundColor Green
@@ -463,6 +560,8 @@ foreach ($env in $overlays) {
             $stableServiceCount = ([regex]::Matches($renderedText, "(?m)^\s+stableService:\s+\S+\s*$")).Count
             $canaryServiceCount = ([regex]::Matches($renderedText, "(?m)^\s+canaryService:\s+\S+\s*$")).Count
             $trafficRoutingCount = ([regex]::Matches($renderedText, "(?m)^\s+trafficRouting:\s*$")).Count
+            $analysisReferenceCount = ([regex]::Matches($renderedText, "(?m)^\s+templateName:\s+istio-canary-analysis\s*$")).Count
+            $analysisTemplateCount = ([regex]::Matches($renderedText, "(?m)^kind:\s*AnalysisTemplate\s*$")).Count
             $canaryServiceResourceCount = ([regex]::Matches($renderedText, "(?ms)^kind:\s*Service\s*$.*?^\s+name:\s+[^\r\n]+-canary\s*$")).Count
             if ($rolloutCount -gt 0 -and $stableServiceCount -eq $rolloutCount -and $canaryServiceCount -eq $rolloutCount -and $trafficRoutingCount -eq $rolloutCount) {
                 Write-Host "  PASS production Rollouts use Istio stable/canary traffic routing" -ForegroundColor Green
@@ -476,8 +575,60 @@ foreach ($env in $overlays) {
                 Write-Host "  FAIL production must render one canary Service per Rollout (Rollouts: $rolloutCount, canary Services: $canaryServiceResourceCount)" -ForegroundColor Red
                 $totalErrors++
             }
+            if ($analysisTemplateCount -eq 1 -and $analysisReferenceCount -eq $rolloutCount) {
+                Write-Host "  PASS production Rollouts use Prometheus-backed canary analysis" -ForegroundColor Green
+            } else {
+                Write-Host "  FAIL production must render one AnalysisTemplate and one analysis reference per Rollout (Rollouts: $rolloutCount, templates: $analysisTemplateCount, references: $analysisReferenceCount)" -ForegroundColor Red
+                $totalErrors++
+            }
+            if ($hpaCount -eq $rolloutCount) {
+                Write-Host "  PASS production renders one HPA per Rollout" -ForegroundColor Green
+            } else {
+                Write-Host "  FAIL production must render one HPA per Rollout (Rollouts: $rolloutCount, HPAs: $hpaCount)" -ForegroundColor Red
+                $totalErrors++
+            }
+
+            $cpuMetricCount = ([regex]::Matches($renderedText, "(?m)^\s+name:\s+cpu\s*$")).Count
+            $memoryMetricCount = ([regex]::Matches($renderedText, "(?m)^\s+name:\s+memory\s*$")).Count
+            $pdbCount = ([regex]::Matches($renderedText, "(?m)^kind:\s*PodDisruptionBudget\s*$")).Count
+            $priorityAssignmentCount = ([regex]::Matches($renderedText, "(?m)^\s+priorityClassName:\s+year4-")).Count
+            $topologySpreadCount = ([regex]::Matches($renderedText, "(?m)^\s+topologySpreadConstraints:\s*$")).Count
+            if ($cpuMetricCount -eq $hpaCount -and $memoryMetricCount -eq $hpaCount) {
+                Write-Host "  PASS production HPAs include CPU and memory metrics" -ForegroundColor Green
+            } else {
+                Write-Host "  FAIL production HPAs must include CPU and memory metrics (HPAs: $hpaCount, CPU: $cpuMetricCount, memory: $memoryMetricCount)" -ForegroundColor Red
+                $totalErrors++
+            }
+            if ($pdbCount -ge $rolloutCount -and $priorityAssignmentCount -eq $rolloutCount -and $topologySpreadCount -ge $rolloutCount) {
+                Write-Host "  PASS production has PDB, PriorityClass, and topology spread coverage" -ForegroundColor Green
+            } else {
+                Write-Host "  FAIL production autoscaling guardrails incomplete (Rollouts: $rolloutCount, PDBs: $pdbCount, priority assignments: $priorityAssignmentCount, topology spreads: $topologySpreadCount)" -ForegroundColor Red
+                $totalErrors++
+            }
         } elseif ($rolloutCount -gt 0) {
             Write-Host "  FAIL non-production overlay should not render Argo Rollouts" -ForegroundColor Red
+            $totalErrors++
+        } elseif ($env -eq "staging" -and $hpaCount -eq $deploymentCount) {
+            Write-Host "  PASS staging renders one HPA per Deployment" -ForegroundColor Green
+            $cpuMetricCount = ([regex]::Matches($renderedText, "(?m)^\s+name:\s+cpu\s*$")).Count
+            $memoryMetricCount = ([regex]::Matches($renderedText, "(?m)^\s+name:\s+memory\s*$")).Count
+            $pdbCount = ([regex]::Matches($renderedText, "(?m)^kind:\s*PodDisruptionBudget\s*$")).Count
+            $priorityAssignmentCount = ([regex]::Matches($renderedText, "(?m)^\s+priorityClassName:\s+year4-")).Count
+            $topologySpreadCount = ([regex]::Matches($renderedText, "(?m)^\s+topologySpreadConstraints:\s*$")).Count
+            if ($cpuMetricCount -eq $hpaCount -and $memoryMetricCount -eq $hpaCount) {
+                Write-Host "  PASS staging HPAs include CPU and memory metrics" -ForegroundColor Green
+            } else {
+                Write-Host "  FAIL staging HPAs must include CPU and memory metrics (HPAs: $hpaCount, CPU: $cpuMetricCount, memory: $memoryMetricCount)" -ForegroundColor Red
+                $totalErrors++
+            }
+            if ($pdbCount -ge 4 -and $priorityAssignmentCount -eq $deploymentCount -and $topologySpreadCount -ge 4) {
+                Write-Host "  PASS staging has targeted PDB, PriorityClass, and topology spread coverage" -ForegroundColor Green
+            } else {
+                Write-Host "  FAIL staging autoscaling guardrails incomplete (Deployments: $deploymentCount, PDBs: $pdbCount, priority assignments: $priorityAssignmentCount, topology spreads: $topologySpreadCount)" -ForegroundColor Red
+                $totalErrors++
+            }
+        } elseif ($env -eq "staging") {
+            Write-Host "  FAIL staging must render one HPA per Deployment (Deployments: $deploymentCount, HPAs: $hpaCount)" -ForegroundColor Red
             $totalErrors++
         }
     } catch {
@@ -518,7 +669,7 @@ foreach ($env in $overlays) {
     Write-Host "`n  [3/4] Running kubeconform..." -ForegroundColor White
     try {
         $conformResult = $renderedText | kubeconform -strict -summary `
-            -skip "ClusterIssuer,ClusterSecretStore,ExternalSecret,Rollout" 2>&1
+            -skip "ClusterIssuer,ClusterSecretStore,ExternalSecret,Rollout,AnalysisTemplate" 2>&1
         if ($LASTEXITCODE -ne 0) {
             Write-Host "  FAIL kubeconform validation failed:" -ForegroundColor Red
             $conformResult | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }

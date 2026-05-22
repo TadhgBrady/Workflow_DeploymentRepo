@@ -1,12 +1,12 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-    Backward-compatible wrapper for staging dashboard access.
+    Opens staging dashboard tunnels and prints dashboard login details.
 
 .DESCRIPTION
-    This old Grafana-specific entry point now delegates to the staging dashboard
-    helper. Use local/open-staging-dashboards.ps1 or local/open-dashboards.ps1
-    for new commands.
+    Wrapper around local/open-dashboards.ps1 with staging defaults. It opens
+    the staging Grafana, Prometheus, Alertmanager when present, and Kiali
+    tunnels. Argo CD and Argo Rollouts are discovered if they exist.
 #>
 
 param(
@@ -36,6 +36,7 @@ param(
 )
 
 $parameters = @{
+    Environment = "staging"
     ClusterName = $ClusterName
     Region = $Region
     MonitoringNamespace = $MonitoringNamespace
@@ -61,5 +62,5 @@ foreach ($switchName in @("SkipKubeconfigUpdate", "SkipAdminPasswordSync", "Skip
     }
 }
 
-$scriptPath = Join-Path $PSScriptRoot "open-staging-dashboards.ps1"
+$scriptPath = Join-Path $PSScriptRoot "open-dashboards.ps1"
 & $scriptPath @parameters

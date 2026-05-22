@@ -14,7 +14,18 @@
       maxUnavailable: 0
       maxSurge: 1
       steps:
+        - setCanaryScale:
+            replicas: 1
+        - setWeight: 5
+        - pause:
+            duration: 2m
+        - setWeight: 10
+        - pause:
+            duration: 3m
+        - setWeight: 25
+        - pause:
+            duration: 5m
         - setWeight: 50
         - pause:
-            duration: 90s
+            duration: 5m
         - setWeight: 100

@@ -3,6 +3,9 @@ kind: Kustomization
 
 # All base resources for the Year4 Project
 resources:
+  # Scheduling priority tiers shared by staging and production overlays
+  - priority-classes.yaml
+
   # RBAC Configuration
   - rbac.yaml
 

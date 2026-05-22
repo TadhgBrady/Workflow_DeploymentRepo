@@ -60,8 +60,7 @@ else
   echo "WARN: ARGOCD_REPO_USERNAME/ARGOCD_REPO_PASSWORD not set. Argo CD can sync only if the repo is public or credentials already exist."
 fi
 
-kubectl apply -f kubernetes/argocd/project-production.yaml
-kubectl apply -f kubernetes/argocd/application-production.yaml
+kubectl apply -k kubernetes/argocd
 
 kubectl rollout status deployment/argocd-repo-server -n "$ARGOCD_NAMESPACE" --timeout=300s
 kubectl rollout status statefulset/argocd-application-controller -n "$ARGOCD_NAMESPACE" --timeout=300s

@@ -85,6 +85,8 @@ variables:
   ISTIO_VERSION: "1.23.2"
   ISTIO_INGRESS_SERVICE: "istio-ingressgateway"
   KIALI_RELEASE: "kiali"
+  KARPENTER_VERSION: "1.6.0"
+  KUBECTL_VERSION: "v1.33.0"
 
   # -- Staging k6 load gate defaults (safe smoke-load profile) --
   K6_IMAGE: "grafana/k6:0.54.0"
@@ -122,7 +124,7 @@ validate-manifests:
     # Install kubeconform
     - curl -sL https://github.com/yannh/kubeconform/releases/download/v0.6.4/kubeconform-linux-amd64.tar.gz | tar xz -C /usr/local/bin/
     # Install kubectl so validation exercises the same embedded Kustomize engine used by deploy jobs.
-    - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
+    - curl -sLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
     - chmod +x kubectl && mv kubectl /usr/local/bin/
   script:
     - echo "═══════════════════════════════════════════════════════════════"
@@ -131,15 +133,24 @@ validate-manifests:
     - |
       for ENV in staging production; do
         echo "── Validating overlay: $ENV ──"
-        kustomize build kubernetes/overlays/$ENV | kubeconform -strict -summary -skip ClusterIssuer,ClusterSecretStore,ExternalSecret,Rollout
+        kustomize build kubernetes/overlays/$ENV | kubeconform -strict -summary -skip ClusterIssuer,ClusterSecretStore,ExternalSecret,Rollout,AnalysisTemplate
         echo "── Validating overlay with kubectl embedded Kustomize: $ENV ──"
         kubectl kustomize kubernetes/overlays/$ENV > /dev/null
+        sh scripts/deployment/validate-autoscaling.sh "$ENV"
       done
       for ENV in staging production; do
         echo "── Validating service mesh manifests: $ENV ──"
         kustomize build kubernetes/service-mesh/$ENV | kubeconform -strict -summary -skip PeerAuthentication,Telemetry,Gateway,VirtualService,DestinationRule,AuthorizationPolicy,PodMonitor,ServiceMonitor
         echo "── Validating service mesh with kubectl embedded Kustomize: $ENV ──"
         kubectl kustomize kubernetes/service-mesh/$ENV > /dev/null
+      done
+      echo "── Validating Argo CD manifests with kubectl embedded Kustomize ──"
+      kubectl kustomize kubernetes/argocd > /dev/null
+      for ENV in staging production; do
+        echo "── Validating Karpenter autoscaling manifests: $ENV ──"
+        kustomize build kubernetes/autoscaling/karpenter/$ENV | kubeconform -strict -summary -skip EC2NodeClass,NodePool
+        echo "── Validating Karpenter autoscaling with kubectl embedded Kustomize: $ENV ──"
+        kubectl kustomize kubernetes/autoscaling/karpenter/$ENV > /dev/null
       done
       echo "── Validating observability manifests ──"
       kubeconform -strict -summary -skip ServiceMonitor,PrometheusRule kubernetes/observability/*.yaml
@@ -439,7 +450,7 @@ wait-staging-ready:
   before_script:
     - apk add --no-cache curl bash python3 py3-pip
     - pip3 install --break-system-packages awscli
-    - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
+    - curl -sLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
     - chmod +x kubectl && mv kubectl /usr/local/bin/
   script:
     - |
@@ -570,7 +581,7 @@ install-addons-staging:
     - apk add --no-cache curl bash tar gzip python3 py3-pip
     - pip3 install --break-system-packages awscli
     # Install kubectl
-    - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
+    - curl -sLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
     - chmod +x kubectl && mv kubectl /usr/local/bin/
     # Install Helm (direct binary download)
     - curl -sL "https://get.helm.sh/helm-v3.17.0-linux-amd64.tar.gz" | tar xz -C /tmp
@@ -693,7 +704,11 @@ install-addons-staging:
 
       sh scripts/deployment/ensure-external-secret-store.sh
 
-      # 3. NGINX Ingress Controller — SKIPPED for staging
+      # 3. Karpenter node autoscaling
+      echo "--- Installing Karpenter ---"
+      sh scripts/deployment/install-karpenter.sh "$STAGING_CLUSTER_NAME" staging
+
+      # 4. NGINX Ingress Controller — SKIPPED for staging
       # Staging external access is handled by the Istio ingressgateway installed later.
       echo "--- Skipping NGINX Ingress Controller (not needed for staging) ---"
 
@@ -712,7 +727,7 @@ preflight-staging:
   before_script:
     - apk add --no-cache curl bash python3 py3-pip
     - pip3 install --break-system-packages awscli
-    - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
+    - curl -sLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
     - chmod +x kubectl && mv kubectl /usr/local/bin/
     - aws eks update-kubeconfig --name $STAGING_CLUSTER_NAME --region $AWS_DEFAULT_REGION
   script:
@@ -789,7 +804,7 @@ install-observability-staging:
   before_script:
     - apk add --no-cache curl bash tar gzip python3 py3-pip openssl
     - pip3 install --break-system-packages awscli
-    - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
+    - curl -sLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
     - chmod +x kubectl && mv kubectl /usr/local/bin/
     - curl -sL "https://get.helm.sh/helm-v3.17.0-linux-amd64.tar.gz" | tar xz -C /tmp
     - mv /tmp/linux-amd64/helm /usr/local/bin/
@@ -904,6 +919,7 @@ install-observability-staging:
       kubectl apply -f kubernetes/observability/dashboard-staging-overview.yaml
       kubectl apply -f kubernetes/observability/dashboard-logging-troubleshooting.yaml
       kubectl apply -f kubernetes/observability/dashboard-system-metrics.yaml
+      kubectl apply -f kubernetes/observability/dashboard-autoscaling.yaml
       kubectl apply -f kubernetes/observability/dashboard-operations-hub.yaml
       kubectl apply -f kubernetes/observability/dashboard-istio-mesh.yaml
       kubectl apply -f kubernetes/observability/dashboard-k6-staging.yaml
@@ -933,7 +949,7 @@ install-service-mesh-staging:
   before_script:
     - apk add --no-cache curl bash tar gzip python3 py3-pip
     - pip3 install --break-system-packages awscli
-    - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
+    - curl -sLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
     - chmod +x kubectl && mv kubectl /usr/local/bin/
     - curl -sL "https://get.helm.sh/helm-v3.17.0-linux-amd64.tar.gz" | tar xz -C /tmp
     - mv /tmp/linux-amd64/helm /usr/local/bin/
@@ -961,7 +977,7 @@ deploy-staging:
     - apk add --no-cache curl bash tar gzip python3 py3-pip sed
     - pip3 install --break-system-packages awscli
     # Install kubectl
-    - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
+    - curl -sLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
     - chmod +x kubectl && mv kubectl /usr/local/bin/
     # Install Helm (direct binary download — fallback addon installation)
     - curl -sL "https://get.helm.sh/helm-v3.17.0-linux-amd64.tar.gz" | tar xz -C /tmp
@@ -1072,7 +1088,7 @@ staging-readiness:
   before_script:
     - apk add --no-cache curl bash python3 py3-pip
     - pip3 install --break-system-packages awscli
-    - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
+    - curl -sLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
     - chmod +x kubectl && mv kubectl /usr/local/bin/
     - aws eks update-kubeconfig --name $STAGING_CLUSTER_NAME --region $AWS_DEFAULT_REGION
   script:
@@ -1187,7 +1203,7 @@ k6-load-staging:
     K6_EMPLOYEE_EMAIL: "employee@demo.com"
   before_script:
     - apk add --no-cache curl bash aws-cli
-    - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
+    - curl -sLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
     - chmod +x kubectl && mv kubectl /usr/local/bin/
     - aws eks update-kubeconfig --name $STAGING_CLUSTER_NAME --region $AWS_DEFAULT_REGION
   script:
@@ -1246,7 +1262,7 @@ k6-human-hard-staging:
     K6_EMPLOYEE_EMAIL: "employee@demo.com"
   before_script:
     - apk add --no-cache curl bash aws-cli
-    - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
+    - curl -sLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
     - chmod +x kubectl && mv kubectl /usr/local/bin/
     - aws eks update-kubeconfig --name $STAGING_CLUSTER_NAME --region $AWS_DEFAULT_REGION
   script:
@@ -1473,7 +1489,7 @@ cleanup-staging-loadbalancers:
   before_script:
     - apk add --no-cache curl bash python3 py3-pip
     - pip3 install --break-system-packages awscli
-    - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
+    - curl -sLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
     - chmod +x kubectl && mv kubectl /usr/local/bin/
   script:
     - |
@@ -1716,7 +1732,7 @@ wait-production-ready:
   before_script:
     - apk add --no-cache curl bash python3 py3-pip
     - pip3 install --break-system-packages awscli
-    - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
+    - curl -sLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
     - chmod +x kubectl && mv kubectl /usr/local/bin/
   script:
     - |
@@ -1796,7 +1812,7 @@ install-addons-production:
   before_script:
     - apk add --no-cache curl bash tar gzip python3 py3-pip
     - pip3 install --break-system-packages awscli
-    - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
+    - curl -sLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
     - chmod +x kubectl && mv kubectl /usr/local/bin/
     - curl -sL "https://get.helm.sh/helm-v3.17.0-linux-amd64.tar.gz" | tar xz -C /tmp
     - mv /tmp/linux-amd64/helm /usr/local/bin/
@@ -1910,7 +1926,11 @@ install-addons-production:
 
       sh scripts/deployment/ensure-external-secret-store.sh
 
-      # 3. NGINX Ingress Controller - removed in favor of Istio ingressgateway.
+      # 3. Karpenter node autoscaling
+      echo "--- Installing Karpenter ---"
+      sh scripts/deployment/install-karpenter.sh "$PROD_CLUSTER_NAME" production
+
+      # 4. NGINX Ingress Controller - removed in favor of Istio ingressgateway.
       echo "--- Ensuring legacy ingress-nginx is not running ---"
       if helm status ingress-nginx -n ingress-nginx >/dev/null 2>&1; then
         helm uninstall ingress-nginx -n ingress-nginx || true
@@ -1932,7 +1952,7 @@ install-observability-production:
   before_script:
     - apk add --no-cache curl bash tar gzip python3 py3-pip openssl
     - pip3 install --break-system-packages awscli
-    - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
+    - curl -sLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
     - chmod +x kubectl && mv kubectl /usr/local/bin/
     - curl -sL "https://get.helm.sh/helm-v3.17.0-linux-amd64.tar.gz" | tar xz -C /tmp
     - mv /tmp/linux-amd64/helm /usr/local/bin/
@@ -2007,6 +2027,7 @@ install-observability-production:
       kubectl apply -f kubernetes/observability/servicemonitor-fluent-bit-production.yaml
       kubectl apply -f kubernetes/observability/dashboard-logging-troubleshooting.yaml
       kubectl apply -f kubernetes/observability/dashboard-system-metrics.yaml
+      kubectl apply -f kubernetes/observability/dashboard-autoscaling.yaml
       kubectl apply -f kubernetes/observability/dashboard-operations-hub.yaml
       kubectl apply -f kubernetes/observability/dashboard-istio-mesh.yaml
 
@@ -2028,7 +2049,7 @@ install-service-mesh-production:
   before_script:
     - apk add --no-cache curl bash tar gzip python3 py3-pip
     - pip3 install --break-system-packages awscli
-    - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
+    - curl -sLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
     - chmod +x kubectl && mv kubectl /usr/local/bin/
     - curl -sL "https://get.helm.sh/helm-v3.17.0-linux-amd64.tar.gz" | tar xz -C /tmp
     - mv /tmp/linux-amd64/helm /usr/local/bin/
@@ -2052,7 +2073,7 @@ install-argocd-production:
   before_script:
     - apk add --no-cache curl bash tar gzip python3 py3-pip
     - pip3 install --break-system-packages awscli
-    - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
+    - curl -sLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
     - chmod +x kubectl && mv kubectl /usr/local/bin/
     - curl -sL "https://get.helm.sh/helm-v3.17.0-linux-amd64.tar.gz" | tar xz -C /tmp
     - mv /tmp/linux-amd64/helm /usr/local/bin/
@@ -2080,7 +2101,7 @@ deploy-production:
     - apk add --no-cache curl bash tar gzip python3 py3-pip sed
     - pip3 install --break-system-packages awscli
     # Install kubectl
-    - curl -sLO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
+    - curl -sLO "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
     - chmod +x kubectl && mv kubectl /usr/local/bin/
     # Install Helm (direct binary download — fallback addon installation)
     - curl -sL "https://get.helm.sh/helm-v3.17.0-linux-amd64.tar.gz" | tar xz -C /tmp

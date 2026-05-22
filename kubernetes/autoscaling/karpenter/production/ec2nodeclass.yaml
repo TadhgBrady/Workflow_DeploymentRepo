@@ -1,0 +1,31 @@
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: general
+spec:
+  amiFamily: AL2023
+  instanceProfile: yr4-project-production-eks-node-instance-profile
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: yr4-project-production-eks
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: yr4-project-production-eks
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      ebs:
+        volumeSize: 40Gi
+        volumeType: gp3
+        encrypted: true
+        deleteOnTermination: true
+  metadataOptions:
+    httpEndpoint: enabled
+    httpProtocolIPv6: disabled
+    httpPutResponseHopLimit: 2
+    httpTokens: required
+  tags:
+    Name: yr4-project-production-karpenter-node
+    Project: yr4-project
+    Environment: production
+    ManagedBy: karpenter
+    karpenter.sh/discovery: yr4-project-production-eks

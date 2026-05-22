@@ -1,0 +1,39 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: job-bl-service-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: job-bl-service
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: job-db-access-service-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: job-db-access-service
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: customer-bl-service-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: customer-bl-service
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: customer-db-access-service-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: customer-db-access-service

@@ -1,0 +1,119 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: auth-service-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: auth-service
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: user-bl-service-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: user-bl-service
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: user-db-access-service-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: user-db-access-service
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: job-bl-service-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: job-bl-service
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: job-db-access-service-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: job-db-access-service
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: customer-bl-service-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: customer-bl-service
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: customer-db-access-service-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: customer-db-access-service
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: admin-bl-service-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: admin-bl-service
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: maps-access-service-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: maps-access-service
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: notification-service-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: notification-service
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: frontend-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: frontend
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: nginx-gateway-pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: nginx-gateway

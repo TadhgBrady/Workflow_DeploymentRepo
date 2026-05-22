@@ -95,7 +95,7 @@ kubectl port-forward -n monitoring svc/grafana 3000:3000
 
 **Note:** This dashboard requires kube-state-metrics to be deployed. Deploy with:
 ```bash
-kubectl apply -f kube-state-metrics.yaml
+kubectl apply -f ../../kubernetes/observability/kube-state-metrics.yaml
 ```
 
 For full application metrics (HTTP requests, latency, errors), services must expose `/metrics` endpoint.

@@ -1,10 +1,10 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: year4-project-production
+  name: year4-project-service-mesh-production
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-wave: "0"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -12,18 +12,17 @@ spec:
   source:
     repoURL: https://gitlab.comp.dkit.ie/finalproject/Prototypes/yr4-projectdeploymentrepo.git
     targetRevision: main
-    path: kubernetes/overlays/production
+    path: kubernetes/service-mesh/production
   destination:
     server: https://kubernetes.default.svc
     namespace: year4-project
   ignoreDifferences:
-    - group: argoproj.io
-      kind: Rollout
-      jsonPointers:
-        - /spec/replicas
+    - group: networking.istio.io
+      kind: VirtualService
+      jqPathExpressions:
+        - .spec.http[].route[].weight
   syncPolicy:
     syncOptions:
-      - CreateNamespace=true
       - ApplyOutOfSyncOnly=true
       - PrunePropagationPolicy=foreground
       - RespectIgnoreDifferences=true

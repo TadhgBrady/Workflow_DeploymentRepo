@@ -10,6 +10,8 @@ spec:
   destinations:
     - namespace: year4-project
       server: https://kubernetes.default.svc
+    - namespace: monitoring
+      server: https://kubernetes.default.svc
   clusterResourceWhitelist:
     - group: ""
       kind: Namespace

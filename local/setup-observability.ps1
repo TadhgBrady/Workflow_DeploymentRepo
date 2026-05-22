@@ -102,7 +102,7 @@ if (-not $SkipWait) {
 }
 
 Write-Step "Local observability setup complete"
-Write-Host "Grafana:    kubectl port-forward -n $MonitoringNamespace svc/monitoring-grafana 3000:80"
+Write-Host "Dashboards: .\local\open-dashboards.ps1 -Environment current -SkipKubeconfigUpdate -SkipAdminPasswordSync"
 Write-Host "Prometheus: kubectl port-forward -n $MonitoringNamespace svc/kube-prometheus-stack-prometheus 9090:9090"
 Write-Host "Loki:       kubectl port-forward -n $MonitoringNamespace svc/loki-gateway 3100:80"
 Write-Host "Grafana login: $GrafanaAdminUser / $GrafanaAdminPassword"

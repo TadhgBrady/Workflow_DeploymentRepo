@@ -1,0 +1,141 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-year4-autoscaling
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+    app.kubernetes.io/name: year4-autoscaling
+    app.kubernetes.io/part-of: year4-project-observability
+data:
+  year4-autoscaling.json: |
+    {
+      "uid": "year4-autoscaling",
+      "title": "Year4 Autoscaling And Capacity",
+      "tags": ["year4-project", "autoscaling", "hpa", "karpenter"],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "version": 1,
+      "refresh": "30s",
+      "time": {"from": "now-6h", "to": "now"},
+      "templating": {
+        "list": [
+          {
+            "name": "namespace",
+            "label": "namespace",
+            "type": "custom",
+            "query": "year4-project-staging,year4-project",
+            "current": {"text": "year4-project-staging", "value": "year4-project-staging"},
+            "options": [
+              {"selected": true, "text": "year4-project-staging", "value": "year4-project-staging"},
+              {"selected": false, "text": "year4-project", "value": "year4-project"}
+            ]
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "stat",
+          "title": "HPAs At Max",
+          "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+          "targets": [
+            {"expr": "sum(kube_horizontalpodautoscaler_status_desired_replicas{namespace=~\"$namespace\"} >= kube_horizontalpodautoscaler_spec_max_replicas{namespace=~\"$namespace\"}) or vector(0)", "refId": "A"}
+          ]
+        },
+        {
+          "id": 2,
+          "type": "stat",
+          "title": "Pending Pods",
+          "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+          "targets": [
+            {"expr": "sum(kube_pod_status_phase{namespace=~\"$namespace\",phase=\"Pending\"}) or vector(0)", "refId": "A"}
+          ]
+        },
+        {
+          "id": 3,
+          "type": "stat",
+          "title": "Karpenter Nodes",
+          "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+          "targets": [
+            {"expr": "count(kube_node_labels{label_karpenter_sh_nodepool=~\".+\"}) or vector(0)", "refId": "A"}
+          ]
+        },
+        {
+          "id": 4,
+          "type": "stat",
+          "title": "Unschedulable Pods",
+          "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+          "targets": [
+            {"expr": "sum(kube_pod_status_unschedulable{namespace=~\"$namespace\"}) or vector(0)", "refId": "A"}
+          ]
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "HPA Current Desired And Max Replicas",
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 4},
+          "options": {"legend": {"displayMode": "table", "placement": "bottom"}},
+          "targets": [
+            {"expr": "kube_horizontalpodautoscaler_status_current_replicas{namespace=~\"$namespace\"}", "legendFormat": "{{horizontalpodautoscaler}} current", "refId": "A"},
+            {"expr": "kube_horizontalpodautoscaler_status_desired_replicas{namespace=~\"$namespace\"}", "legendFormat": "{{horizontalpodautoscaler}} desired", "refId": "B"},
+            {"expr": "kube_horizontalpodautoscaler_spec_max_replicas{namespace=~\"$namespace\"}", "legendFormat": "{{horizontalpodautoscaler}} max", "refId": "C"}
+          ]
+        },
+        {
+          "id": 6,
+          "type": "timeseries",
+          "title": "CPU Usage By Pod",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+          "fieldConfig": {"defaults": {"unit": "cores"}},
+          "options": {"legend": {"displayMode": "table", "placement": "bottom"}},
+          "targets": [
+            {"expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=~\"$namespace\",container!=\"\",pod!=\"\"}[5m]))", "legendFormat": "{{pod}}", "refId": "A"}
+          ]
+        },
+        {
+          "id": 7,
+          "type": "timeseries",
+          "title": "Memory Working Set By Pod",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+          "fieldConfig": {"defaults": {"unit": "bytes"}},
+          "options": {"legend": {"displayMode": "table", "placement": "bottom"}},
+          "targets": [
+            {"expr": "sum by (pod) (container_memory_working_set_bytes{namespace=~\"$namespace\",container!=\"\",pod!=\"\"})", "legendFormat": "{{pod}}", "refId": "A"}
+          ]
+        },
+        {
+          "id": 8,
+          "type": "timeseries",
+          "title": "Cluster CPU Capacity Versus Requests",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
+          "fieldConfig": {"defaults": {"unit": "cores"}},
+          "targets": [
+            {"expr": "sum(kube_node_status_allocatable{resource=\"cpu\",unit=\"core\"})", "legendFormat": "allocatable", "refId": "A"},
+            {"expr": "sum(kube_pod_container_resource_requests{resource=\"cpu\",unit=\"core\"})", "legendFormat": "requested", "refId": "B"}
+          ]
+        },
+        {
+          "id": 9,
+          "type": "timeseries",
+          "title": "Cluster Memory Capacity Versus Requests",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
+          "fieldConfig": {"defaults": {"unit": "bytes"}},
+          "targets": [
+            {"expr": "sum(kube_node_status_allocatable{resource=\"memory\",unit=\"byte\"})", "legendFormat": "allocatable", "refId": "A"},
+            {"expr": "sum(kube_pod_container_resource_requests{resource=\"memory\",unit=\"byte\"})", "legendFormat": "requested", "refId": "B"}
+          ]
+        },
+        {
+          "id": 10,
+          "type": "table",
+          "title": "HPA Status Table",
+          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 28},
+          "options": {"showHeader": true},
+          "targets": [
+            {"expr": "kube_horizontalpodautoscaler_status_desired_replicas{namespace=~\"$namespace\"}", "format": "table", "instant": true, "refId": "A"},
+            {"expr": "kube_horizontalpodautoscaler_spec_max_replicas{namespace=~\"$namespace\"}", "format": "table", "instant": true, "refId": "B"}
+          ]
+        }
+      ]
+    }

@@ -1,0 +1,135 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+spec:
+  template:
+    spec:
+      priorityClassName: year4-app-critical
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-bl-service
+spec:
+  template:
+    spec:
+      priorityClassName: year4-app-default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-db-access-service
+spec:
+  template:
+    spec:
+      priorityClassName: year4-app-default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: job-bl-service-deployment
+spec:
+  template:
+    spec:
+      priorityClassName: year4-app-critical
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: job-bl-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: job-db-access-service-deployment
+spec:
+  template:
+    spec:
+      priorityClassName: year4-app-critical
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: job-db-access-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: customer-bl-service
+spec:
+  template:
+    spec:
+      priorityClassName: year4-app-critical
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: customer-bl-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: customer-db-access-service
+spec:
+  template:
+    spec:
+      priorityClassName: year4-app-critical
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: customer-db-access-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admin-bl-service
+spec:
+  template:
+    spec:
+      priorityClassName: year4-app-default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: maps-access-service
+spec:
+  template:
+    spec:
+      priorityClassName: year4-app-default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-service
+spec:
+  template:
+    spec:
+      priorityClassName: year4-app-default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-deployment
+spec:
+  template:
+    spec:
+      priorityClassName: year4-app-critical
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-gateway
+spec:
+  template:
+    spec:
+      priorityClassName: year4-app-critical

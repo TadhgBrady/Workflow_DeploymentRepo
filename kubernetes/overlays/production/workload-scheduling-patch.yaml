@@ -1,0 +1,263 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+spec:
+  template:
+    spec:
+      priorityClassName: year4-app-critical
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: auth-service
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: auth-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-bl-service
+spec:
+  template:
+    spec:
+      priorityClassName: year4-app-default
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: user-bl-service
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: user-bl-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-db-access-service
+spec:
+  template:
+    spec:
+      priorityClassName: year4-app-default
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: user-db-access-service
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: user-db-access-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: job-bl-service-deployment
+spec:
+  template:
+    spec:
+      priorityClassName: year4-app-critical
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: job-bl-service
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: job-bl-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: job-db-access-service-deployment
+spec:
+  template:
+    spec:
+      priorityClassName: year4-app-critical
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: job-db-access-service
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: job-db-access-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: customer-bl-service
+spec:
+  template:
+    spec:
+      priorityClassName: year4-app-critical
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: customer-bl-service
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: customer-bl-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: customer-db-access-service
+spec:
+  template:
+    spec:
+      priorityClassName: year4-app-critical
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: customer-db-access-service
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: customer-db-access-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admin-bl-service
+spec:
+  template:
+    spec:
+      priorityClassName: year4-app-default
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: admin-bl-service
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: admin-bl-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: maps-access-service
+spec:
+  template:
+    spec:
+      priorityClassName: year4-app-default
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: maps-access-service
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: maps-access-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-service
+spec:
+  template:
+    spec:
+      priorityClassName: year4-app-default
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: notification-service
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: notification-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-deployment
+spec:
+  template:
+    spec:
+      priorityClassName: year4-app-critical
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: frontend
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: frontend
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-gateway
+spec:
+  template:
+    spec:
+      priorityClassName: year4-app-critical
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: nginx-gateway
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: nginx-gateway

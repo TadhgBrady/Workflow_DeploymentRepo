@@ -1,0 +1,82 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: istio-canary-analysis
+spec:
+  args:
+    - name: namespace
+    - name: stable-service
+    - name: canary-service
+    - name: min-request-rate
+      value: "0.01"
+    - name: max-5xx-rate
+      value: "0.02"
+    - name: max-error-delta
+      value: "0.02"
+    - name: max-latency-p95-ms
+      value: "2000"
+  metrics:
+    - name: canary-request-rate
+      interval: 60s
+      count: 15
+      inconclusiveLimit: 10
+      successCondition: "result[0] >= {{args.min-request-rate}}"
+      provider:
+        prometheus:
+          address: http://kube-prometheus-stack-prometheus.monitoring:9090
+          query: |
+            sum(rate(istio_requests_total{destination_service_name="{{args.canary-service}}",destination_service_namespace="{{args.namespace}}"}[5m])) or vector(0)
+    - name: canary-5xx-rate
+      interval: 60s
+      count: 15
+      failureLimit: 2
+      successCondition: "result[0] <= {{args.max-5xx-rate}}"
+      failureCondition: "result[0] > {{args.max-5xx-rate}}"
+      provider:
+        prometheus:
+          address: http://kube-prometheus-stack-prometheus.monitoring:9090
+          query: |
+            (
+              sum(rate(istio_requests_total{destination_service_name="{{args.canary-service}}",destination_service_namespace="{{args.namespace}}",response_code=~"5.."}[5m]))
+              /
+              clamp_min(sum(rate(istio_requests_total{destination_service_name="{{args.canary-service}}",destination_service_namespace="{{args.namespace}}"}[5m])), 0.001)
+            ) or vector(0)
+    - name: canary-vs-stable-error-delta
+      interval: 60s
+      count: 15
+      failureLimit: 2
+      successCondition: "result[0] <= {{args.max-error-delta}}"
+      failureCondition: "result[0] > {{args.max-error-delta}}"
+      provider:
+        prometheus:
+          address: http://kube-prometheus-stack-prometheus.monitoring:9090
+          query: |
+            (
+              (
+                sum(rate(istio_requests_total{destination_service_name="{{args.canary-service}}",destination_service_namespace="{{args.namespace}}",response_code=~"5.."}[5m]))
+                /
+                clamp_min(sum(rate(istio_requests_total{destination_service_name="{{args.canary-service}}",destination_service_namespace="{{args.namespace}}"}[5m])), 0.001)
+              )
+              -
+              (
+                sum(rate(istio_requests_total{destination_service_name="{{args.stable-service}}",destination_service_namespace="{{args.namespace}}",response_code=~"5.."}[5m]))
+                /
+                clamp_min(sum(rate(istio_requests_total{destination_service_name="{{args.stable-service}}",destination_service_namespace="{{args.namespace}}"}[5m])), 0.001)
+              )
+            ) or vector(0)
+    - name: canary-p95-latency
+      interval: 60s
+      count: 15
+      failureLimit: 2
+      successCondition: "result[0] <= {{args.max-latency-p95-ms}}"
+      failureCondition: "result[0] > {{args.max-latency-p95-ms}}"
+      provider:
+        prometheus:
+          address: http://kube-prometheus-stack-prometheus.monitoring:9090
+          query: |
+            histogram_quantile(
+              0.95,
+              sum by (le) (
+                rate(istio_request_duration_milliseconds_bucket{destination_service_name="{{args.canary-service}}",destination_service_namespace="{{args.namespace}}"}[5m])
+              )
+            ) or vector(0)

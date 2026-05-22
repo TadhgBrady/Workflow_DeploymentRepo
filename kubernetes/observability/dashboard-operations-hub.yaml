@@ -1,4 +1,4 @@
-apiVersion: v1
+﻿apiVersion: v1
 kind: ConfigMap
 metadata:
   name: grafana-dashboard-year4-operations-hub
@@ -38,66 +38,66 @@ data:
           "id": 1,
           "type": "text",
           "title": "Start Here",
-          "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0},
+          "gridPos": {"h": 10, "w": 24, "x": 0, "y": 0},
           "options": {
             "mode": "markdown",
-            "content": "### Operations Hub\n\n| Workflow | Open |\n| --- | --- |\n| Service mesh graph | [Kiali](http://localhost:20001) |\n| GitOps sync and drift | [Argo CD](http://localhost:8080) |\n| Canary rollout status | [Argo Rollouts](http://localhost:3100) |\n| Logs and incidents | [CloudWatch Logs](https://eu-west-1.console.aws.amazon.com/cloudwatch/home?region=eu-west-1#logsV2:log-groups) |\n| Release pipeline | [GitLab pipelines](https://gitlab.comp.dkit.ie/finalproject/Prototypes/yr4-projectdeploymentrepo/-/pipelines) |\n| k6 load evidence | [/d/year4-k6-staging](/d/year4-k6-staging/year4-staging-k6-load-gate) |\n\nGrafana owns release evidence, metrics, and trends. Kiali owns mesh topology and mTLS/config validation. CloudWatch remains the log investigation path."
+            "content": "### Operations Hub\n\n| Workflow | Open |\n| --- | --- |\n| Service mesh graph | [Kiali](http://localhost:20001) |\n| GitOps sync and drift | [Argo CD](http://localhost:8080) |\n| Canary rollout status | [Argo Rollouts](http://localhost:3100) |\n| Logs and incidents | [CloudWatch Logs](https://eu-west-1.console.aws.amazon.com/cloudwatch/home?region=eu-west-1#logsV2:log-groups) |\n| Release pipeline | [GitLab pipelines](https://gitlab.comp.dkit.ie/finalproject/Prototypes/yr4-projectdeploymentrepo/-/pipelines) |\n| k6 load evidence | [/d/year4-k6-staging](/d/year4-k6-staging/year4-staging-k6-load-gate) |\n| Autoscaling and capacity | [/d/year4-autoscaling](/d/year4-autoscaling/year4-autoscaling-and-capacity) |\n\nGrafana owns release evidence, metrics, and trends. Kiali owns mesh topology and mTLS/config validation. CloudWatch remains the log investigation path."
           }
         },
         {
           "id": 2,
           "type": "stat",
           "title": "Ready App Pods",
-          "gridPos": {"h": 4, "w": 6, "x": 0, "y": 8},
+          "gridPos": {"h": 4, "w": 6, "x": 0, "y": 10},
           "targets": [{"expr": "sum(kube_pod_status_ready{namespace=~\"$namespace\",condition=\"true\"})", "refId": "A"}]
         },
         {
           "id": 3,
           "type": "stat",
           "title": "Unavailable Replicas",
-          "gridPos": {"h": 4, "w": 6, "x": 6, "y": 8},
+          "gridPos": {"h": 4, "w": 6, "x": 6, "y": 10},
           "targets": [{"expr": "sum(kube_deployment_status_replicas_unavailable{namespace=~\"$namespace\"}) or sum(kube_rollout_status_replicas_unavailable{namespace=~\"$namespace\"}) or vector(0)", "refId": "A"}]
         },
         {
           "id": 4,
           "type": "stat",
           "title": "Mesh Request Rate",
-          "gridPos": {"h": 4, "w": 6, "x": 12, "y": 8},
+          "gridPos": {"h": 4, "w": 6, "x": 12, "y": 10},
           "targets": [{"expr": "sum(rate(istio_requests_total{destination_workload_namespace=~\"$namespace\"}[5m])) or vector(0)", "refId": "A"}]
         },
         {
           "id": 5,
           "type": "stat",
           "title": "Mesh 5xx Rate",
-          "gridPos": {"h": 4, "w": 6, "x": 18, "y": 8},
+          "gridPos": {"h": 4, "w": 6, "x": 18, "y": 10},
           "targets": [{"expr": "sum(rate(istio_requests_total{destination_workload_namespace=~\"$namespace\",response_code=~\"5..\"}[5m])) or vector(0)", "refId": "A"}]
         },
         {
           "id": 6,
           "type": "timeseries",
           "title": "Mesh Request Rate By Workload",
-          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 14},
           "targets": [{"expr": "sum by (destination_workload) (rate(istio_requests_total{destination_workload_namespace=~\"$namespace\"}[5m]))", "legendFormat": "{{destination_workload}}", "refId": "A"}]
         },
         {
           "id": 7,
           "type": "timeseries",
           "title": "Mesh p95 Latency By Workload",
-          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 14},
           "targets": [{"expr": "histogram_quantile(0.95, sum by (le, destination_workload) (rate(istio_request_duration_milliseconds_bucket{destination_workload_namespace=~\"$namespace\"}[5m])))", "legendFormat": "{{destination_workload}}", "refId": "A"}]
         },
         {
           "id": 8,
           "type": "timeseries",
           "title": "Container Restarts",
-          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 22},
           "targets": [{"expr": "sum by (pod, container) (increase(kube_pod_container_status_restarts_total{namespace=~\"$namespace\"}[30m]))", "legendFormat": "{{pod}} {{container}}", "refId": "A"}]
         },
         {
           "id": 9,
           "type": "timeseries",
           "title": "Sidecar Coverage",
-          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 22},
           "targets": [{"expr": "100 * sum(kube_pod_container_info{namespace=~\"$namespace\",container=\"istio-proxy\"}) / clamp_min(sum(kube_pod_info{namespace=~\"$namespace\"}), 1)", "legendFormat": "coverage", "refId": "A"}]
         }
       ]

@@ -305,6 +305,7 @@ Write-Host "      kubectl get pods -n $NAMESPACE" -ForegroundColor Gray
 Write-Host "      kubectl logs -f deployment/auth-service -n $NAMESPACE" -ForegroundColor Gray
 Write-Host "      kubectl port-forward svc/nginx-gateway 8080:80 -n $NAMESPACE" -ForegroundColor Gray
 Write-Host "      .\local\setup-observability.ps1      # install local Prometheus/Loki/Grafana/Fluent Bit" -ForegroundColor Gray
+Write-Host "      .\local\open-dashboards.ps1 -Environment current -SkipKubeconfigUpdate" -ForegroundColor Gray
 Write-Host "      .\local\validate-observability.ps1   # validate local metrics and logs" -ForegroundColor Gray
 Write-Host "      .\local\teardown.ps1   # to clean up" -ForegroundColor Gray
 Write-Host ""

@@ -1,12 +1,12 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-    Backward-compatible wrapper for staging dashboard access.
+    Opens production dashboard tunnels and prints dashboard login details.
 
 .DESCRIPTION
-    This old Grafana-specific entry point now delegates to the staging dashboard
-    helper. Use local/open-staging-dashboards.ps1 or local/open-dashboards.ps1
-    for new commands.
+    Wrapper around local/open-dashboards.ps1 with production defaults. The
+    default local ports are offset from staging so staging and production
+    dashboards can be opened at the same time.
 #>
 
 param(
@@ -16,16 +16,16 @@ param(
     [string]$IstioNamespace = "istio-system",
     [string]$ArgoCdNamespace = "argocd",
     [string]$ArgoRolloutsNamespace = "argo-rollouts",
-    [string]$AppNamespace = "year4-project-staging",
+    [string]$AppNamespace = "year4-project",
     [string]$GrafanaService = "",
     [string]$GrafanaSecret = "grafana-admin",
-    [int]$LocalPort = 3000,
+    [int]$LocalPort = 3300,
     [int]$ServicePort = 80,
-    [int]$PrometheusPort = 9090,
-    [int]$AlertmanagerPort = 9093,
-    [int]$KialiPort = 20001,
-    [int]$ArgoCdPort = 8080,
-    [int]$ArgoRolloutsPort = 3100,
+    [int]$PrometheusPort = 9390,
+    [int]$AlertmanagerPort = 9393,
+    [int]$KialiPort = 23001,
+    [int]$ArgoCdPort = 8081,
+    [int]$ArgoRolloutsPort = 3101,
     [string]$DashboardPath = "/d/year4-operations-hub/year4-operations-hub",
     [switch]$SkipKubeconfigUpdate,
     [switch]$SkipAdminPasswordSync,
@@ -36,6 +36,7 @@ param(
 )
 
 $parameters = @{
+    Environment = "production"
     ClusterName = $ClusterName
     Region = $Region
     MonitoringNamespace = $MonitoringNamespace
@@ -61,5 +62,5 @@ foreach ($switchName in @("SkipKubeconfigUpdate", "SkipAdminPasswordSync", "Skip
     }
 }
 
-$scriptPath = Join-Path $PSScriptRoot "open-staging-dashboards.ps1"
+$scriptPath = Join-Path $PSScriptRoot "open-dashboards.ps1"
 & $scriptPath @parameters

@@ -12,3 +12,16 @@
         name: maps-access-service
         routes:
           - primary
+- op: add
+  path: /spec/strategy/canary/analysis
+  value:
+    startingStep: 1
+    templates:
+      - templateName: istio-canary-analysis
+    args:
+      - name: namespace
+        value: year4-project
+      - name: stable-service
+        value: maps-access-service
+      - name: canary-service
+        value: maps-access-service-canary
