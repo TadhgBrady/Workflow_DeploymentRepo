@@ -117,7 +117,8 @@ function baseTags(extra = {}) {
 
 function splitVus(total, ratios) {
   const normalizedTotal = Math.max(1, Math.floor(total));
-  const values = ratios.map((ratio) => Math.max(1, Math.floor(normalizedTotal * ratio)));
+  const rawValues = ratios.map((ratio) => normalizedTotal * ratio);
+  const values = rawValues.map((value) => Math.max(1, Math.floor(value)));
   let sum = values.reduce((current, value) => current + value, 0);
   while (sum > normalizedTotal && values.length > 1) {
     const index = values.indexOf(Math.max(...values));
@@ -126,6 +127,16 @@ function splitVus(total, ratios) {
     }
     values[index] -= 1;
     sum -= 1;
+  }
+  const remainderOrder = rawValues
+    .map((value, index) => ({ index, fraction: value - Math.floor(value) }))
+    .sort((left, right) => right.fraction - left.fraction);
+  let remainderIndex = 0;
+  while (sum < normalizedTotal && remainderOrder.length > 0) {
+    const { index } = remainderOrder[remainderIndex % remainderOrder.length];
+    values[index] += 1;
+    sum += 1;
+    remainderIndex += 1;
   }
   return values;
 }

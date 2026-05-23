@@ -228,11 +228,24 @@ spec:
         environment: $K6_ENVIRONMENT
         testid: $LABEL_TEST_ID
     spec:
+      priorityClassName: year4-observability-critical
+      preemptionPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 12345
+        runAsGroup: 12345
+        seccompProfile:
+          type: RuntimeDefault
       restartPolicy: Never
       containers:
         - name: k6
           image: $K6_IMAGE
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           env:
             - name: STAGING_URL
               value: "$BASE_URL"
