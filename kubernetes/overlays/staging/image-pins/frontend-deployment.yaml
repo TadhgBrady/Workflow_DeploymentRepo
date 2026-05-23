@@ -9,4 +9,4 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: bencev04/4th-year-proj-tadgh-bence:frontend-7759089c
+          image: bencev04/4th-year-proj-tadgh-bence:frontend-097716b7

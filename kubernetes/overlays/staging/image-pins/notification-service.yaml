@@ -9,4 +9,4 @@ spec:
     spec:
       containers:
         - name: notification-service
-          image: bencev04/4th-year-proj-tadgh-bence:notification-service-7759089c
+          image: bencev04/4th-year-proj-tadgh-bence:notification-service-097716b7

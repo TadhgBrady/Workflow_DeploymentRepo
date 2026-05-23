@@ -9,4 +9,4 @@ spec:
     spec:
       containers:
         - name: job-bl-service
-          image: bencev04/4th-year-proj-tadgh-bence:job-bl-service-7759089c
+          image: bencev04/4th-year-proj-tadgh-bence:job-bl-service-097716b7

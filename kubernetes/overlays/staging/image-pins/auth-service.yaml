@@ -9,4 +9,4 @@ spec:
     spec:
       containers:
         - name: auth-service
-          image: bencev04/4th-year-proj-tadgh-bence:auth-service-7759089c
+          image: bencev04/4th-year-proj-tadgh-bence:auth-service-097716b7
