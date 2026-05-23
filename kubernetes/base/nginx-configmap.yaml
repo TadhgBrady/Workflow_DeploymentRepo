@@ -150,41 +150,49 @@ data:
             location /api/auth {
                 limit_req zone=auth_limit burst=10 nodelay;
                 limit_req_status 429;
+                proxy_set_header Host frontend-service;
                 proxy_pass http://frontend/api/auth;
             }
             location /api/users {
                 limit_req zone=api_general burst=20 nodelay;
                 limit_req_status 429;
+                proxy_set_header Host frontend-service;
                 proxy_pass http://frontend/api/users;
             }
             location /api/employees {
                 limit_req zone=api_general burst=20 nodelay;
                 limit_req_status 429;
+                proxy_set_header Host frontend-service;
                 proxy_pass http://frontend/api/employees;
             }
             location /api/customers {
                 limit_req zone=api_general burst=20 nodelay;
                 limit_req_status 429;
+                proxy_set_header Host frontend-service;
                 proxy_pass http://frontend/api/customers;
             }
             location /api/notes {
                 limit_req zone=api_general burst=20 nodelay;
                 limit_req_status 429;
+                proxy_set_header Host frontend-service;
                 proxy_pass http://frontend/api/notes;
             }
             location /api/jobs {
                 limit_req zone=api_general burst=20 nodelay;
                 limit_req_status 429;
+                proxy_set_header Host frontend-service;
                 proxy_pass http://frontend/api/jobs;
             }
             location /api/admin {
                 limit_req zone=api_general burst=10 nodelay;
                 limit_req_status 429;
+                proxy_set_header Host frontend-service;
                 proxy_pass http://frontend/api/admin;
             }
             location /api/admin/ {
                 limit_req zone=api_general burst=10 nodelay;
                 limit_req_status 429;
+                proxy_set_header Host frontend-service;
                 proxy_pass http://frontend/api/admin/;
             }
 
@@ -192,41 +200,49 @@ data:
             location /api/v1/auth {
                 limit_req zone=auth_limit burst=10 nodelay;
                 limit_req_status 429;
+                proxy_set_header Host auth-service;
                 proxy_pass http://auth_service;
             }
             location /api/v1/users {
                 limit_req zone=api_general burst=20 nodelay;
                 limit_req_status 429;
+                proxy_set_header Host user-bl-service;
                 proxy_pass http://user_service;
             }
             location /api/v1/employees {
                 limit_req zone=api_general burst=20 nodelay;
                 limit_req_status 429;
+                proxy_set_header Host user-bl-service;
                 proxy_pass http://user_service;
             }
             location /api/v1/company {
                 limit_req zone=api_general burst=20 nodelay;
                 limit_req_status 429;
+                proxy_set_header Host user-bl-service;
                 proxy_pass http://user_service;
             }
             location /api/v1/jobs {
                 limit_req zone=api_general burst=20 nodelay;
                 limit_req_status 429;
+                proxy_set_header Host job-bl-service;
                 proxy_pass http://job_service;
             }
             location /api/v1/customers {
                 limit_req zone=api_general burst=20 nodelay;
                 limit_req_status 429;
+                proxy_set_header Host customer-bl-service;
                 proxy_pass http://customer_service;
             }
             location /api/v1/notes {
                 limit_req zone=api_general burst=20 nodelay;
                 limit_req_status 429;
+                proxy_set_header Host customer-bl-service;
                 proxy_pass http://customer_service;
             }
             location /api/v1/admin {
                 limit_req zone=api_general burst=10 nodelay;
                 limit_req_status 429;
+                proxy_set_header Host admin-bl-service;
                 proxy_pass http://admin_service;
             }
 
@@ -234,6 +250,7 @@ data:
             location /api/v1/notifications {
                 limit_req zone=api_general burst=20 nodelay;
                 limit_req_status 429;
+                proxy_set_header Host notification-service;
                 proxy_pass http://notification_service;
             }
 
@@ -245,6 +262,7 @@ data:
             }
 
             location = /favicon.ico {
+                proxy_set_header Host frontend-service;
                 proxy_pass http://frontend/static/favicon.svg;
                 expires 7d;
                 add_header Cache-Control "public, immutable";
@@ -253,6 +271,7 @@ data:
 
             # Static assets
             location /static/ {
+                proxy_set_header Host frontend-service;
                 proxy_pass http://frontend;
                 expires 7d;
                 add_header Cache-Control "public, immutable";
@@ -263,6 +282,7 @@ data:
             location / {
                 limit_req zone=api_general burst=40 nodelay;
                 limit_req_status 429;
+                proxy_set_header Host frontend-service;
                 proxy_pass http://frontend;
                 proxy_set_header Upgrade    $http_upgrade;
                 proxy_set_header Connection $connection_upgrade;
