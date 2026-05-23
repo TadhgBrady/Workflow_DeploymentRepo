@@ -11,3 +11,13 @@ resources:
   - virtualservices-rollout-services.yaml
   - podmonitor-istio-proxies.yaml
   - servicemonitor-istiod.yaml
+
+patches:
+  - target:
+      group: networking.istio.io
+      version: v1beta1
+      kind: VirtualService
+    patch: |-
+      - op: add
+        path: /spec/http/0/timeout
+        value: 10s

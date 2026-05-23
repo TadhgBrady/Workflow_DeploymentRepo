@@ -46,6 +46,10 @@ spec:
           value: "http://auth-service"
         - name: USER_SERVICE_URL
           value: "http://user-db-access-service"
+        - name: JOB_DB_SERVICE_URL
+          value: "http://job-db-access-service"
+        - name: CUSTOMER_DB_SERVICE_URL
+          value: "http://customer-db-access-service"
         - name: JOB_BL_SERVICE_URL
           value: "http://job-bl-service"
         - name: CUSTOMER_BL_SERVICE_URL

@@ -1,0 +1,186 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: auth-service
+  namespace: year4-project-staging
+spec:
+  hosts:
+    - auth-service
+    - auth-service.year4-project-staging.svc.cluster.local
+  http:
+    - name: primary
+      route:
+        - destination:
+            host: auth-service.year4-project-staging.svc.cluster.local
+            port:
+              number: 80
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: user-bl-service
+  namespace: year4-project-staging
+spec:
+  hosts:
+    - user-bl-service
+    - user-bl-service.year4-project-staging.svc.cluster.local
+  http:
+    - name: primary
+      route:
+        - destination:
+            host: user-bl-service.year4-project-staging.svc.cluster.local
+            port:
+              number: 80
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: user-db-access-service
+  namespace: year4-project-staging
+spec:
+  hosts:
+    - user-db-access-service
+    - user-db-access-service.year4-project-staging.svc.cluster.local
+  http:
+    - name: primary
+      route:
+        - destination:
+            host: user-db-access-service.year4-project-staging.svc.cluster.local
+            port:
+              number: 80
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: job-bl-service
+  namespace: year4-project-staging
+spec:
+  hosts:
+    - job-bl-service
+    - job-bl-service.year4-project-staging.svc.cluster.local
+  http:
+    - name: primary
+      route:
+        - destination:
+            host: job-bl-service.year4-project-staging.svc.cluster.local
+            port:
+              number: 80
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: job-db-access-service
+  namespace: year4-project-staging
+spec:
+  hosts:
+    - job-db-access-service
+    - job-db-access-service.year4-project-staging.svc.cluster.local
+  http:
+    - name: primary
+      route:
+        - destination:
+            host: job-db-access-service.year4-project-staging.svc.cluster.local
+            port:
+              number: 80
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: customer-bl-service
+  namespace: year4-project-staging
+spec:
+  hosts:
+    - customer-bl-service
+    - customer-bl-service.year4-project-staging.svc.cluster.local
+  http:
+    - name: primary
+      route:
+        - destination:
+            host: customer-bl-service.year4-project-staging.svc.cluster.local
+            port:
+              number: 80
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: customer-db-access-service
+  namespace: year4-project-staging
+spec:
+  hosts:
+    - customer-db-access-service
+    - customer-db-access-service.year4-project-staging.svc.cluster.local
+  http:
+    - name: primary
+      route:
+        - destination:
+            host: customer-db-access-service.year4-project-staging.svc.cluster.local
+            port:
+              number: 80
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: admin-bl-service
+  namespace: year4-project-staging
+spec:
+  hosts:
+    - admin-bl-service
+    - admin-bl-service.year4-project-staging.svc.cluster.local
+  http:
+    - name: primary
+      route:
+        - destination:
+            host: admin-bl-service.year4-project-staging.svc.cluster.local
+            port:
+              number: 80
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: maps-access-service
+  namespace: year4-project-staging
+spec:
+  hosts:
+    - maps-access-service
+    - maps-access-service.year4-project-staging.svc.cluster.local
+  http:
+    - name: primary
+      route:
+        - destination:
+            host: maps-access-service.year4-project-staging.svc.cluster.local
+            port:
+              number: 80
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: notification-service
+  namespace: year4-project-staging
+spec:
+  hosts:
+    - notification-service
+    - notification-service.year4-project-staging.svc.cluster.local
+  http:
+    - name: primary
+      route:
+        - destination:
+            host: notification-service.year4-project-staging.svc.cluster.local
+            port:
+              number: 80
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: frontend-service
+  namespace: year4-project-staging
+spec:
+  hosts:
+    - frontend-service
+    - frontend-service.year4-project-staging.svc.cluster.local
+  http:
+    - name: primary
+      route:
+        - destination:
+            host: frontend-service.year4-project-staging.svc.cluster.local
+            port:
+              number: 80
