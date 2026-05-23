@@ -182,6 +182,10 @@ configMapGenerator:
       - LOG_LEVEL=INFO
       - DEBUG=false
       - CORS_ORIGINS=*
+  - name: nginx-gateway-config
+    behavior: merge
+    files:
+      - nginx.conf=nginx-staging.conf
   - name: smtp-config
     literals:
       - SMTP_HOST=

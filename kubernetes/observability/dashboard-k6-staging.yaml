@@ -15,7 +15,7 @@ data:
       "tags": ["year4-project", "staging", "k6", "load-test"],
       "timezone": "browser",
       "schemaVersion": 39,
-      "version": 1,
+      "version": 2,
       "refresh": "10s",
       "time": {
         "from": "now-6h",
@@ -45,7 +45,7 @@ data:
           "gridPos": {"x": 0, "y": 0, "w": 24, "h": 3},
           "options": {
             "mode": "markdown",
-            "content": "The GitLab staging-tests stage launches short-lived grafana/k6 Kubernetes Jobs. The automated load gate blocks release flow on threshold failures; the manual baseline and human-workflow jobs are allowed to fail and are used for tuning. Local kind runs use the same Prometheus remote write path with environment=local-staging. Filter by testid to inspect a run."
+            "content": "The GitLab staging-tests stage launches short-lived grafana/k6 Kubernetes Jobs. The automated load gate blocks release flow on threshold failures; the manual baseline and human-workflow jobs are allowed to fail and are used for tuning. Local kind runs use the same Prometheus remote write path with environment=local-staging. Filter by testid to inspect a run. The limiter and capacity panels show whether failures are caused by the gateway, app/service mesh, HPA headroom, or cluster capacity."
           }
         },
         {
@@ -425,6 +425,191 @@ data:
           ],
           "fieldConfig": {
             "defaults": {"unit": "short"},
+            "overrides": []
+          }
+        },
+        {
+          "id": 20,
+          "type": "text",
+          "title": "Limiter And Capacity Triage",
+          "gridPos": {"x": 0, "y": 47, "w": 24, "h": 3},
+          "options": {
+            "mode": "markdown",
+            "content": "Use this row while a k6 run is active. If Gateway 429 RPS rises, nginx is the bottleneck. If gateway RPS is under the configured limit but 5xx or Envoy flags rise, inspect the named workload. If HPA headroom approaches 100% or Karpenter nodes rise, the app or cluster is scaling."
+          }
+        },
+        {
+          "id": 21,
+          "type": "stat",
+          "title": "Gateway API Limit",
+          "gridPos": {"x": 0, "y": 50, "w": 4, "h": 4},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "vector(150)", "refId": "A"}
+          ],
+          "fieldConfig": {
+            "defaults": {"unit": "reqps"},
+            "overrides": []
+          }
+        },
+        {
+          "id": 22,
+          "type": "stat",
+          "title": "Gateway RPS / Limit",
+          "gridPos": {"x": 4, "y": 50, "w": 4, "h": 4},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "100 * sum(rate(istio_requests_total{destination_workload_namespace=\"year4-project-staging\",destination_workload=\"nginx-gateway\",reporter=\"destination\"}[1m])) / 150", "refId": "A"}
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "green", "value": null},
+                  {"color": "orange", "value": 75},
+                  {"color": "red", "value": 100}
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 23,
+          "type": "stat",
+          "title": "Gateway 429 RPS",
+          "gridPos": {"x": 8, "y": 50, "w": 4, "h": 4},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "sum(rate(istio_requests_total{destination_workload_namespace=\"year4-project-staging\",destination_workload=\"nginx-gateway\",reporter=\"destination\",response_code=\"429\"}[1m])) or vector(0)", "refId": "A"}
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "green", "value": null},
+                  {"color": "orange", "value": 0.1},
+                  {"color": "red", "value": 1}
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 24,
+          "type": "stat",
+          "title": "HPA Desired / Max",
+          "gridPos": {"x": 12, "y": 50, "w": 4, "h": 4},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "100 * sum(kube_horizontalpodautoscaler_status_desired_replicas{namespace=\"year4-project-staging\"}) / sum(kube_horizontalpodautoscaler_spec_max_replicas{namespace=\"year4-project-staging\"})", "refId": "A"}
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {"color": "green", "value": null},
+                  {"color": "orange", "value": 70},
+                  {"color": "red", "value": 90}
+                ]
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 25,
+          "type": "stat",
+          "title": "Karpenter Nodes",
+          "gridPos": {"x": 16, "y": 50, "w": 4, "h": 4},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "count(kube_node_labels{label_karpenter_sh_nodepool=~\".+\"}) or vector(0)", "refId": "A"}
+          ],
+          "fieldConfig": {
+            "defaults": {"unit": "short"},
+            "overrides": []
+          }
+        },
+        {
+          "id": 26,
+          "type": "stat",
+          "title": "Ready Nodes",
+          "gridPos": {"x": 20, "y": 50, "w": 4, "h": 4},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "sum(kube_node_status_condition{condition=\"Ready\",status=\"true\"})", "refId": "A"}
+          ],
+          "fieldConfig": {
+            "defaults": {"unit": "short"},
+            "overrides": []
+          }
+        },
+        {
+          "id": 27,
+          "type": "timeseries",
+          "title": "Gateway RPS, Limit, And 429s",
+          "gridPos": {"x": 0, "y": 54, "w": 12, "h": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "sum(rate(istio_requests_total{destination_workload_namespace=\"year4-project-staging\",destination_workload=\"nginx-gateway\",reporter=\"destination\"}[1m]))", "legendFormat": "gateway rps", "refId": "A"},
+            {"expr": "vector(150)", "legendFormat": "api_general limit", "refId": "B"},
+            {"expr": "sum(rate(istio_requests_total{destination_workload_namespace=\"year4-project-staging\",destination_workload=\"nginx-gateway\",reporter=\"destination\",response_code=\"429\"}[1m])) or vector(0)", "legendFormat": "429 rate limited", "refId": "C"}
+          ],
+          "fieldConfig": {
+            "defaults": {"unit": "reqps"},
+            "overrides": []
+          }
+        },
+        {
+          "id": 28,
+          "type": "timeseries",
+          "title": "Kiali Error Rate by Workload and Code",
+          "gridPos": {"x": 12, "y": 54, "w": 12, "h": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "sum by (destination_workload,response_code,response_flags) (rate(istio_requests_total{destination_workload_namespace=\"year4-project-staging\",reporter=\"destination\",response_code!~\"2..|3..\"}[1m]))", "legendFormat": "{{destination_workload}} {{response_code}} {{response_flags}}", "refId": "A"}
+          ],
+          "fieldConfig": {
+            "defaults": {"unit": "reqps"},
+            "overrides": []
+          }
+        },
+        {
+          "id": 29,
+          "type": "timeseries",
+          "title": "HPA Desired Current And Max",
+          "gridPos": {"x": 0, "y": 62, "w": 12, "h": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "sum(kube_horizontalpodautoscaler_status_current_replicas{namespace=\"year4-project-staging\"})", "legendFormat": "current", "refId": "A"},
+            {"expr": "sum(kube_horizontalpodautoscaler_status_desired_replicas{namespace=\"year4-project-staging\"})", "legendFormat": "desired", "refId": "B"},
+            {"expr": "sum(kube_horizontalpodautoscaler_spec_max_replicas{namespace=\"year4-project-staging\"})", "legendFormat": "max", "refId": "C"}
+          ],
+          "fieldConfig": {
+            "defaults": {"unit": "short"},
+            "overrides": []
+          }
+        },
+        {
+          "id": 30,
+          "type": "timeseries",
+          "title": "Node CPU And Memory Utilization",
+          "gridPos": {"x": 12, "y": 62, "w": 12, "h": 8},
+          "datasource": {"type": "prometheus", "uid": "prometheus"},
+          "targets": [
+            {"expr": "100 * (1 - avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m])))", "legendFormat": "cpu", "refId": "A"},
+            {"expr": "100 * (1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes))", "legendFormat": "memory", "refId": "B"}
+          ],
+          "fieldConfig": {
+            "defaults": {"unit": "percent"},
             "overrides": []
           }
         }
