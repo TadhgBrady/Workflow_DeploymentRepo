@@ -4,6 +4,8 @@ metadata:
   name: general
 spec:
   amiFamily: AL2023
+  amiSelectorTerms:
+    - alias: al2023@latest
   instanceProfile: yr4-project-production-eks-node-instance-profile
   subnetSelectorTerms:
     - tags:

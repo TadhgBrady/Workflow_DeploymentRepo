@@ -148,7 +148,13 @@ validate-manifests:
       kubectl kustomize kubernetes/argocd > /dev/null
       for ENV in staging production; do
         echo "── Validating Karpenter autoscaling manifests: $ENV ──"
-        kustomize build kubernetes/autoscaling/karpenter/$ENV | kubeconform -strict -summary -skip EC2NodeClass,NodePool
+        KARPENTER_RENDERED="/tmp/karpenter-$ENV.yaml"
+        kustomize build kubernetes/autoscaling/karpenter/$ENV > "$KARPENTER_RENDERED"
+        grep -Eq '^[[:space:]]+amiSelectorTerms:' "$KARPENTER_RENDERED" || {
+          echo "ERROR: Karpenter EC2NodeClass for $ENV must set spec.amiSelectorTerms for Karpenter 1.6"
+          exit 1
+        }
+        kubeconform -strict -summary -skip EC2NodeClass,NodePool "$KARPENTER_RENDERED"
         echo "── Validating Karpenter autoscaling with kubectl embedded Kustomize: $ENV ──"
         kubectl kustomize kubernetes/autoscaling/karpenter/$ENV > /dev/null
       done

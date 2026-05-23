@@ -497,6 +497,13 @@ foreach ($env in $overlays) {
             $totalErrors++
         }
 
+        if ($karpenterRenderedText -match "(?m)^\s+amiSelectorTerms:\s*$") {
+            Write-Host "  PASS Karpenter EC2NodeClass includes amiSelectorTerms" -ForegroundColor Green
+        } else {
+            Write-Host "  FAIL Karpenter EC2NodeClass must include spec.amiSelectorTerms for Karpenter 1.6" -ForegroundColor Red
+            $totalErrors++
+        }
+
         $karpenterConform = $karpenterRenderedText | kubeconform -strict -summary -skip "EC2NodeClass,NodePool" 2>&1
         if ($LASTEXITCODE -ne 0) {
             Write-Host "  FAIL Karpenter kubeconform validation failed:" -ForegroundColor Red
