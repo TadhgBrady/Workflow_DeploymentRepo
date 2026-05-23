@@ -10,7 +10,7 @@
     can use local Secrets and local Postgres/Redis shims instead of AWS Secrets
     Manager.
 #>
-
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute("PSAvoidUsingPlainTextForPassword", "")]
 param(
     [string]$RepoUrl = "https://gitlab.comp.dkit.ie/finalproject/Prototypes/yr4-projectdeploymentrepo.git",
     [string]$TargetRevision,
@@ -19,8 +19,7 @@ param(
     [string]$ProjectName = "year4-project-production-rehearsal",
     [string]$MeshApplicationName = "year4-project-service-mesh-production-rehearsal",
     [string]$ApplicationName = "year4-project-production-rehearsal",
-    [string]$RepoUsername = $env:ARGOCD_REPO_USERNAME,
-    [string]$RepoPassword = $env:ARGOCD_REPO_PASSWORD,
+    [System.Management.Automation.PSCredential]$RepoCredential,
     [switch]$AllowNonKindContext,
     [switch]$DryRun
 )
@@ -66,12 +65,14 @@ if (-not $DryRun) {
   kubectl create namespace $ArgocdNamespace --dry-run=client -o yaml | kubectl apply -f - | Out-Host
   kubectl create namespace $AppNamespace --dry-run=client -o yaml | kubectl apply -f - | Out-Host
 
-  if ($RepoUsername -and $RepoPassword) {
+  if ($RepoCredential) {
+    $repoUsername = $RepoCredential.UserName
+    $repoCredentialSecret = $RepoCredential.GetNetworkCredential().Password
     kubectl -n $ArgocdNamespace create secret generic year4-project-deployment-repo `
       --from-literal=type=git `
       --from-literal=url=$RepoUrl `
-      --from-literal=username=$RepoUsername `
-      --from-literal=password=$RepoPassword `
+      --from-literal=username=$repoUsername `
+      --from-literal=password=$repoCredentialSecret `
       --dry-run=client -o yaml | kubectl apply -f - | Out-Host
     kubectl -n $ArgocdNamespace label secret year4-project-deployment-repo `
       argocd.argoproj.io/secret-type=repository --overwrite | Out-Host
@@ -98,6 +99,8 @@ spec:
   clusterResourceWhitelist:
     - group: ""
       kind: Namespace
+    - group: scheduling.k8s.io
+      kind: PriorityClass
     - group: external-secrets.io
       kind: ClusterSecretStore
     - group: cert-manager.io
@@ -143,6 +146,8 @@ spec:
       kind: VirtualService
     - group: networking.istio.io
       kind: DestinationRule
+    - group: networking.istio.io
+      kind: ServiceEntry
     - group: security.istio.io
       kind: PeerAuthentication
     - group: security.istio.io

@@ -165,7 +165,7 @@ if (Test-Path $ciFile) {
     Assert-ContainsText $ciText 'scripts/deployment/bootstrap-istio-production.sh' "production mesh bootstrap script is wired in"
     Assert-ContainsText $ciText 'scripts/deployment/discover-loadbalancer-url.sh "$ISTIO_INGRESS_SERVICE" "$ISTIO_NAMESPACE" STAGING_URL' "staging URL is discovered from Istio ingressgateway"
     Assert-ContainsText $ciText 'scripts/deployment/discover-loadbalancer-url.sh "$ISTIO_INGRESS_SERVICE" "$ISTIO_NAMESPACE" PROD_URL' "production URL is discovered from Istio ingressgateway"
-    Assert-ContainsText $ciText "-skip PeerAuthentication,Telemetry,Gateway,VirtualService,DestinationRule,AuthorizationPolicy,PodMonitor,ServiceMonitor" "CI kubeconform skips service mesh CRDs"
+    Assert-ContainsText $ciText "-skip PeerAuthentication,Telemetry,Gateway,VirtualService,DestinationRule,AuthorizationPolicy,ServiceEntry,PodMonitor,ServiceMonitor" "CI kubeconform skips service mesh CRDs"
     Assert-ContainsText $ciText 'scripts/deployment/write-image-pins.sh "$IMAGE_VERSION" production' "production promotion/deploy writes GitOps image pins"
     Assert-ContainsText $ciText 'scripts/deployment/sync-argocd-production.sh' "production deploy uses Argo CD sync script"
     Assert-ContainsText $ciText "kubectl-argo-rollouts" "production deploy installs Argo Rollouts kubectl plugin"
@@ -806,7 +806,7 @@ foreach ($env in @("staging", "production")) {
         Write-Host "  PASS service mesh kubectl kustomize succeeded" -ForegroundColor Green
 
         $meshConformResult = $meshRenderedText | kubeconform -strict -summary `
-            -skip "PeerAuthentication,Telemetry,Gateway,VirtualService,DestinationRule,AuthorizationPolicy,PodMonitor,ServiceMonitor" 2>&1
+            -skip "PeerAuthentication,Telemetry,Gateway,VirtualService,DestinationRule,AuthorizationPolicy,ServiceEntry,PodMonitor,ServiceMonitor" 2>&1
         if ($LASTEXITCODE -ne 0) {
             Write-Host "  FAIL service mesh kubeconform validation failed:" -ForegroundColor Red
             $meshConformResult | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }

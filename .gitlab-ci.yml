@@ -140,7 +140,7 @@ validate-manifests:
       done
       for ENV in staging production; do
         echo "── Validating service mesh manifests: $ENV ──"
-        kustomize build kubernetes/service-mesh/$ENV | kubeconform -strict -summary -skip PeerAuthentication,Telemetry,Gateway,VirtualService,DestinationRule,AuthorizationPolicy,PodMonitor,ServiceMonitor
+        kustomize build kubernetes/service-mesh/$ENV | kubeconform -strict -summary -skip PeerAuthentication,Telemetry,Gateway,VirtualService,DestinationRule,AuthorizationPolicy,ServiceEntry,PodMonitor,ServiceMonitor
         echo "── Validating service mesh with kubectl embedded Kustomize: $ENV ──"
         kubectl kustomize kubernetes/service-mesh/$ENV > /dev/null
       done
