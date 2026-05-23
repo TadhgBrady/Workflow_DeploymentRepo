@@ -13,3 +13,7 @@ spec:
     targetPort: 8002
     protocol: TCP
     name: http
+  - port: 8002
+    targetPort: 8002
+    protocol: TCP
+    name: http-direct
