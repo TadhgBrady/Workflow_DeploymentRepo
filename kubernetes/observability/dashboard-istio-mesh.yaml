@@ -41,7 +41,7 @@ data:
           "gridPos": {"h": 6, "w": 24, "x": 0, "y": 0},
           "options": {
             "mode": "markdown",
-            "content": "Current baseline: application namespaces are mesh-injected, sidecar clients use `ISTIO_MUTUAL` DestinationRules, and PeerAuthentication remains `PERMISSIVE` until staging gates prove `STRICT` is safe. Kiali is the source for live topology and mTLS edge validation."
+            "content": "Current baseline: application namespaces are mesh-injected, sidecar clients use `ISTIO_MUTUAL` DestinationRules, PeerAuthentication is `STRICT`, and namespace AuthorizationPolicies enforce default-deny with explicit ingress, workload, and monitoring allowances. Kiali is the source for live topology and mTLS edge validation."
           }
         },
         {

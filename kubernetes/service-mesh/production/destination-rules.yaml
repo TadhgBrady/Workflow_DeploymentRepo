@@ -6,6 +6,8 @@ metadata:
 spec:
   host: "*.year4-project.svc.cluster.local"
   trafficPolicy:
+    loadBalancer:
+      simple: LEAST_REQUEST
     tls:
       mode: ISTIO_MUTUAL
     connectionPool:

@@ -3,6 +3,8 @@ meshConfig:
   defaultConfig:
     holdApplicationUntilProxyStarts: true
 pilot:
+  cni:
+    enabled: true
   resources:
     requests:
       cpu: 100m

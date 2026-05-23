@@ -6,6 +6,7 @@ APP_NAMESPACE="${2:?usage: bootstrap-istio.sh <staging|production> <app-namespac
 
 ISTIO_NAMESPACE="${ISTIO_NAMESPACE:-istio-system}"
 ISTIO_VERSION="${ISTIO_VERSION:-1.23.2}"
+ISTIO_CNI_RELEASE="${ISTIO_CNI_RELEASE:-istio-cni}"
 ISTIO_GATEWAY_RELEASE="${ISTIO_GATEWAY_RELEASE:-istio-ingressgateway}"
 KIALI_RELEASE="${KIALI_RELEASE:-kiali}"
 MONITORING_NAMESPACE="${MONITORING_NAMESPACE:-monitoring}"
@@ -79,6 +80,12 @@ retry_cmd 4 20 helm upgrade --install istio-base istio/base \
   --namespace "$ISTIO_NAMESPACE" --create-namespace \
   --wait --timeout 300s
 
+clear_pending_helm_release "$ISTIO_CNI_RELEASE" "$ISTIO_NAMESPACE"
+retry_cmd 4 20 helm upgrade --install "$ISTIO_CNI_RELEASE" istio/cni \
+  --version "$ISTIO_VERSION" \
+  --namespace "$ISTIO_NAMESPACE" \
+  --wait --timeout 300s
+
 kubectl wait --for=condition=Established crd/peerauthentications.security.istio.io --timeout=180s
 kubectl wait --for=condition=Established crd/telemetries.telemetry.istio.io --timeout=180s
 kubectl wait --for=condition=Established crd/virtualservices.networking.istio.io --timeout=180s
@@ -113,6 +120,7 @@ kubectl annotate namespace "$APP_NAMESPACE" mesh.year4-project/environment="$ENV
 kubectl apply -k "$MESH_MANIFEST_DIR"
 
 kubectl rollout status deployment/istiod -n "$ISTIO_NAMESPACE" --timeout=300s
+kubectl rollout status daemonset/istio-cni-node -n "$ISTIO_NAMESPACE" --timeout=300s
 kubectl rollout status deployment/"$ISTIO_GATEWAY_RELEASE" -n "$ISTIO_NAMESPACE" --timeout=300s
 kubectl rollout status deployment/"$KIALI_RELEASE" -n "$ISTIO_NAMESPACE" --timeout=300s
 

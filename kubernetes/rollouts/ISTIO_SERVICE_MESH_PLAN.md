@@ -25,10 +25,10 @@ operations.
 
 ## Security Target State
 
-- Move application namespaces from PERMISSIVE mTLS to STRICT mTLS after staging
-  proves there are no plaintext edges.
-- Replace AUDIT-only AuthorizationPolicy with zero-trust policy: namespace
-  default-deny plus explicit ALLOW rules by service account.
+- Application namespaces now enforce STRICT mTLS.
+- AuthorizationPolicy now uses an enforced default-deny baseline with explicit
+  ALLOW rules for Istio ingress, same-namespace mesh workloads, and monitoring
+  scrapes.
 - Add method and path restrictions where API contracts are stable enough.
 - Keep migration and k6 Jobs compatible by disabling sidecar injection or adding
   explicit policy exceptions.
@@ -62,5 +62,5 @@ operations.
 - Confirm Rollouts move VirtualService weights through the staged canary steps.
 - Force a bad metric in staging and prove Argo Rollouts aborts automatically.
 - Run `istioctl analyze`, `istioctl authn tls-check`, Kiali mTLS validation,
-  k6, and Playwright before enforcing STRICT mTLS or default-deny policy in
-  production.
+  k6, and Playwright after policy changes to prove all intended traffic still
+  flows and policy-deny signals are understood.

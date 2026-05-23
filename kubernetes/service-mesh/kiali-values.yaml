@@ -13,6 +13,14 @@ deployment:
       cpu: 250m
       memory: 512Mi
 external_services:
+  grafana:
+    enabled: true
+    in_cluster_url: http://monitoring-grafana.monitoring:80
+    url: http://localhost:3000
+    health_check_url: http://monitoring-grafana.monitoring:80/api/health
+    auth:
+      type: none
+      use_kiali_token: false
   prometheus:
     url: http://kube-prometheus-stack-prometheus.monitoring:9090
 istio_namespace: istio-system

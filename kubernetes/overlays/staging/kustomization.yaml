@@ -5,11 +5,13 @@ namespace: year4-project-staging
 
 # Reference the base configuration
 resources:
+  - namespace-security.yaml
   - ../../base
   - external-secrets.yaml
   - migration-job.yaml
   - hpa.yaml
   - pod-disruption-budgets.yaml
+  - network-policies.yaml
 
 # Staging-specific configuration
 labels:
@@ -78,6 +80,7 @@ patches:
   - path: image-pins/migration-runner.yaml
   - path: nginx-service-patch.yaml
   - path: workload-scheduling-patch.yaml
+  - path: pod-security-patch.yaml
   # Keep staging scheduling predictable on the small node group. This inline
   # JSON6902 patch is compatible with both standalone kustomize and
   # kubectl apply -k; do not use a multi-document patch file here.

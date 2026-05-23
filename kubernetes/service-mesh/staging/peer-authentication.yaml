@@ -1,8 +1,8 @@
 apiVersion: security.istio.io/v1beta1
 kind: PeerAuthentication
 metadata:
-  name: app-namespace-permissive
+  name: app-namespace-strict
   namespace: year4-project-staging
 spec:
   mtls:
-    mode: PERMISSIVE
+    mode: STRICT

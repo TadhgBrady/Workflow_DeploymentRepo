@@ -355,6 +355,16 @@ if (Test-Path $ciFile) {
         $pipelineErrors++
     }
 
+    $kialiValuesFile = Join-Path $RepoRoot "kubernetes/service-mesh/kiali-values.yaml"
+    if (Test-Path $kialiValuesFile) {
+        $kialiValuesText = Get-Content $kialiValuesFile -Raw
+        Assert-ContainsText $kialiValuesText "in_cluster_url: http://monitoring-grafana.monitoring:80" "Kiali points at the kube-prometheus-stack Grafana service"
+        Assert-ContainsText $kialiValuesText "health_check_url: http://monitoring-grafana.monitoring:80/api/health" "Kiali Grafana health check uses the in-cluster service"
+    } else {
+        Write-Host "  FAIL Kiali values file is missing" -ForegroundColor Red
+        $pipelineErrors++
+    }
+
     $promValuesFile = Join-Path $RepoRoot "helm/kube-prometheus-stack/values-staging.yaml"
     if (Test-Path $promValuesFile) {
         $promValuesText = Get-Content $promValuesFile -Raw
@@ -755,6 +765,7 @@ foreach ($env in @("staging", "production")) {
         Write-Host "  PASS service mesh kustomize build succeeded" -ForegroundColor Green
 
         $destinationRuleCount = ([regex]::Matches($meshRenderedText, "(?m)^kind:\s*DestinationRule\s*$")).Count
+        $peerAuthenticationCount = ([regex]::Matches($meshRenderedText, "(?m)^kind:\s*PeerAuthentication\s*$")).Count
         $authorizationPolicyCount = ([regex]::Matches($meshRenderedText, "(?m)^kind:\s*AuthorizationPolicy\s*$")).Count
         if ($destinationRuleCount -ge 1 -and $meshRenderedText.Contains("mode: ISTIO_MUTUAL")) {
             Write-Host "  PASS service mesh renders ISTIO_MUTUAL DestinationRules" -ForegroundColor Green
@@ -762,10 +773,16 @@ foreach ($env in @("staging", "production")) {
             Write-Host "  FAIL service mesh must render at least one ISTIO_MUTUAL DestinationRule" -ForegroundColor Red
             $totalErrors++
         }
-        if ($authorizationPolicyCount -ge 1 -and $meshRenderedText.Contains("action: AUDIT")) {
-            Write-Host "  PASS service mesh renders baseline audit AuthorizationPolicy" -ForegroundColor Green
+        if ($peerAuthenticationCount -ge 1 -and $meshRenderedText.Contains("mode: STRICT")) {
+            Write-Host "  PASS service mesh renders STRICT namespace mTLS" -ForegroundColor Green
         } else {
-            Write-Host "  FAIL service mesh must render baseline audit AuthorizationPolicy" -ForegroundColor Red
+            Write-Host "  FAIL service mesh must render STRICT namespace mTLS" -ForegroundColor Red
+            $totalErrors++
+        }
+        if ($authorizationPolicyCount -ge 4 -and $meshRenderedText.Contains("name: default-deny") -and -not $meshRenderedText.Contains("action: AUDIT")) {
+            Write-Host "  PASS service mesh renders enforced default-deny AuthorizationPolicies" -ForegroundColor Green
+        } else {
+            Write-Host "  FAIL service mesh must render enforced default-deny AuthorizationPolicies without AUDIT mode" -ForegroundColor Red
             $totalErrors++
         }
 

@@ -22,6 +22,9 @@ spec:
       jqPathExpressions:
         - .spec.http[].route[].weight
   syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
     syncOptions:
       - ApplyOutOfSyncOnly=true
       - PrunePropagationPolicy=foreground

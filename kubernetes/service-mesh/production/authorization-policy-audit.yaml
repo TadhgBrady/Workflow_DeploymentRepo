@@ -1,11 +1,77 @@
 apiVersion: security.istio.io/v1beta1
 kind: AuthorizationPolicy
 metadata:
-  name: audit-app-namespace-access
+  name: default-deny
   namespace: year4-project
   labels:
-    policy.year4-project/mode: audit
+    policy.year4-project/mode: enforced
+spec: {}
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-istio-ingress-to-nginx
+  namespace: year4-project
+  labels:
+    policy.year4-project/mode: enforced
 spec:
-  action: AUDIT
+  selector:
+    matchLabels:
+      app: nginx-gateway
+  action: ALLOW
   rules:
-    - {}
+    - from:
+        - source:
+            namespaces:
+              - istio-system
+      to:
+        - operation:
+            ports:
+              - "8080"
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-app-namespace-mesh
+  namespace: year4-project
+  labels:
+    policy.year4-project/mode: enforced
+spec:
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            namespaces:
+              - year4-project
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-monitoring-scrapes
+  namespace: year4-project
+  labels:
+    policy.year4-project/mode: enforced
+spec:
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            namespaces:
+              - monitoring
+      to:
+        - operation:
+            ports:
+              - "80"
+              - "8000"
+              - "8001"
+              - "8002"
+              - "8003"
+              - "8004"
+              - "8005"
+              - "8006"
+              - "8007"
+              - "8008"
+              - "8009"
+              - "8011"
+              - "8080"
+              - "15090"
