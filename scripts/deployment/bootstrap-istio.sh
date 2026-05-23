@@ -87,6 +87,7 @@ clear_pending_helm_release "$ISTIO_CNI_RELEASE" "$ISTIO_NAMESPACE"
 retry_cmd 4 20 helm upgrade --install "$ISTIO_CNI_RELEASE" istio/cni \
   --version "$ISTIO_VERSION" \
   --namespace "$ISTIO_NAMESPACE" \
+  -f kubernetes/service-mesh/cni-values.yaml \
   --wait --timeout 300s
 
 kubectl wait --for=condition=Established crd/peerauthentications.security.istio.io --timeout=180s

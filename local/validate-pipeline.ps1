@@ -163,6 +163,7 @@ if (Test-Path $ciFile) {
     Assert-ContainsText $ciText "kubernetes/autoscaling/karpenter/`$ENV" "CI validates Karpenter autoscaling manifests"
     Assert-ContainsText $ciText 'scripts/deployment/bootstrap-istio-staging.sh' "staging mesh bootstrap script is wired in"
     Assert-ContainsText $ciText 'scripts/deployment/bootstrap-istio-production.sh' "production mesh bootstrap script is wired in"
+    Assert-ContainsText $ciText '-f kubernetes/service-mesh/cni-values.yaml' "Istio CNI install uses repo-managed values"
     Assert-ContainsText $ciText 'scripts/deployment/discover-loadbalancer-url.sh "$ISTIO_INGRESS_SERVICE" "$ISTIO_NAMESPACE" STAGING_URL' "staging URL is discovered from Istio ingressgateway"
     Assert-ContainsText $ciText 'scripts/deployment/discover-loadbalancer-url.sh "$ISTIO_INGRESS_SERVICE" "$ISTIO_NAMESPACE" PROD_URL' "production URL is discovered from Istio ingressgateway"
     Assert-ContainsText $ciText "-skip PeerAuthentication,Telemetry,Gateway,VirtualService,DestinationRule,AuthorizationPolicy,ServiceEntry,PodMonitor,ServiceMonitor" "CI kubeconform skips service mesh CRDs"
@@ -304,6 +305,7 @@ if (Test-Path $ciFile) {
         "kubernetes/argocd/application-production-service-mesh.yaml",
         "kubernetes/argocd/application-production.yaml",
         "kubernetes/service-mesh/istiod-values.yaml",
+        "kubernetes/service-mesh/cni-values.yaml",
         "kubernetes/service-mesh/gateway-values.yaml",
         "kubernetes/service-mesh/kiali-values.yaml",
         "kubernetes/observability/dashboard-operations-hub.yaml",
