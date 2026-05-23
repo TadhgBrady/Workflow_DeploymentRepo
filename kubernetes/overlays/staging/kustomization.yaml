@@ -16,7 +16,7 @@ resources:
 # Staging-specific configuration
 labels:
   - pairs:
-      app.kubernetes.io/name: year4-project
+      app.kubernetes.io/part-of: year4-project
       app.kubernetes.io/version: "7759089c"
       environment: staging
       managed-by: kustomize
