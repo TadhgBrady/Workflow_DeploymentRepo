@@ -1,7 +1,7 @@
-apiVersion: security.istio.io/v1beta1
+apiVersion: security.istio.io/v1
 kind: PeerAuthentication
 metadata:
-  name: app-namespace-strict
+  name: default
   namespace: year4-project-staging
 spec:
   mtls:

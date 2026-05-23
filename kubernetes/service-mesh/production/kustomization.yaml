@@ -5,6 +5,7 @@ resources:
   - peer-authentication.yaml
   - telemetry.yaml
   - destination-rules.yaml
+  - serviceentries-external-apis.yaml
   - authorization-policy-audit.yaml
   - ingress-gateway.yaml
   - virtualservice-nginx-gateway.yaml

@@ -1,0 +1,43 @@
+apiVersion: networking.istio.io/v1beta1
+kind: ServiceEntry
+metadata:
+  name: google-maps-api
+  namespace: year4-project
+  labels:
+    app.kubernetes.io/name: google-maps-api
+    app.kubernetes.io/component: external-api
+    app.kubernetes.io/part-of: year4-project
+    service.istio.io/canonical-name: google-maps-api
+spec:
+  hosts:
+    - maps.googleapis.com
+  location: MESH_EXTERNAL
+  exportTo:
+    - "."
+  ports:
+    - number: 443
+      name: tls
+      protocol: TLS
+  resolution: DNS
+---
+apiVersion: networking.istio.io/v1beta1
+kind: ServiceEntry
+metadata:
+  name: twilio-api
+  namespace: year4-project
+  labels:
+    app.kubernetes.io/name: twilio-api
+    app.kubernetes.io/component: external-api
+    app.kubernetes.io/part-of: year4-project
+    service.istio.io/canonical-name: twilio-api
+spec:
+  hosts:
+    - api.twilio.com
+  location: MESH_EXTERNAL
+  exportTo:
+    - "."
+  ports:
+    - number: 443
+      name: tls
+      protocol: TLS
+  resolution: DNS

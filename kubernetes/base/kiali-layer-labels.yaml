@@ -51,237 +51,237 @@ kind: Deployment
 metadata:
   name: auth-service
   labels:
-    app.kubernetes.io/name: business-layer
-    app.kubernetes.io/component: business-logic
-    service.istio.io/canonical-name: business-layer
+    app.kubernetes.io/name: auth-service
+    app.kubernetes.io/component: business-layer
+    service.istio.io/canonical-name: auth-service
 spec:
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: business-layer
-        app.kubernetes.io/component: business-logic
-        service.istio.io/canonical-name: business-layer
+        app.kubernetes.io/name: auth-service
+        app.kubernetes.io/component: business-layer
+        service.istio.io/canonical-name: auth-service
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: auth-service
   labels:
-    app.kubernetes.io/name: business-layer
-    app.kubernetes.io/component: business-logic
+    app.kubernetes.io/name: auth-service
+    app.kubernetes.io/component: business-layer
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: admin-bl-service
   labels:
-    app.kubernetes.io/name: business-layer
-    app.kubernetes.io/component: business-logic
-    service.istio.io/canonical-name: business-layer
+    app.kubernetes.io/name: admin-bl-service
+    app.kubernetes.io/component: business-layer
+    service.istio.io/canonical-name: admin-bl-service
 spec:
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: business-layer
-        app.kubernetes.io/component: business-logic
-        service.istio.io/canonical-name: business-layer
+        app.kubernetes.io/name: admin-bl-service
+        app.kubernetes.io/component: business-layer
+        service.istio.io/canonical-name: admin-bl-service
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: admin-bl-service
   labels:
-    app.kubernetes.io/name: business-layer
-    app.kubernetes.io/component: business-logic
+    app.kubernetes.io/name: admin-bl-service
+    app.kubernetes.io/component: business-layer
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: user-bl-service
   labels:
-    app.kubernetes.io/name: business-layer
-    app.kubernetes.io/component: business-logic
-    service.istio.io/canonical-name: business-layer
+    app.kubernetes.io/name: user-bl-service
+    app.kubernetes.io/component: business-layer
+    service.istio.io/canonical-name: user-bl-service
 spec:
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: business-layer
-        app.kubernetes.io/component: business-logic
-        service.istio.io/canonical-name: business-layer
+        app.kubernetes.io/name: user-bl-service
+        app.kubernetes.io/component: business-layer
+        service.istio.io/canonical-name: user-bl-service
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: user-bl-service
   labels:
-    app.kubernetes.io/name: business-layer
-    app.kubernetes.io/component: business-logic
+    app.kubernetes.io/name: user-bl-service
+    app.kubernetes.io/component: business-layer
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: job-bl-service-deployment
   labels:
-    app.kubernetes.io/name: business-layer
-    app.kubernetes.io/component: business-logic
-    service.istio.io/canonical-name: business-layer
+    app.kubernetes.io/name: job-bl-service
+    app.kubernetes.io/component: business-layer
+    service.istio.io/canonical-name: job-bl-service
 spec:
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: business-layer
-        app.kubernetes.io/component: business-logic
-        service.istio.io/canonical-name: business-layer
+        app.kubernetes.io/name: job-bl-service
+        app.kubernetes.io/component: business-layer
+        service.istio.io/canonical-name: job-bl-service
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: job-bl-service
   labels:
-    app.kubernetes.io/name: business-layer
-    app.kubernetes.io/component: business-logic
+    app.kubernetes.io/name: job-bl-service
+    app.kubernetes.io/component: business-layer
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: customer-bl-service
   labels:
-    app.kubernetes.io/name: business-layer
-    app.kubernetes.io/component: business-logic
-    service.istio.io/canonical-name: business-layer
+    app.kubernetes.io/name: customer-bl-service
+    app.kubernetes.io/component: business-layer
+    service.istio.io/canonical-name: customer-bl-service
 spec:
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: business-layer
-        app.kubernetes.io/component: business-logic
-        service.istio.io/canonical-name: business-layer
+        app.kubernetes.io/name: customer-bl-service
+        app.kubernetes.io/component: business-layer
+        service.istio.io/canonical-name: customer-bl-service
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: customer-bl-service
   labels:
-    app.kubernetes.io/name: business-layer
-    app.kubernetes.io/component: business-logic
+    app.kubernetes.io/name: customer-bl-service
+    app.kubernetes.io/component: business-layer
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: maps-access-service
   labels:
-    app.kubernetes.io/name: business-layer
-    app.kubernetes.io/component: business-logic
-    service.istio.io/canonical-name: business-layer
+    app.kubernetes.io/name: maps-access-service
+    app.kubernetes.io/component: business-layer
+    service.istio.io/canonical-name: maps-access-service
 spec:
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: business-layer
-        app.kubernetes.io/component: business-logic
-        service.istio.io/canonical-name: business-layer
+        app.kubernetes.io/name: maps-access-service
+        app.kubernetes.io/component: business-layer
+        service.istio.io/canonical-name: maps-access-service
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: maps-access-service
   labels:
-    app.kubernetes.io/name: business-layer
-    app.kubernetes.io/component: business-logic
+    app.kubernetes.io/name: maps-access-service
+    app.kubernetes.io/component: business-layer
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: notification-service
   labels:
-    app.kubernetes.io/name: business-layer
-    app.kubernetes.io/component: business-logic
-    service.istio.io/canonical-name: business-layer
+    app.kubernetes.io/name: notification-service
+    app.kubernetes.io/component: business-layer
+    service.istio.io/canonical-name: notification-service
 spec:
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: business-layer
-        app.kubernetes.io/component: business-logic
-        service.istio.io/canonical-name: business-layer
+        app.kubernetes.io/name: notification-service
+        app.kubernetes.io/component: business-layer
+        service.istio.io/canonical-name: notification-service
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: notification-service
   labels:
-    app.kubernetes.io/name: business-layer
-    app.kubernetes.io/component: business-logic
+    app.kubernetes.io/name: notification-service
+    app.kubernetes.io/component: business-layer
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: user-db-access-service
   labels:
-    app.kubernetes.io/name: database-access-layer
-    app.kubernetes.io/component: database-access
-    service.istio.io/canonical-name: database-access-layer
+    app.kubernetes.io/name: user-db-access-service
+    app.kubernetes.io/component: database-access-layer
+    service.istio.io/canonical-name: user-db-access-service
 spec:
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: database-access-layer
-        app.kubernetes.io/component: database-access
-        service.istio.io/canonical-name: database-access-layer
+        app.kubernetes.io/name: user-db-access-service
+        app.kubernetes.io/component: database-access-layer
+        service.istio.io/canonical-name: user-db-access-service
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: user-db-access-service
   labels:
-    app.kubernetes.io/name: database-access-layer
-    app.kubernetes.io/component: database-access
+    app.kubernetes.io/name: user-db-access-service
+    app.kubernetes.io/component: database-access-layer
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: job-db-access-service-deployment
   labels:
-    app.kubernetes.io/name: database-access-layer
-    app.kubernetes.io/component: database-access
-    service.istio.io/canonical-name: database-access-layer
+    app.kubernetes.io/name: job-db-access-service
+    app.kubernetes.io/component: database-access-layer
+    service.istio.io/canonical-name: job-db-access-service
 spec:
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: database-access-layer
-        app.kubernetes.io/component: database-access
-        service.istio.io/canonical-name: database-access-layer
+        app.kubernetes.io/name: job-db-access-service
+        app.kubernetes.io/component: database-access-layer
+        service.istio.io/canonical-name: job-db-access-service
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: job-db-access-service
   labels:
-    app.kubernetes.io/name: database-access-layer
-    app.kubernetes.io/component: database-access
+    app.kubernetes.io/name: job-db-access-service
+    app.kubernetes.io/component: database-access-layer
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: customer-db-access-service
   labels:
-    app.kubernetes.io/name: database-access-layer
-    app.kubernetes.io/component: database-access
-    service.istio.io/canonical-name: database-access-layer
+    app.kubernetes.io/name: customer-db-access-service
+    app.kubernetes.io/component: database-access-layer
+    service.istio.io/canonical-name: customer-db-access-service
 spec:
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: database-access-layer
-        app.kubernetes.io/component: database-access
-        service.istio.io/canonical-name: database-access-layer
+        app.kubernetes.io/name: customer-db-access-service
+        app.kubernetes.io/component: database-access-layer
+        service.istio.io/canonical-name: customer-db-access-service
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: customer-db-access-service
   labels:
-    app.kubernetes.io/name: database-access-layer
-    app.kubernetes.io/component: database-access
+    app.kubernetes.io/name: customer-db-access-service
+    app.kubernetes.io/component: database-access-layer

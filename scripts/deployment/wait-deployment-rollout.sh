@@ -10,9 +10,14 @@ WORKLOAD_COUNT=0
 diagnose_workload() {
   RESOURCE="$1"
   NAME="$2"
-  APP_LABEL="$3"
 
-  if [ -n "$APP_LABEL" ]; then
+  APP_KUBERNETES_NAME=$(kubectl get "$RESOURCE" -n "$NAMESPACE" -o jsonpath='{.spec.selector.matchLabels.app\.kubernetes\.io/name}' 2>/dev/null || true)
+  APP_LABEL=$(kubectl get "$RESOURCE" -n "$NAMESPACE" -o jsonpath='{.spec.selector.matchLabels.app}' 2>/dev/null || true)
+
+  if [ -n "$APP_KUBERNETES_NAME" ]; then
+    LABEL_SELECTOR="app.kubernetes.io/name=$APP_KUBERNETES_NAME"
+    EVENT_PATTERN="$NAME|$APP_KUBERNETES_NAME"
+  elif [ -n "$APP_LABEL" ]; then
     LABEL_SELECTOR="app=$APP_LABEL"
     EVENT_PATTERN="$NAME|$APP_LABEL"
   else
@@ -70,10 +75,9 @@ for DEPLOY in $(kubectl get deployments -n "$NAMESPACE" -o name); do
   fi
 
   DEPLOY_NAME=$(echo "$DEPLOY" | sed 's|deployment.apps/||; s|deployment/||')
-  APP_LABEL=$(kubectl get "$DEPLOY" -n "$NAMESPACE" -o jsonpath='{.spec.selector.matchLabels.app}' 2>/dev/null || true)
 
   echo "❌ $DEPLOY rollout failed — gathering diagnostics..."
-  diagnose_workload "$DEPLOY" "$DEPLOY_NAME" "$APP_LABEL"
+  diagnose_workload "$DEPLOY" "$DEPLOY_NAME"
   FAILED_WORKLOADS="$FAILED_WORKLOADS deployment/$DEPLOY_NAME"
 done
 
@@ -91,13 +95,12 @@ for ROLLOUT in $(kubectl get rollouts.argoproj.io -n "$NAMESPACE" -o name 2>/dev
     continue
   fi
 
-  APP_LABEL=$(kubectl get "$ROLLOUT" -n "$NAMESPACE" -o jsonpath='{.spec.selector.matchLabels.app}' 2>/dev/null || true)
   echo "❌ $ROLLOUT rollout failed — gathering diagnostics..."
   kubectl describe "$ROLLOUT" -n "$NAMESPACE" || true
   if command -v kubectl-argo-rollouts >/dev/null 2>&1; then
     kubectl argo rollouts get rollout "$ROLLOUT_NAME" -n "$NAMESPACE" || true
   fi
-  diagnose_workload "$ROLLOUT" "$ROLLOUT_NAME" "$APP_LABEL"
+  diagnose_workload "$ROLLOUT" "$ROLLOUT_NAME"
   FAILED_WORKLOADS="$FAILED_WORKLOADS rollout/$ROLLOUT_NAME"
 done
 

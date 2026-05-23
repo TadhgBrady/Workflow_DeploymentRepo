@@ -1,0 +1,299 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+  labels:
+    app: business-layer
+    service.istio.io/canonical-name: business-layer
+spec:
+  selector:
+    matchLabels:
+      $patch: replace
+      app.kubernetes.io/name: auth-service
+  template:
+    metadata:
+      labels:
+        app: business-layer
+        service.istio.io/canonical-name: business-layer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-service
+  labels:
+    app: business-layer
+    service.istio.io/canonical-name: business-layer
+spec:
+  selector:
+    $patch: replace
+    app.kubernetes.io/name: auth-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admin-bl-service
+  labels:
+    app: business-layer
+    service.istio.io/canonical-name: business-layer
+spec:
+  selector:
+    matchLabels:
+      $patch: replace
+      app.kubernetes.io/name: admin-bl-service
+  template:
+    metadata:
+      labels:
+        app: business-layer
+        service.istio.io/canonical-name: business-layer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: admin-bl-service
+  labels:
+    app: business-layer
+    service.istio.io/canonical-name: business-layer
+spec:
+  selector:
+    $patch: replace
+    app.kubernetes.io/name: admin-bl-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-bl-service
+  labels:
+    app: business-layer
+    service.istio.io/canonical-name: business-layer
+spec:
+  selector:
+    matchLabels:
+      $patch: replace
+      app.kubernetes.io/name: user-bl-service
+  template:
+    metadata:
+      labels:
+        app: business-layer
+        service.istio.io/canonical-name: business-layer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-bl-service
+  labels:
+    app: business-layer
+    service.istio.io/canonical-name: business-layer
+spec:
+  selector:
+    $patch: replace
+    app.kubernetes.io/name: user-bl-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: job-bl-service-deployment
+  labels:
+    app: business-layer
+    service.istio.io/canonical-name: business-layer
+spec:
+  selector:
+    matchLabels:
+      $patch: replace
+      app.kubernetes.io/name: job-bl-service
+  template:
+    metadata:
+      labels:
+        app: business-layer
+        service.istio.io/canonical-name: business-layer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: job-bl-service
+  labels:
+    app: business-layer
+    service.istio.io/canonical-name: business-layer
+spec:
+  selector:
+    $patch: replace
+    app.kubernetes.io/name: job-bl-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: customer-bl-service
+  labels:
+    app: business-layer
+    service.istio.io/canonical-name: business-layer
+spec:
+  selector:
+    matchLabels:
+      $patch: replace
+      app.kubernetes.io/name: customer-bl-service
+  template:
+    metadata:
+      labels:
+        app: business-layer
+        service.istio.io/canonical-name: business-layer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: customer-bl-service
+  labels:
+    app: business-layer
+    service.istio.io/canonical-name: business-layer
+spec:
+  selector:
+    $patch: replace
+    app.kubernetes.io/name: customer-bl-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: maps-access-service
+  labels:
+    app: business-layer
+    service.istio.io/canonical-name: business-layer
+spec:
+  selector:
+    matchLabels:
+      $patch: replace
+      app.kubernetes.io/name: maps-access-service
+  template:
+    metadata:
+      labels:
+        app: business-layer
+        service.istio.io/canonical-name: business-layer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: maps-access-service
+  labels:
+    app: business-layer
+    service.istio.io/canonical-name: business-layer
+spec:
+  selector:
+    $patch: replace
+    app.kubernetes.io/name: maps-access-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-service
+  labels:
+    app: business-layer
+    service.istio.io/canonical-name: business-layer
+spec:
+  selector:
+    matchLabels:
+      $patch: replace
+      app.kubernetes.io/name: notification-service
+  template:
+    metadata:
+      labels:
+        app: business-layer
+        service.istio.io/canonical-name: business-layer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notification-service
+  labels:
+    app: business-layer
+    service.istio.io/canonical-name: business-layer
+spec:
+  selector:
+    $patch: replace
+    app.kubernetes.io/name: notification-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-db-access-service
+  labels:
+    app: database-access-layer
+    service.istio.io/canonical-name: database-access-layer
+spec:
+  selector:
+    matchLabels:
+      $patch: replace
+      app.kubernetes.io/name: user-db-access-service
+  template:
+    metadata:
+      labels:
+        app: database-access-layer
+        service.istio.io/canonical-name: database-access-layer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-db-access-service
+  labels:
+    app: database-access-layer
+    service.istio.io/canonical-name: database-access-layer
+spec:
+  selector:
+    $patch: replace
+    app.kubernetes.io/name: user-db-access-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: job-db-access-service-deployment
+  labels:
+    app: database-access-layer
+    service.istio.io/canonical-name: database-access-layer
+spec:
+  selector:
+    matchLabels:
+      $patch: replace
+      app.kubernetes.io/name: job-db-access-service
+  template:
+    metadata:
+      labels:
+        app: database-access-layer
+        service.istio.io/canonical-name: database-access-layer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: job-db-access-service
+  labels:
+    app: database-access-layer
+    service.istio.io/canonical-name: database-access-layer
+spec:
+  selector:
+    $patch: replace
+    app.kubernetes.io/name: job-db-access-service
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: customer-db-access-service
+  labels:
+    app: database-access-layer
+    service.istio.io/canonical-name: database-access-layer
+spec:
+  selector:
+    matchLabels:
+      $patch: replace
+      app.kubernetes.io/name: customer-db-access-service
+  template:
+    metadata:
+      labels:
+        app: database-access-layer
+        service.istio.io/canonical-name: database-access-layer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: customer-db-access-service
+  labels:
+    app: database-access-layer
+    service.istio.io/canonical-name: database-access-layer
+spec:
+  selector:
+    $patch: replace
+    app.kubernetes.io/name: customer-db-access-service

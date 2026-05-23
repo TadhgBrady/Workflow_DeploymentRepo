@@ -5,7 +5,7 @@ metadata:
 spec:
   type: ClusterIP
   selector:
-    app: auth-service
+    app.kubernetes.io/name: auth-service
   ports:
     - name: http
       protocol: TCP
@@ -19,7 +19,7 @@ metadata:
 spec:
   type: ClusterIP
   selector:
-    app: user-bl-service
+    app.kubernetes.io/name: user-bl-service
   ports:
     - name: http
       protocol: TCP
@@ -33,7 +33,7 @@ metadata:
 spec:
   type: ClusterIP
   selector:
-    app: user-db-access-service
+    app.kubernetes.io/name: user-db-access-service
   ports:
     - name: http
       protocol: TCP
@@ -47,7 +47,7 @@ metadata:
 spec:
   type: ClusterIP
   selector:
-    app: job-bl-service
+    app.kubernetes.io/name: job-bl-service
   ports:
     - name: http
       protocol: TCP
@@ -61,7 +61,7 @@ metadata:
 spec:
   type: ClusterIP
   selector:
-    app: job-db-access-service
+    app.kubernetes.io/name: job-db-access-service
   ports:
     - name: http
       protocol: TCP
@@ -75,7 +75,7 @@ metadata:
 spec:
   type: ClusterIP
   selector:
-    app: customer-bl-service
+    app.kubernetes.io/name: customer-bl-service
   ports:
     - name: http
       protocol: TCP
@@ -89,7 +89,7 @@ metadata:
 spec:
   type: ClusterIP
   selector:
-    app: customer-db-access-service
+    app.kubernetes.io/name: customer-db-access-service
   ports:
     - name: http
       protocol: TCP
@@ -103,7 +103,7 @@ metadata:
 spec:
   type: ClusterIP
   selector:
-    app: admin-bl-service
+    app.kubernetes.io/name: admin-bl-service
   ports:
     - name: http
       protocol: TCP
@@ -117,7 +117,7 @@ metadata:
 spec:
   type: ClusterIP
   selector:
-    app: maps-access-service
+    app.kubernetes.io/name: maps-access-service
   ports:
     - name: http
       protocol: TCP
@@ -131,7 +131,7 @@ metadata:
 spec:
   type: ClusterIP
   selector:
-    app: notification-service
+    app.kubernetes.io/name: notification-service
   ports:
     - name: http
       protocol: TCP

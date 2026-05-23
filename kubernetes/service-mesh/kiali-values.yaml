@@ -2,8 +2,20 @@ fullnameOverride: kiali
 auth:
   strategy: anonymous
 deployment:
+  cluster_wide_access: false
   accessible_namespaces:
-    - "**"
+    - istio-system
+    - monitoring
+    - year4-project-staging
+    - year4-project
+  discovery_selectors:
+    default:
+      - matchLabels:
+          kubernetes.io/metadata.name: istio-system
+      - matchLabels:
+          kubernetes.io/metadata.name: monitoring
+      - matchLabels:
+          app.kubernetes.io/part-of: year4-project
   view_only_mode: true
   resources:
     requests:
@@ -24,3 +36,8 @@ external_services:
   prometheus:
     url: http://kube-prometheus-stack-prometheus.monitoring:9090
 istio_namespace: istio-system
+kiali_feature_flags:
+  validations:
+    ignore:
+      - KIA1301
+      - KIA1317

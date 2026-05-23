@@ -28,7 +28,7 @@ data:
             "label": "k6 test id",
             "type": "query",
             "datasource": {"type": "prometheus", "uid": "prometheus"},
-            "query": "label_values(k6_http_reqs_total{environment=\"staging\"}, testid)",
+            "query": "label_values(k6_http_reqs_total{environment=~\"staging|local-staging\"}, testid)",
             "refresh": 2,
             "sort": 2,
             "includeAll": true,
@@ -45,7 +45,7 @@ data:
           "gridPos": {"x": 0, "y": 0, "w": 24, "h": 3},
           "options": {
             "mode": "markdown",
-            "content": "The GitLab staging-tests stage launches short-lived grafana/k6 Kubernetes Jobs. The automated load gate blocks release flow on threshold failures; the manual baseline and human-workflow jobs are allowed to fail and are used for tuning. All push metrics to Prometheus remote write with environment=staging and a pipeline testid, so these panels remain available while staging is up."
+            "content": "The GitLab staging-tests stage launches short-lived grafana/k6 Kubernetes Jobs. The automated load gate blocks release flow on threshold failures; the manual baseline and human-workflow jobs are allowed to fail and are used for tuning. Local kind runs use the same Prometheus remote write path with environment=local-staging. Filter by testid to inspect a run."
           }
         },
         {
@@ -56,7 +56,7 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "targets": [
             {
-              "expr": "sum(rate(k6_http_reqs_total{environment=\"staging\",testid=~\"$testid\"}[1m])) or vector(0)",
+              "expr": "sum(rate(k6_http_reqs_total{environment=~\"staging|local-staging\",testid=~\"$testid\"}[1m])) or vector(0)",
               "refId": "A"
             }
           ],
@@ -73,7 +73,7 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "targets": [
             {
-              "expr": "max(k6_vus{environment=\"staging\",testid=~\"$testid\"}) or vector(0)",
+              "expr": "max(k6_vus{environment=~\"staging|local-staging\",testid=~\"$testid\"}) or vector(0)",
               "refId": "A"
             }
           ]
@@ -86,7 +86,7 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "targets": [
             {
-              "expr": "max(k6_http_req_failed_rate{environment=\"staging\",testid=~\"$testid\"}) or vector(0)",
+              "expr": "max(k6_http_req_failed_rate{environment=~\"staging|local-staging\",testid=~\"$testid\"}) or vector(0)",
               "refId": "A"
             }
           ],
@@ -113,7 +113,7 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "targets": [
             {
-              "expr": "max(k6_checks_rate{environment=\"staging\",testid=~\"$testid\"}) or vector(0)",
+              "expr": "max(k6_checks_rate{environment=~\"staging|local-staging\",testid=~\"$testid\"}) or vector(0)",
               "refId": "A"
             }
           ],
@@ -140,7 +140,7 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "targets": [
             {
-              "expr": "sum by (name) (rate(k6_http_reqs_total{environment=\"staging\",testid=~\"$testid\"}[1m]))",
+              "expr": "sum by (name) (rate(k6_http_reqs_total{environment=~\"staging|local-staging\",testid=~\"$testid\"}[1m]))",
               "legendFormat": "{{name}}",
               "refId": "A"
             }
@@ -158,12 +158,12 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "targets": [
             {
-              "expr": "max by (name) (k6_http_req_duration_p95{environment=\"staging\",testid=~\"$testid\"})",
+              "expr": "max by (name) (k6_http_req_duration_p95{environment=~\"staging|local-staging\",testid=~\"$testid\"})",
               "legendFormat": "p95 {{name}}",
               "refId": "A"
             },
             {
-              "expr": "max by (name) (k6_http_req_duration_p99{environment=\"staging\",testid=~\"$testid\"})",
+              "expr": "max by (name) (k6_http_req_duration_p99{environment=~\"staging|local-staging\",testid=~\"$testid\"})",
               "legendFormat": "p99 {{name}}",
               "refId": "B"
             }
@@ -181,7 +181,7 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "targets": [
             {
-              "expr": "max by (name) (k6_http_req_failed_rate{environment=\"staging\",testid=~\"$testid\"})",
+              "expr": "max by (name) (k6_http_req_failed_rate{environment=~\"staging|local-staging\",testid=~\"$testid\"})",
               "legendFormat": "{{name}}",
               "refId": "A"
             }
@@ -199,7 +199,7 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "targets": [
             {
-              "expr": "sum by (status) (rate(k6_http_reqs_total{environment=\"staging\",testid=~\"$testid\"}[1m]))",
+              "expr": "sum by (status) (rate(k6_http_reqs_total{environment=~\"staging|local-staging\",testid=~\"$testid\"}[1m]))",
               "legendFormat": "HTTP {{status}}",
               "refId": "A"
             }
@@ -217,7 +217,7 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "targets": [
             {
-              "expr": "max by (name) (k6_checks_rate{environment=\"staging\",testid=~\"$testid\"})",
+              "expr": "max by (name) (k6_checks_rate{environment=~\"staging|local-staging\",testid=~\"$testid\"})",
               "legendFormat": "{{name}}",
               "refId": "A"
             }
@@ -235,7 +235,7 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "targets": [
             {
-              "expr": "max by (name) (k6_server_errors_rate{environment=\"staging\",testid=~\"$testid\"})",
+              "expr": "max by (name) (k6_server_errors_rate{environment=~\"staging|local-staging\",testid=~\"$testid\"})",
               "legendFormat": "{{name}}",
               "refId": "A"
             }
@@ -253,7 +253,7 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "targets": [
             {
-              "expr": "max(k6_workflow_success_rate{environment=\"staging\",testid=~\"$testid\"}) or vector(0)",
+              "expr": "max(k6_workflow_success_rate{environment=~\"staging|local-staging\",testid=~\"$testid\"}) or vector(0)",
               "refId": "A"
             }
           ],
@@ -280,7 +280,7 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "targets": [
             {
-              "expr": "max(k6_cleanup_failures_rate{environment=\"staging\",testid=~\"$testid\"}) or vector(0)",
+              "expr": "max(k6_cleanup_failures_rate{environment=~\"staging|local-staging\",testid=~\"$testid\"}) or vector(0)",
               "refId": "A"
             }
           ],
@@ -307,7 +307,7 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "targets": [
             {
-              "expr": "max(k6_auth_failures_rate{environment=\"staging\",testid=~\"$testid\"}) or vector(0)",
+              "expr": "max(k6_auth_failures_rate{environment=~\"staging|local-staging\",testid=~\"$testid\"}) or vector(0)",
               "refId": "A"
             }
           ],
@@ -334,7 +334,7 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "targets": [
             {
-              "expr": "sum(increase(k6_expected_conflicts_total{environment=\"staging\",testid=~\"$testid\"}[30m])) or vector(0)",
+              "expr": "sum(increase(k6_expected_conflicts_total{environment=~\"staging|local-staging\",testid=~\"$testid\"}[30m])) or vector(0)",
               "refId": "A"
             }
           ],
@@ -351,7 +351,7 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "targets": [
             {
-              "expr": "max by (journey) (k6_workflow_duration_p95{environment=\"staging\",testid=~\"$testid\"})",
+              "expr": "max by (journey) (k6_workflow_duration_p95{environment=~\"staging|local-staging\",testid=~\"$testid\"})",
               "legendFormat": "{{journey}}",
               "refId": "A"
             }
@@ -369,12 +369,12 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "targets": [
             {
-              "expr": "max(k6_scheduling_duration_p95{environment=\"staging\",testid=~\"$testid\"}) or vector(0)",
+              "expr": "max(k6_scheduling_duration_p95{environment=~\"staging|local-staging\",testid=~\"$testid\"}) or vector(0)",
               "legendFormat": "scheduling p95",
               "refId": "A"
             },
             {
-              "expr": "max(k6_conflict_check_duration_p95{environment=\"staging\",testid=~\"$testid\"}) or vector(0)",
+              "expr": "max(k6_conflict_check_duration_p95{environment=~\"staging|local-staging\",testid=~\"$testid\"}) or vector(0)",
               "legendFormat": "conflict check p95",
               "refId": "B"
             }
@@ -392,7 +392,7 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "targets": [
             {
-              "expr": "max(k6_token_refresh_failures_rate{environment=\"staging\",testid=~\"$testid\"}) or vector(0)",
+              "expr": "max(k6_token_refresh_failures_rate{environment=~\"staging|local-staging\",testid=~\"$testid\"}) or vector(0)",
               "refId": "A"
             }
           ],
@@ -419,7 +419,7 @@ data:
           "datasource": {"type": "prometheus", "uid": "prometheus"},
           "targets": [
             {
-              "expr": "sum(increase(k6_auth_recoveries_total{environment=\"staging\",testid=~\"$testid\"}[30m])) or vector(0)",
+              "expr": "sum(increase(k6_auth_recoveries_total{environment=~\"staging|local-staging\",testid=~\"$testid\"}[30m])) or vector(0)",
               "refId": "A"
             }
           ],

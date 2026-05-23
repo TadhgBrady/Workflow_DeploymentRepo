@@ -6,7 +6,6 @@ metadata:
 spec:
   hosts:
     - auth-service
-    - auth-service.year4-project.svc.cluster.local
   http:
     - name: primary
       route:
@@ -29,7 +28,6 @@ metadata:
 spec:
   hosts:
     - user-bl-service
-    - user-bl-service.year4-project.svc.cluster.local
   http:
     - name: primary
       route:
@@ -52,7 +50,6 @@ metadata:
 spec:
   hosts:
     - user-db-access-service
-    - user-db-access-service.year4-project.svc.cluster.local
   http:
     - name: primary
       route:
@@ -75,7 +72,6 @@ metadata:
 spec:
   hosts:
     - job-bl-service
-    - job-bl-service.year4-project.svc.cluster.local
   http:
     - name: primary
       route:
@@ -98,7 +94,6 @@ metadata:
 spec:
   hosts:
     - job-db-access-service
-    - job-db-access-service.year4-project.svc.cluster.local
   http:
     - name: primary
       route:
@@ -121,7 +116,6 @@ metadata:
 spec:
   hosts:
     - customer-bl-service
-    - customer-bl-service.year4-project.svc.cluster.local
   http:
     - name: primary
       route:
@@ -144,7 +138,6 @@ metadata:
 spec:
   hosts:
     - customer-db-access-service
-    - customer-db-access-service.year4-project.svc.cluster.local
   http:
     - name: primary
       route:
@@ -167,7 +160,6 @@ metadata:
 spec:
   hosts:
     - admin-bl-service
-    - admin-bl-service.year4-project.svc.cluster.local
   http:
     - name: primary
       route:
@@ -190,7 +182,6 @@ metadata:
 spec:
   hosts:
     - maps-access-service
-    - maps-access-service.year4-project.svc.cluster.local
   http:
     - name: primary
       route:
@@ -213,7 +204,6 @@ metadata:
 spec:
   hosts:
     - notification-service
-    - notification-service.year4-project.svc.cluster.local
   http:
     - name: primary
       route:
@@ -236,7 +226,6 @@ metadata:
 spec:
   hosts:
     - frontend-service
-    - frontend-service.year4-project.svc.cluster.local
   http:
     - name: primary
       route:

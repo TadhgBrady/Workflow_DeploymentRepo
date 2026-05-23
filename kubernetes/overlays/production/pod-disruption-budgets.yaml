@@ -6,7 +6,7 @@ spec:
   minAvailable: 1
   selector:
     matchLabels:
-      app: auth-service
+      app.kubernetes.io/name: auth-service
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget
@@ -16,7 +16,7 @@ spec:
   minAvailable: 1
   selector:
     matchLabels:
-      app: user-bl-service
+      app.kubernetes.io/name: user-bl-service
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget
@@ -26,7 +26,7 @@ spec:
   minAvailable: 1
   selector:
     matchLabels:
-      app: user-db-access-service
+      app.kubernetes.io/name: user-db-access-service
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget
@@ -36,7 +36,7 @@ spec:
   minAvailable: 1
   selector:
     matchLabels:
-      app: job-bl-service
+      app.kubernetes.io/name: job-bl-service
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget
@@ -46,7 +46,7 @@ spec:
   minAvailable: 1
   selector:
     matchLabels:
-      app: job-db-access-service
+      app.kubernetes.io/name: job-db-access-service
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget
@@ -56,7 +56,7 @@ spec:
   minAvailable: 1
   selector:
     matchLabels:
-      app: customer-bl-service
+      app.kubernetes.io/name: customer-bl-service
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget
@@ -66,7 +66,7 @@ spec:
   minAvailable: 1
   selector:
     matchLabels:
-      app: customer-db-access-service
+      app.kubernetes.io/name: customer-db-access-service
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget
@@ -76,7 +76,7 @@ spec:
   minAvailable: 1
   selector:
     matchLabels:
-      app: admin-bl-service
+      app.kubernetes.io/name: admin-bl-service
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget
@@ -86,7 +86,7 @@ spec:
   minAvailable: 1
   selector:
     matchLabels:
-      app: maps-access-service
+      app.kubernetes.io/name: maps-access-service
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget
@@ -96,7 +96,7 @@ spec:
   minAvailable: 1
   selector:
     matchLabels:
-      app: notification-service
+      app.kubernetes.io/name: notification-service
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget

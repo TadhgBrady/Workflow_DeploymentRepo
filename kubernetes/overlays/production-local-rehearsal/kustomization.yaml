@@ -1,0 +1,144 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../production
+  - data-layer-shims.yaml
+
+generatorOptions:
+  disableNameSuffixHash: true
+
+secretGenerator:
+  - name: db-credentials
+    literals:
+      - DATABASE_URL=postgresql+asyncpg://crm_user:crm_password@postgres-database:5434/crm_calendar
+  - name: app-secrets
+    literals:
+      - SECRET_KEY=local-production-rehearsal-secret-key
+      - NOTIFICATION_ENCRYPTION_KEY=local-production-rehearsal-encryption-key
+  - name: redis-credentials
+    literals:
+      - REDIS_PASSWORD=redis-dev-password
+      - AUTH_REDIS_URL=redis://:redis-dev-password@redis-cache:6380/0
+      - USER_BL_REDIS_URL=redis://:redis-dev-password@redis-cache:6380/1
+      - JOB_BL_REDIS_URL=redis://:redis-dev-password@redis-cache:6380/2
+      - CUSTOMER_BL_REDIS_URL=redis://:redis-dev-password@redis-cache:6380/3
+      - ADMIN_BL_REDIS_URL=redis://:redis-dev-password@redis-cache:6380/4
+      - MAPS_REDIS_URL=redis://:redis-dev-password@redis-cache:6380/5
+      - NOTIFICATION_REDIS_URL=redis://:redis-dev-password@redis-cache:6380/6
+  - name: google-maps-secrets
+    literals:
+      - GOOGLE_MAPS_SERVER_KEY=local-test-key
+      - GOOGLE_MAPS_BROWSER_KEY=
+      - GOOGLE_MAPS_MAP_ID=
+  - name: smtp-secrets
+    literals:
+      - SMTP_USERNAME=
+      - SMTP_PASSWORD=
+
+configMapGenerator:
+  - name: app-config
+    behavior: replace
+    literals:
+      - ENVIRONMENT=production-local-rehearsal
+      - LOG_LEVEL=INFO
+      - DEBUG=false
+      - CORS_ORIGINS=*
+  - name: smtp-config
+    behavior: replace
+    literals:
+      - SMTP_HOST=host.docker.internal
+      - SMTP_PORT=1026
+      - SMTP_FROM_EMAIL=noreply@workflow.local
+      - SMTP_FROM_NAME=Workflow Platform (Production Rehearsal)
+      - SMTP_USE_TLS=false
+
+patches:
+  - target:
+      group: cert-manager.io
+      version: v1
+      kind: ClusterIssuer
+      name: letsencrypt-prod
+    patch: |
+      $patch: delete
+      apiVersion: cert-manager.io/v1
+      kind: ClusterIssuer
+      metadata:
+        name: letsencrypt-prod
+  - target:
+      group: cert-manager.io
+      version: v1
+      kind: ClusterIssuer
+      name: letsencrypt-staging
+    patch: |
+      $patch: delete
+      apiVersion: cert-manager.io/v1
+      kind: ClusterIssuer
+      metadata:
+        name: letsencrypt-staging
+  - target:
+      group: external-secrets.io
+      version: v1
+      kind: ExternalSecret
+      name: db-credentials
+    patch: |
+      $patch: delete
+      apiVersion: external-secrets.io/v1
+      kind: ExternalSecret
+      metadata:
+        name: db-credentials
+  - target:
+      group: external-secrets.io
+      version: v1
+      kind: ExternalSecret
+      name: redis-credentials
+    patch: |
+      $patch: delete
+      apiVersion: external-secrets.io/v1
+      kind: ExternalSecret
+      metadata:
+        name: redis-credentials
+  - target:
+      group: external-secrets.io
+      version: v1
+      kind: ExternalSecret
+      name: app-secrets
+    patch: |
+      $patch: delete
+      apiVersion: external-secrets.io/v1
+      kind: ExternalSecret
+      metadata:
+        name: app-secrets
+  - target:
+      group: external-secrets.io
+      version: v1
+      kind: ExternalSecret
+      name: api-keys
+    patch: |
+      $patch: delete
+      apiVersion: external-secrets.io/v1
+      kind: ExternalSecret
+      metadata:
+        name: api-keys
+  - target:
+      group: external-secrets.io
+      version: v1
+      kind: ExternalSecret
+      name: google-maps-secrets
+    patch: |
+      $patch: delete
+      apiVersion: external-secrets.io/v1
+      kind: ExternalSecret
+      metadata:
+        name: google-maps-secrets
+  - target:
+      group: external-secrets.io
+      version: v1
+      kind: ExternalSecret
+      name: smtp-secrets
+    patch: |
+      $patch: delete
+      apiVersion: external-secrets.io/v1
+      kind: ExternalSecret
+      metadata:
+        name: smtp-secrets

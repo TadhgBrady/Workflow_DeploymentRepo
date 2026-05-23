@@ -68,6 +68,9 @@ echo "Prometheus service:   $PROMETHEUS_SERVICE.$MONITORING_NAMESPACE"
 
 kubectl create namespace "$ISTIO_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
 kubectl create namespace "$APP_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+kubectl label namespace "$APP_NAMESPACE" istio-injection=enabled --overwrite
+kubectl label namespace "$APP_NAMESPACE" app.kubernetes.io/part-of=year4-project --overwrite
+kubectl annotate namespace "$APP_NAMESPACE" mesh.year4-project/environment="$ENVIRONMENT" --overwrite
 
 retry_cmd 4 10 helm repo add istio https://istio-release.storage.googleapis.com/charts
 retry_cmd 4 10 helm repo add kiali-server https://kiali.org/helm-charts
@@ -112,10 +115,6 @@ retry_cmd 4 30 helm upgrade --install "$KIALI_RELEASE" kiali-server/kiali-server
   -f kubernetes/service-mesh/kiali-values.yaml \
   --set "external_services.prometheus.url=http://$PROMETHEUS_SERVICE.$MONITORING_NAMESPACE:9090" \
   --wait --timeout 600s
-
-kubectl label namespace "$APP_NAMESPACE" istio-injection=enabled --overwrite
-kubectl label namespace "$APP_NAMESPACE" app.kubernetes.io/part-of=year4-project --overwrite
-kubectl annotate namespace "$APP_NAMESPACE" mesh.year4-project/environment="$ENVIRONMENT" --overwrite
 
 kubectl apply -k "$MESH_MANIFEST_DIR"
 

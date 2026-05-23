@@ -39,7 +39,7 @@ spec:
           whenUnsatisfiable: ScheduleAnyway
           labelSelector:
             matchLabels:
-              app: job-bl-service
+              app.kubernetes.io/name: job-bl-service
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -55,7 +55,7 @@ spec:
           whenUnsatisfiable: ScheduleAnyway
           labelSelector:
             matchLabels:
-              app: job-db-access-service
+              app.kubernetes.io/name: job-db-access-service
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -71,7 +71,7 @@ spec:
           whenUnsatisfiable: ScheduleAnyway
           labelSelector:
             matchLabels:
-              app: customer-bl-service
+              app.kubernetes.io/name: customer-bl-service
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -87,7 +87,7 @@ spec:
           whenUnsatisfiable: ScheduleAnyway
           labelSelector:
             matchLabels:
-              app: customer-db-access-service
+              app.kubernetes.io/name: customer-db-access-service
 ---
 apiVersion: apps/v1
 kind: Deployment

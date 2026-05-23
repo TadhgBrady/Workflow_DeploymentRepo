@@ -27,6 +27,7 @@ prometheus:
     retention: 24h
     scrapeInterval: 15s
     evaluationInterval: 15s
+    enableRemoteWriteReceiver: true
     serviceMonitorSelectorNilUsesHelmValues: false
     podMonitorSelectorNilUsesHelmValues: false
     ruleSelectorNilUsesHelmValues: false
