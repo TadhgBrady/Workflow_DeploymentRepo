@@ -96,7 +96,7 @@ spec:
     targetPort: 8081
   selector:
     app.kubernetes.io/name: kube-state-metrics
-type: ClusterIP
+  type: ClusterIP
 ---
 apiVersion: apps/v1
 kind: Deployment
