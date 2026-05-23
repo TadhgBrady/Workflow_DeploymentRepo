@@ -71,11 +71,22 @@ config:
       Name tail
       Path /var/log/containers/*_year4-project-local_*.log
       Parser cri
-      Tag app.*
+      Tag app.local.*
       Refresh_Interval 5
       Mem_Buf_Limit 50MB
       Skip_Long_Lines On
       DB /tmp/flb-state/flb-local.db
+      DB.locking true
+
+    [INPUT]
+      Name tail
+      Path /var/log/containers/*_year4-project-staging_*.log
+      Parser cri
+      Tag app.staging.*
+      Refresh_Interval 5
+      Mem_Buf_Limit 50MB
+      Skip_Long_Lines On
+      DB /tmp/flb-state/flb-staging.db
       DB.locking true
 
   filters: |
@@ -90,20 +101,37 @@ config:
 
     [FILTER]
       Name kubernetes
-      Match app.*
+      Match app.local.*
       Kube_URL https://kubernetes.default.svc:443
       Kube_CA_File /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
       Kube_Token_File /var/run/secrets/kubernetes.io/serviceaccount/token
-      Kube_Tag_Prefix app.var.log.containers.
+      Kube_Tag_Prefix app.local.var.log.containers.
+      Merge_Log On
+      Keep_Log Off
+
+    [FILTER]
+      Name kubernetes
+      Match app.staging.*
+      Kube_URL https://kubernetes.default.svc:443
+      Kube_CA_File /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      Kube_Token_File /var/run/secrets/kubernetes.io/serviceaccount/token
+      Kube_Tag_Prefix app.staging.var.log.containers.
       Merge_Log On
       Keep_Log Off
 
     [FILTER]
       Name record_modifier
-      Match app.*
+      Match app.local.*
       Record hostname ${HOSTNAME}
       Record cluster kind-local
       Record environment local
+
+    [FILTER]
+      Name record_modifier
+      Match app.staging.*
+      Record hostname ${HOSTNAME}
+      Record cluster kind-local
+      Record environment staging
 
   outputs: |
     [OUTPUT]
@@ -120,8 +148,8 @@ config:
       Match app.*
       Host loki-gateway.monitoring.svc.cluster.local
       Port 80
-      Labels cluster=kind-local,environment=local
-      Label_Keys $kubernetes['namespace_name'],$kubernetes['pod_name'],$kubernetes['container_name'],$kubernetes['labels']['app'],$service_name,$logging_level
+      Labels cluster=kind-local
+      Label_Keys $environment,$kubernetes['namespace_name'],$kubernetes['pod_name'],$kubernetes['container_name'],$kubernetes['labels']['app'],$service_name,$logging_level
       Line_Format json
       Retry_Limit false
 
