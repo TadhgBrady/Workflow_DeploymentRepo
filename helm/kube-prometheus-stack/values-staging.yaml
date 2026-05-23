@@ -10,6 +10,7 @@ crds:
 alertmanager:
   enabled: true
   alertmanagerSpec:
+    priorityClassName: year4-observability-critical
     replicas: 1
     retention: 120h
     resources:
@@ -32,6 +33,7 @@ alertmanager:
 prometheus:
   enabled: true
   prometheusSpec:
+    priorityClassName: year4-observability-critical
     replicas: 1
     retention: 3d
     retentionSize: 10GB
@@ -60,6 +62,7 @@ prometheus:
               storage: 30Gi
 
 prometheusOperator:
+  priorityClassName: year4-observability-critical
   # Disable operator TLS in staging because the chart otherwise mounts the
   # kube-prometheus-stack-admission Secret even when admission webhooks are
   # disabled. On fresh clusters that Secret may not exist, leaving the operator
@@ -83,8 +86,14 @@ prometheusOperator:
 kubeStateMetrics:
   enabled: true
 
+kube-state-metrics:
+  priorityClassName: year4-observability-critical
+
 nodeExporter:
   enabled: true
+
+prometheus-node-exporter:
+  priorityClassName: year4-observability-critical
 
 kubelet:
   enabled: true
@@ -106,6 +115,7 @@ coreDns:
 
 grafana:
   enabled: true
+  priorityClassName: year4-observability-critical
   replicas: 1
   admin:
     existingSecret: grafana-admin

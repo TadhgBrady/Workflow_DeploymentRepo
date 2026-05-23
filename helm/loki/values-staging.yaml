@@ -1,5 +1,8 @@
 deploymentMode: SingleBinary
 
+global:
+  priorityClassName: year4-observability-critical
+
 loki:
   auth_enabled: false
   commonConfig:
@@ -38,6 +41,7 @@ serviceAccount:
   annotations: {}
 
 singleBinary:
+  priorityClassName: year4-observability-critical
   replicas: 1
   persistence:
     enabled: true
@@ -72,6 +76,7 @@ resultsCache:
 
 gateway:
   enabled: true
+  priorityClassName: year4-observability-critical
   replicas: 1
   resources:
     requests:
