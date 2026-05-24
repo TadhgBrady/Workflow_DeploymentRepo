@@ -5,6 +5,7 @@ ARGOCD_APPS="${ARGOCD_APPS:-year4-project-service-mesh-production year4-project-
 ARGOCD_NAMESPACE="${ARGOCD_NAMESPACE:-argocd}"
 ARGOCD_TIMEOUT="${ARGOCD_TIMEOUT:-900}"
 PROD_NAMESPACE="${PROD_NAMESPACE:-year4-project}"
+export ARGOCD_REQUIRE_PERSISTENT_REPO_CREDS="${ARGOCD_REQUIRE_PERSISTENT_REPO_CREDS:-true}"
 
 # In --core mode the Argo CD CLI discovers argocd-cm from the current kube
 # context namespace. GitLab's fresh kubeconfig defaults to "default", so point

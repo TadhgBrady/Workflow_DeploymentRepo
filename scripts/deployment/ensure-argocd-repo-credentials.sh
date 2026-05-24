@@ -4,12 +4,26 @@ set -eu
 ARGOCD_NAMESPACE="${ARGOCD_NAMESPACE:-argocd}"
 ARGOCD_REPO_SECRET="${ARGOCD_REPO_SECRET:-year4-project-deployment-repo}"
 ARGOCD_REPO_URL="${ARGOCD_REPO_URL:-${CI_PROJECT_URL:-https://gitlab.comp.dkit.ie/finalproject/Prototypes/yr4-projectdeploymentrepo}.git}"
+ARGOCD_REQUIRE_PERSISTENT_REPO_CREDS="${ARGOCD_REQUIRE_PERSISTENT_REPO_CREDS:-false}"
+
+case "$ARGOCD_REQUIRE_PERSISTENT_REPO_CREDS" in
+  true|TRUE|1|yes|YES) REQUIRE_PERSISTENT_REPO_CREDS=true ;;
+  *) REQUIRE_PERSISTENT_REPO_CREDS=false ;;
+esac
 
 REPO_USERNAME="${ARGOCD_REPO_USERNAME:-}"
 REPO_PASSWORD="${ARGOCD_REPO_PASSWORD:-}"
 CREDENTIAL_SOURCE="ARGOCD_REPO_USERNAME/ARGOCD_REPO_PASSWORD"
 
 if [ -z "$REPO_USERNAME" ] || [ -z "$REPO_PASSWORD" ]; then
+  if [ "$REQUIRE_PERSISTENT_REPO_CREDS" = "true" ]; then
+    echo "ERROR: Persistent Argo CD repository credentials are required."
+    echo "       Set protected/masked CI variables ARGOCD_REPO_USERNAME and ARGOCD_REPO_PASSWORD"
+    echo "       to a GitLab deploy token or PAT with read_repository access."
+    echo "       Refusing to use CI_JOB_TOKEN because it expires and breaks Argo CD comparisons."
+    exit 1
+  fi
+
   if [ -n "${CI_JOB_TOKEN:-}" ]; then
     REPO_USERNAME="gitlab-ci-token"
     REPO_PASSWORD="$CI_JOB_TOKEN"
