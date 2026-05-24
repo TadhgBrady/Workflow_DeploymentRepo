@@ -9,4 +9,4 @@ spec:
     spec:
       containers:
         - name: user-bl-service
-          image: bencev04/4th-year-proj-tadgh-bence:user-bl-service-097716b7
+          image: bencev04/4th-year-proj-tadgh-bence:user-bl-service-b0e4e6be
