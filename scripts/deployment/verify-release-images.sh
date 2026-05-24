@@ -22,11 +22,19 @@ case "$IMAGE_REGISTRY" in
   *) IMAGE_REGISTRY="docker.io" ;;
 esac
 
-DOCKERHUB_LOGIN_USER="${DOCKERHUB_USER:-${DOCKERHUB_USERNAME:-}}"
+DOCKERHUB_LOGIN_USER="${DOCKERHUB_USER:-${DOCKERHUB_USERNAME:-${DOCKER_HUB_USERNAME:-${DOCKER_USERNAME:-}}}}"
+DOCKERHUB_LOGIN_TOKEN="${DOCKERHUB_TOKEN:-${DOCKER_HUB_TOKEN:-${DOCKERHUB_PASSWORD:-${DOCKER_PASSWORD:-}}}}"
 if [ "$IMAGE_REGISTRY" = "docker.io" ]; then
-  if [ -n "$DOCKERHUB_LOGIN_USER" ] && [ -n "${DOCKERHUB_TOKEN:-}" ]; then
-    SKOPEO_CREDS="${DOCKERHUB_LOGIN_USER}:${DOCKERHUB_TOKEN}"
-    AUTH_SOURCE="Docker Hub credentials"
+  if [ -n "$DOCKERHUB_LOGIN_USER" ] && [ -n "$DOCKERHUB_LOGIN_TOKEN" ]; then
+    SKOPEO_CREDS="${DOCKERHUB_LOGIN_USER}:${DOCKERHUB_LOGIN_TOKEN}"
+    AUTH_SOURCE="Docker Hub credentials for ${DOCKERHUB_LOGIN_USER}"
+  else
+    echo "❌ Docker Hub credentials are required for release image verification."
+    echo "   The job performs many manifest checks and Docker Hub is rate-limiting anonymous requests."
+    echo "   Add masked CI/CD variables to this deployment project:"
+    echo "     DOCKERHUB_USER and DOCKERHUB_TOKEN"
+    echo "   Also accepted: DOCKER_HUB_USERNAME/DOCKER_HUB_TOKEN, DOCKERHUB_USERNAME/DOCKERHUB_PASSWORD, DOCKER_USERNAME/DOCKER_PASSWORD."
+    exit 1
   fi
 elif [ -n "${CI_REGISTRY:-}" ] && [ "$IMAGE_REGISTRY" = "$CI_REGISTRY" ] && [ -n "${CI_REGISTRY_USER:-}" ] && [ -n "${CI_REGISTRY_PASSWORD:-}" ]; then
   SKOPEO_CREDS="${CI_REGISTRY_USER}:${CI_REGISTRY_PASSWORD}"
@@ -47,35 +55,22 @@ printf '%s\n' $SERVICES | xargs -P "$VERIFY_IMAGE_PARALLELISM" -I {} sh -c '
   REF="docker://${IMAGE_TAG}:${SERVICE}-${IMAGE_VERSION}"
   LOG_FILE="$TMP_DIR/${SERVICE}.log"
   FAIL_FILE="$TMP_DIR/${SERVICE}.fail"
-  AUTH_LOG_FILE="$TMP_DIR/${SERVICE}.auth.log"
-  PUBLIC_LOG_FILE="$TMP_DIR/${SERVICE}.public.log"
+  INSPECT_LOG_FILE="$TMP_DIR/${SERVICE}.inspect.log"
 
   {
     echo "  Inspecting ${IMAGE_TAG}:${SERVICE}-${IMAGE_VERSION}"
     if [ -n "$SKOPEO_CREDS" ]; then
-      if skopeo inspect --creds "$SKOPEO_CREDS" "$REF" >"$AUTH_LOG_FILE" 2>&1; then
-        echo "    ✅ found"
-      else
-        echo "    ⚠️  authenticated inspect failed; retrying without credentials"
-        if skopeo inspect "$REF" >"$PUBLIC_LOG_FILE" 2>&1; then
-          echo "    ✅ found without credentials"
-        else
-          echo "    ❌ missing or inaccessible"
-          echo "       authenticated inspect output:"
-          sed "s/^/         /" "$AUTH_LOG_FILE" || true
-          echo "       unauthenticated inspect output:"
-          sed "s/^/         /" "$PUBLIC_LOG_FILE" || true
-          echo "$SERVICE" > "$FAIL_FILE"
-        fi
-      fi
+      skopeo inspect --creds "$SKOPEO_CREDS" "$REF" >"$INSPECT_LOG_FILE" 2>&1
     else
-      if skopeo inspect "$REF" >"$PUBLIC_LOG_FILE" 2>&1; then
-        echo "    ✅ found"
-      else
-        echo "    ❌ missing or inaccessible"
-        sed "s/^/       /" "$PUBLIC_LOG_FILE" || true
-        echo "$SERVICE" > "$FAIL_FILE"
-      fi
+      skopeo inspect "$REF" >"$INSPECT_LOG_FILE" 2>&1
+    fi
+
+    if [ "$?" -eq 0 ]; then
+      echo "    ✅ found"
+    else
+      echo "    ❌ missing or inaccessible"
+      sed "s/^/       /" "$INSPECT_LOG_FILE" || true
+      echo "$SERVICE" > "$FAIL_FILE"
     fi
   } > "$LOG_FILE" 2>&1
 ' sh {}
