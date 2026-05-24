@@ -210,6 +210,11 @@ spec:
       kind: Rollout
       jsonPointers:
         - /spec/replicas
+    - group: ""
+      kind: Secret
+      name: google-maps-secrets
+      jsonPointers:
+        - /data
   syncPolicy:
     automated:
       prune: true

@@ -54,6 +54,24 @@ configMapGenerator:
       - SMTP_USE_TLS=false
 
 patches:
+  # Allow kind to use locally loaded exact-version images from image-pins.
+  - target:
+      group: argoproj.io
+      version: v1alpha1
+      kind: Rollout
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: IfNotPresent
+  - target:
+      group: batch
+      version: v1
+      kind: Job
+      name: migration-runner
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: IfNotPresent
   - target:
       group: cert-manager.io
       version: v1
