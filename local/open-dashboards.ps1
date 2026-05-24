@@ -42,9 +42,14 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$LocalBinDir = Join-Path $PSScriptRoot "bin"
 $script:StartedProcesses = New-Object System.Collections.Generic.List[System.Diagnostics.Process]
 $script:DashboardSummaries = New-Object System.Collections.Generic.List[object]
 $script:Warnings = 0
+
+if (Test-Path $LocalBinDir) {
+    $env:PATH = "$LocalBinDir;$env:PATH"
+}
 
 function Write-Step($Message) {
     Write-Host "`n==> $Message" -ForegroundColor Cyan
@@ -57,6 +62,20 @@ function Write-WarningMessage($Message) {
 
 function Test-Tool($Name) {
     return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
+}
+
+function Resolve-RolloutsCliPath {
+    $localRollouts = Join-Path $LocalBinDir "kubectl-argo-rollouts.exe"
+    if (Test-Path $localRollouts) {
+        return $localRollouts
+    }
+
+    $rolloutsCommand = Get-Command "kubectl-argo-rollouts" -ErrorAction SilentlyContinue
+    if ($rolloutsCommand) {
+        return $rolloutsCommand.Source
+    }
+
+    return $null
 }
 
 function Test-LocalPortAvailable($Port) {
@@ -207,6 +226,15 @@ function Start-ServiceTunnel($Name, $Namespace, $ServiceName, $PreferredLocalPor
 
 function Start-RolloutsDashboard($PreferredLocalPort) {
     $selectedPort = Get-AvailableLocalPort $PreferredLocalPort
+    $rolloutsCliPath = Resolve-RolloutsCliPath
+    if ([string]::IsNullOrWhiteSpace($rolloutsCliPath)) {
+        Write-WarningMessage "kubectl-argo-rollouts is not installed, so the Argo Rollouts dashboard cannot be started. Run local/install-argo-cli.ps1 first."
+        return [pscustomobject]@{
+            LocalPort = $selectedPort
+            ProcessId = "failed"
+        }
+    }
+
     if ($PrintOnly) {
         return [pscustomobject]@{
             LocalPort = $selectedPort
@@ -214,13 +242,13 @@ function Start-RolloutsDashboard($PreferredLocalPort) {
         }
     }
 
-    $arguments = @("argo", "rollouts", "dashboard", "-n", $AppNamespace, "--port", $selectedPort.ToString())
+    $arguments = @("dashboard", "-n", $AppNamespace, "--port", $selectedPort.ToString())
     Write-Host "Starting Argo Rollouts dashboard: http://localhost:$selectedPort"
-    $process = Start-Process -FilePath "kubectl" -ArgumentList $arguments -PassThru -WindowStyle Hidden
+    $process = Start-Process -FilePath $rolloutsCliPath -ArgumentList $arguments -PassThru -WindowStyle Hidden
     Start-Sleep -Seconds 2
 
     if ($process.HasExited) {
-        Write-WarningMessage "Argo Rollouts dashboard exited immediately. Install kubectl-argo-rollouts or run: kubectl argo rollouts dashboard -n $AppNamespace --port $selectedPort"
+        Write-WarningMessage "Argo Rollouts dashboard exited immediately. Try: $rolloutsCliPath dashboard -n $AppNamespace --port $selectedPort"
         return [pscustomobject]@{
             LocalPort = $selectedPort
             ProcessId = "failed"
@@ -453,10 +481,6 @@ try {
     if (-not $SkipArgoDashboards -and -not $SkipRolloutsDashboard) {
         if ([string]::IsNullOrWhiteSpace($AppNamespace)) {
             Write-WarningMessage "Skipping Argo Rollouts dashboard because AppNamespace is not set."
-        } elseif (-not (Test-NamespaceExists $ArgoRolloutsNamespace)) {
-            Write-WarningMessage "Argo Rollouts namespace $ArgoRolloutsNamespace was not found. This is expected until production GitOps bootstrap has run."
-        } elseif (-not (Test-Tool "kubectl-argo-rollouts")) {
-            Write-WarningMessage "kubectl-argo-rollouts is not installed, so the Argo Rollouts dashboard cannot be started."
         } else {
             $rolloutsTunnel = Start-RolloutsDashboard $ArgoRolloutsPort
             Add-DashboardSummary `
