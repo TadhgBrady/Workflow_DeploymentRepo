@@ -46,19 +46,7 @@ helm upgrade --install argo-rollouts argo/argo-rollouts \
   --create-namespace \
   --wait --timeout 300s
 
-if [ -n "${ARGOCD_REPO_USERNAME:-}" ] && [ -n "${ARGOCD_REPO_PASSWORD:-}" ]; then
-  kubectl -n "$ARGOCD_NAMESPACE" create secret generic year4-project-deployment-repo \
-    --from-literal=type=git \
-    --from-literal=url="$ARGOCD_REPO_URL" \
-    --from-literal=username="$ARGOCD_REPO_USERNAME" \
-    --from-literal=password="$ARGOCD_REPO_PASSWORD" \
-    --dry-run=client -o yaml | kubectl apply -f -
-  kubectl -n "$ARGOCD_NAMESPACE" label secret year4-project-deployment-repo \
-    argocd.argoproj.io/secret-type=repository --overwrite
-  echo "Configured Argo CD repository credentials for $ARGOCD_REPO_URL"
-else
-  echo "WARN: ARGOCD_REPO_USERNAME/ARGOCD_REPO_PASSWORD not set. Argo CD can sync only if the repo is public or credentials already exist."
-fi
+sh scripts/deployment/ensure-argocd-repo-credentials.sh
 
 kubectl apply -k kubernetes/argocd
 
