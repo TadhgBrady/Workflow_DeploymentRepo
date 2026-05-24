@@ -229,7 +229,6 @@ spec:
         testid: $LABEL_TEST_ID
     spec:
       priorityClassName: year4-observability-critical
-      preemptionPolicy: Never
       securityContext:
         runAsNonRoot: true
         runAsUser: 12345
