@@ -305,6 +305,7 @@ function Sync-ArgoApplication {
     if ($argocdPath -eq "argocd") { Assert-Tool "argocd" }
 
     Invoke-Checked kubectl "-n" $ArgocdNamespace "annotate" "application" $ApplicationName "argocd.argoproj.io/refresh=hard" "--overwrite"
+    Invoke-Checked kubectl "config" "set-context" "--current" "--namespace" $ArgocdNamespace
     Invoke-Checked $argocdPath "--core" "app" "sync" $ApplicationName "--timeout" ([string]$ArgoTimeoutSeconds)
 
     if ($SkipRolloutWait) { return }
