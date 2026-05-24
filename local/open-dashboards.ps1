@@ -91,7 +91,7 @@ function ConvertFrom-Base64Utf8($Value) {
 }
 
 function Get-KubernetesSecret($Namespace, $SecretName) {
-    $secretJson = & kubectl -n $Namespace get secret $SecretName -o json 2>$null
+    $secretJson = & kubectl -n $Namespace get secret $SecretName --ignore-not-found -o json 2>$null
     if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace([string]$secretJson)) {
         return $null
     }
@@ -117,16 +117,20 @@ function Resolve-ServiceName($Namespace, [string[]]$Candidates, $LabelSelector =
     }
 
     foreach ($candidate in $Candidates | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique) {
-        $serviceName = & kubectl -n $Namespace get svc $candidate -o jsonpath='{.metadata.name}' 2>$null
+        $serviceName = & kubectl -n $Namespace get svc $candidate --ignore-not-found -o jsonpath='{.metadata.name}' 2>$null
         if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace([string]$serviceName)) {
             return ([string]$serviceName).Trim()
         }
     }
 
     if (-not [string]::IsNullOrWhiteSpace($LabelSelector)) {
-        $serviceName = & kubectl -n $Namespace get svc -l $LabelSelector -o jsonpath='{.items[0].metadata.name}' 2>$null
-        if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace([string]$serviceName)) {
-            return ([string]$serviceName).Trim()
+        $serviceJson = & kubectl -n $Namespace get svc -l $LabelSelector -o json 2>$null
+        if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace([string]$serviceJson)) {
+            $serviceList = $serviceJson | ConvertFrom-Json
+            $firstService = $serviceList.items | Select-Object -First 1
+            if ($firstService -and -not [string]::IsNullOrWhiteSpace([string]$firstService.metadata.name)) {
+                return ([string]$firstService.metadata.name).Trim()
+            }
         }
     }
 
