@@ -38,10 +38,10 @@ state:
 
 resources:
   limits:
-    cpu: 300m
+    cpu: 200m
     memory: 256Mi
   requests:
-    cpu: 150m
+    cpu: 50m
     memory: 128Mi
 
 nodeSelector: {}
