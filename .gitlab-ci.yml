@@ -849,6 +849,17 @@ install-observability-staging:
           ;;
       esac
 
+      echo "--- Re-queueing existing observability workloads after PriorityClass bootstrap ---"
+      for OBS_WORKLOAD in \
+        deployment/monitoring-grafana \
+        deployment/monitoring-kube-state-metrics \
+        deployment/kube-prometheus-stack-operator \
+        daemonset/monitoring-prometheus-node-exporter; do
+        if kubectl -n "$MONITORING_NAMESPACE" get "$OBS_WORKLOAD" >/dev/null 2>&1; then
+          kubectl -n "$MONITORING_NAMESPACE" rollout restart "$OBS_WORKLOAD" || true
+        fi
+      done
+
       GRAFANA_USER="${GRAFANA_ADMIN_USER:-admin}"
       GRAFANA_PASSWORD="${GRAFANA_ADMIN_PASSWORD:-$(openssl rand -base64 24)}"
       kubectl create secret generic grafana-admin \
@@ -1997,6 +2008,17 @@ install-observability-production:
           sleep 10
           ;;
       esac
+
+      echo "--- Re-queueing existing observability workloads after PriorityClass bootstrap ---"
+      for OBS_WORKLOAD in \
+        deployment/monitoring-grafana \
+        deployment/monitoring-kube-state-metrics \
+        deployment/kube-prometheus-stack-operator \
+        daemonset/monitoring-prometheus-node-exporter; do
+        if kubectl -n "$MONITORING_NAMESPACE" get "$OBS_WORKLOAD" >/dev/null 2>&1; then
+          kubectl -n "$MONITORING_NAMESPACE" rollout restart "$OBS_WORKLOAD" || true
+        fi
+      done
 
       GRAFANA_USER="${GRAFANA_ADMIN_USER:-admin}"
       GRAFANA_PASSWORD="${GRAFANA_ADMIN_PASSWORD:-$(openssl rand -base64 24)}"
