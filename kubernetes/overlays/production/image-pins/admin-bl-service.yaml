@@ -9,4 +9,4 @@ spec:
     spec:
       containers:
         - name: admin-bl-service
-          image: bencev04/4th-year-proj-tadgh-bence:admin-bl-service-latest
+          image: bencev04/4th-year-proj-tadgh-bence:admin-bl-service-b0e4e6be

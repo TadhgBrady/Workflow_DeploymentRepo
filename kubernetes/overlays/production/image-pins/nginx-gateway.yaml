@@ -9,4 +9,4 @@ spec:
     spec:
       containers:
         - name: nginx
-          image: bencev04/4th-year-proj-tadgh-bence:nginx-latest
+          image: bencev04/4th-year-proj-tadgh-bence:nginx-b0e4e6be
