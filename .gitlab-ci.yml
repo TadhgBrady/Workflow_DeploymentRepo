@@ -100,6 +100,8 @@ variables:
   # GITLAB_API_TOKEN: ""        # GitLab personal/project token with API access (for polling)
   # GITLAB_PUSH_TOKEN: ""       # GitLab personal/project token with write_repository (for GitOps commits)
   # GITLAB_PUSH_USER: "oauth2"  # Optional token username; use project token username if oauth2 does not work
+  # ARGOCD_REPO_USERNAME: ""    # Required for production: deploy token/PAT username with read_repository access
+  # ARGOCD_REPO_PASSWORD: ""    # Required for production: masked/protected deploy token/PAT secret for Argo CD repo reads
 
   # -- App URLs --
   # STAGING_URL and PROD_URL are discovered dynamically by deploy jobs
