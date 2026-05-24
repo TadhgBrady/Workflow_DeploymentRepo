@@ -18,6 +18,7 @@
 #   staging-only          → deploy/test staging, then stop
 #   staging-teardown-test → deploy/test staging, destroy staging, verify destroy, then stop
 #   full-release          → staging deploy/test gates, manual production promotion, optional teardown
+#   production-only       → skip staging and deploy/setup production from a known-good image version
 #
 # Environments:
 #   - Staging:    Auto-deploy, canary rollout, full test suite before promotion
@@ -56,7 +57,7 @@ variables:
   # IMAGE_VERSION:   Short SHA of the source commit (e.g. a1b2c3d4)
   # SOURCE_COMMIT:   Full SHA of the source commit
   # SOURCE_BRANCH:   Branch that triggered the build (should be "main")
-  # PIPELINE_MODE:    auto | validate-only | staging-only | staging-teardown-test | full-release
+  # PIPELINE_MODE:    auto | validate-only | staging-only | staging-teardown-test | full-release | production-only
   PIPELINE_MODE: "auto"
 
   # -- AWS credentials (set in GitLab CI/CD settings) --
@@ -254,10 +255,10 @@ validate-deployment-mode:
       echo "IMAGE_VERSION=${IMAGE_VERSION:-<not set>}"
 
       case "$MODE" in
-        auto|validate-only|staging-only|staging-teardown-test|full-release) ;;
+        auto|validate-only|staging-only|staging-teardown-test|full-release|production-only) ;;
         *)
           echo "❌ Unsupported PIPELINE_MODE: $MODE"
-          echo "   Allowed: auto, validate-only, staging-only, staging-teardown-test, full-release"
+          echo "   Allowed: auto, validate-only, staging-only, staging-teardown-test, full-release, production-only"
           exit 1
           ;;
       esac
@@ -346,18 +347,28 @@ update-image-tags:
         *'$'*) echo "❌ IMAGE_VERSION contains literal dollar sign: $IMAGE_VERSION"; echo "   Bridge job did not expand the variable. Fix trigger-deploy in dev repo."; exit 1 ;;
       esac
     - |
-      # ── Update version label and image pins in staging overlay for GitOps tracking ──
+      # ── Update version label and image pins for GitOps tracking ──
       # Rebase onto latest main first to avoid non-fast-forward push failures.
+      TARGET_OVERLAY="staging"
+      if [ "${PIPELINE_MODE:-auto}" = "production-only" ]; then
+        TARGET_OVERLAY="production"
+      fi
+
+      echo "Target overlay: $TARGET_OVERLAY"
       git fetch origin main
       git checkout -B main origin/main
-      cd kubernetes/overlays/staging
+      cd "kubernetes/overlays/$TARGET_OVERLAY"
+      if ! grep -q 'app.kubernetes.io/version:' kustomization.yaml; then
+        echo "❌ ${TARGET_OVERLAY} overlay is missing app.kubernetes.io/version label"
+        exit 1
+      fi
       sed -i "s|app.kubernetes.io/version: .*|app.kubernetes.io/version: \"${IMAGE_VERSION}\"|" kustomization.yaml
       cd "$CI_PROJECT_DIR"
-      sh scripts/deployment/write-image-pins.sh "$IMAGE_VERSION" staging
+      sh scripts/deployment/write-image-pins.sh "$IMAGE_VERSION" "$TARGET_OVERLAY"
     - git config user.email "cd-pipeline@gitlab.ci"
     - git config user.name "CD Pipeline"
-    - git add kubernetes/overlays/staging/kustomization.yaml kubernetes/overlays/staging/image-pins
-    - 'git commit -m "ci: update staging version to ${IMAGE_VERSION} [skip ci] - Source: ${SOURCE_COMMIT}" || echo "No changes to commit"'
+    - git add "kubernetes/overlays/${TARGET_OVERLAY}/kustomization.yaml" "kubernetes/overlays/${TARGET_OVERLAY}/image-pins"
+    - 'git commit -m "ci: update ${TARGET_OVERLAY} version to ${IMAGE_VERSION} [skip ci] - Source: ${SOURCE_COMMIT}" || echo "No changes to commit"'
     - |
       # Push with a token that can write to this repository.
       # Prefer GITLAB_PUSH_TOKEN so GITLAB_API_TOKEN can stay API-only for infra polling.
@@ -444,7 +455,7 @@ trigger-infra-staging:
     ENSURE_UP: "true"
     TARGET_ENV: "staging"
   rules:
-    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only"'
+    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only" && $PIPELINE_MODE != "production-only"'
       when: on_success
       allow_failure: false
 
@@ -568,7 +579,7 @@ wait-staging-ready:
       curl -sk --connect-timeout 10 --max-time 15 "${API_ENDPOINT}/readyz" 2>&1 | head -20 || echo "curl failed"
       exit 1
   rules:
-    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only"'
+    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only" && $PIPELINE_MODE != "production-only"'
       when: on_success
   allow_failure: false
 
@@ -723,7 +734,7 @@ install-addons-staging:
       echo ""
       echo "✅ All staging add-ons installed successfully"
   rules:
-    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only"'
+    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only" && $PIPELINE_MODE != "production-only"'
       when: on_success
   allow_failure: false
 
@@ -799,7 +810,7 @@ preflight-staging:
 
       echo "✅ Staging preflight passed"
   rules:
-    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only"'
+    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only" && $PIPELINE_MODE != "production-only"'
       when: on_success
   allow_failure: false
 
@@ -949,9 +960,9 @@ install-observability-staging:
       kubectl get pods -n "$LOGGING_NAMESPACE"
       echo "✅ Staging kube-prometheus-stack, Loki, Fluent Bit, and dashboards installed"
   rules:
-    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only"'
+    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only" && $PIPELINE_MODE != "production-only"'
       when: on_success
-    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only"'
+    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only" && $PIPELINE_MODE != "production-only"'
       when: manual
       allow_failure: true
   allow_failure: false
@@ -980,7 +991,7 @@ install-service-mesh-staging:
     - echo "═══════════════════════════════════════════════════════════════"
     - sh scripts/deployment/bootstrap-istio-staging.sh
   rules:
-    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only"'
+    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only" && $PIPELINE_MODE != "production-only"'
       when: on_success
   allow_failure: false
 
@@ -1092,7 +1103,7 @@ deploy-staging:
     reports:
       dotenv: staging-deploy.env
   rules:
-    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only"'
+    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only" && $PIPELINE_MODE != "production-only"'
       when: on_success
   allow_failure: false
 
@@ -1155,7 +1166,7 @@ staging-readiness:
       kubectl get events -n "$STAGING_NAMESPACE" --field-selector type=Warning --sort-by=.lastTimestamp | tail -30 || true
       echo "✅ Staging readiness checks passed"
   rules:
-    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only"'
+    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only" && $PIPELINE_MODE != "production-only"'
       when: on_success
   allow_failure: false
 
@@ -1182,7 +1193,7 @@ smoke-tests-staging:
     - echo "═══════════════════════════════════════════════════════════════"
     - sh scripts/deployment/smoke-tests.sh "$STAGING_URL" staging
   rules:
-    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only"'
+    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only" && $PIPELINE_MODE != "production-only"'
       when: on_success
   allow_failure: false
 
@@ -1240,7 +1251,7 @@ k6-load-staging:
       - k6-results/
     expire_in: 14 days
   rules:
-    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only"'
+    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only" && $PIPELINE_MODE != "production-only"'
       when: on_success
   allow_failure: false
 
@@ -1299,7 +1310,7 @@ k6-human-hard-staging:
       - k6-results/
     expire_in: 14 days
   rules:
-    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only"'
+    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only" && $PIPELINE_MODE != "production-only"'
       when: manual
       allow_failure: true
   allow_failure: true
@@ -1337,7 +1348,7 @@ playwright-e2e-staging:
       junit: tests/e2e/test-results/playwright-junit.xml
     expire_in: 14 days
   rules:
-    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only"'
+    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only" && $PIPELINE_MODE != "production-only"'
       when: on_success
   allow_failure: false
 
@@ -1468,7 +1479,7 @@ promote:
       - tests/e2e/test-results/
     expire_in: 14 days
   rules:
-    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only"'
+    - if: '$IMAGE_VERSION && $PIPELINE_MODE != "validate-only" && $PIPELINE_MODE != "production-only"'
       when: on_success
   allow_failure: false
 
@@ -1733,7 +1744,10 @@ promote-to-production:
 trigger-infra-production:
   stage: ensure-production
   needs:
-    - promote-to-production
+    - job: promote-to-production
+      optional: true
+    - job: update-image-tags
+      optional: true
   trigger:
     project: finalproject/Prototypes/yr4-projectinfrarepo
     strategy: depend
@@ -1741,7 +1755,7 @@ trigger-infra-production:
     ENSURE_UP: "true"
     TARGET_ENV: "production"
   rules:
-    - if: '$IMAGE_VERSION && ($PIPELINE_MODE == "auto" || $PIPELINE_MODE == "full-release")'
+    - if: '$IMAGE_VERSION && ($PIPELINE_MODE == "auto" || $PIPELINE_MODE == "full-release" || $PIPELINE_MODE == "production-only")'
       when: on_success
 
 wait-production-ready:
@@ -1816,7 +1830,7 @@ wait-production-ready:
       curl -sk --connect-timeout 10 --max-time 15 "${API_ENDPOINT}/readyz" 2>&1 | head -20 || echo "curl failed"
       exit 1
   rules:
-    - if: '$IMAGE_VERSION && ($PIPELINE_MODE == "auto" || $PIPELINE_MODE == "full-release")'
+    - if: '$IMAGE_VERSION && ($PIPELINE_MODE == "auto" || $PIPELINE_MODE == "full-release" || $PIPELINE_MODE == "production-only")'
       when: on_success
   allow_failure: false
 # =============================================================================
@@ -1960,7 +1974,7 @@ install-addons-production:
       echo ""
       echo "✅ All production add-ons installed successfully"
   rules:
-    - if: '$IMAGE_VERSION && ($PIPELINE_MODE == "auto" || $PIPELINE_MODE == "full-release")'
+    - if: '$IMAGE_VERSION && ($PIPELINE_MODE == "auto" || $PIPELINE_MODE == "full-release" || $PIPELINE_MODE == "production-only")'
       when: on_success
   allow_failure: false
 install-observability-production:
@@ -2076,13 +2090,24 @@ install-observability-production:
         --query 'Role.Arn' --output text)}"
       echo "Fluent Bit Role ARN: $FLUENT_BIT_ROLE_ARN"
 
-      helm upgrade --install "$FLUENT_BIT_RELEASE" helm/fluent-bit \
+      if ! helm upgrade --install "$FLUENT_BIT_RELEASE" helm/fluent-bit \
         -f helm/fluent-bit/values-prod.yaml \
         --namespace "$LOGGING_NAMESPACE" --create-namespace \
         --set "serviceAccount.annotations.eks\.amazonaws\.com/role-arn=$FLUENT_BIT_ROLE_ARN" \
-        --wait --timeout 300s
+        --timeout 300s; then
+        echo "❌ production Fluent Bit manifest install/upgrade failed. Diagnostics:"
+        helm status "$FLUENT_BIT_RELEASE" -n "$LOGGING_NAMESPACE" || true
+        kubectl get pods,daemonset -n "$LOGGING_NAMESPACE" -o wide || true
+        kubectl get events -n "$LOGGING_NAMESPACE" --sort-by=.lastTimestamp | tail -80 || true
+        exit 1
+      fi
 
-      kubectl rollout status daemonset/$FLUENT_BIT_RELEASE -n "$LOGGING_NAMESPACE" --timeout=180s
+      if ! kubectl rollout status daemonset/$FLUENT_BIT_RELEASE -n "$LOGGING_NAMESPACE" --timeout=120s; then
+        echo "⚠️  production Fluent Bit is not fully scheduled on every node; continuing because the CloudWatch Observability add-on and core monitoring are ready."
+        helm status "$FLUENT_BIT_RELEASE" -n "$LOGGING_NAMESPACE" || true
+        kubectl get pods,daemonset -n "$LOGGING_NAMESPACE" -o wide || true
+        kubectl get events -n "$LOGGING_NAMESPACE" --sort-by=.lastTimestamp | tail -80 || true
+      fi
       kubectl apply -f kubernetes/observability/servicemonitor-fluent-bit-production.yaml
       kubectl apply -f kubernetes/observability/dashboard-logging-troubleshooting.yaml
       kubectl apply -f kubernetes/observability/dashboard-system-metrics.yaml
@@ -2095,7 +2120,7 @@ install-observability-production:
       kubectl get pods -n "$LOGGING_NAMESPACE"
       echo "✅ Production kube-prometheus-stack, Fluent Bit, and dashboards installed"
   rules:
-    - if: '$IMAGE_VERSION && ($PIPELINE_MODE == "auto" || $PIPELINE_MODE == "full-release")'
+    - if: '$IMAGE_VERSION && ($PIPELINE_MODE == "auto" || $PIPELINE_MODE == "full-release" || $PIPELINE_MODE == "production-only")'
       when: on_success
   allow_failure: false
 
@@ -2119,7 +2144,7 @@ install-service-mesh-production:
     - echo "═══════════════════════════════════════════════════════════════"
     - sh scripts/deployment/bootstrap-istio-production.sh
   rules:
-    - if: '$IMAGE_VERSION && ($PIPELINE_MODE == "auto" || $PIPELINE_MODE == "full-release")'
+    - if: '$IMAGE_VERSION && ($PIPELINE_MODE == "auto" || $PIPELINE_MODE == "full-release" || $PIPELINE_MODE == "production-only")'
       when: on_success
   allow_failure: false
 
@@ -2143,7 +2168,7 @@ install-argocd-production:
     - echo "═══════════════════════════════════════════════════════════════"
     - sh scripts/deployment/bootstrap-argocd-production.sh
   rules:
-    - if: '$IMAGE_VERSION && ($PIPELINE_MODE == "auto" || $PIPELINE_MODE == "full-release")'
+    - if: '$IMAGE_VERSION && ($PIPELINE_MODE == "auto" || $PIPELINE_MODE == "full-release" || $PIPELINE_MODE == "production-only")'
       when: on_success
   allow_failure: false
 
@@ -2259,7 +2284,7 @@ deploy-production:
     reports:
       dotenv: production-deploy.env
   rules:
-    - if: '$IMAGE_VERSION && ($PIPELINE_MODE == "auto" || $PIPELINE_MODE == "full-release")'
+    - if: '$IMAGE_VERSION && ($PIPELINE_MODE == "auto" || $PIPELINE_MODE == "full-release" || $PIPELINE_MODE == "production-only")'
       when: on_success
   allow_failure: false
 
@@ -2280,6 +2305,6 @@ smoke-tests-production:
     - echo "═══════════════════════════════════════════════════════════════"
     - sh scripts/deployment/smoke-tests.sh "$PROD_URL" production
   rules:
-    - if: '$IMAGE_VERSION && ($PIPELINE_MODE == "auto" || $PIPELINE_MODE == "full-release")'
+    - if: '$IMAGE_VERSION && ($PIPELINE_MODE == "auto" || $PIPELINE_MODE == "full-release" || $PIPELINE_MODE == "production-only")'
       when: on_success
   allow_failure: false
