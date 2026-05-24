@@ -117,6 +117,9 @@ grafana:
   enabled: true
   priorityClassName: year4-observability-critical
   replicas: 1
+  # The gp3 PVC is ReadWriteOnce; rolling updates can deadlock on EBS multi-attach.
+  deploymentStrategy:
+    type: Recreate
   admin:
     existingSecret: grafana-admin
     userKey: admin-user
