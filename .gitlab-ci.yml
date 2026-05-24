@@ -2013,8 +2013,7 @@ install-observability-production:
       for OBS_WORKLOAD in \
         deployment/monitoring-grafana \
         deployment/monitoring-kube-state-metrics \
-        deployment/kube-prometheus-stack-operator \
-        daemonset/monitoring-prometheus-node-exporter; do
+        deployment/kube-prometheus-stack-operator; do
         if kubectl -n "$MONITORING_NAMESPACE" get "$OBS_WORKLOAD" >/dev/null 2>&1; then
           kubectl -n "$MONITORING_NAMESPACE" rollout restart "$OBS_WORKLOAD" || true
         fi
@@ -2032,7 +2031,7 @@ install-observability-production:
       if ! helm upgrade --install "$KUBE_PROM_STACK_RELEASE" prometheus-community/kube-prometheus-stack \
         -f helm/kube-prometheus-stack/values-prod.yaml \
         --namespace "$MONITORING_NAMESPACE" --create-namespace \
-        --wait --timeout 600s; then
+        --timeout 600s; then
         echo "❌ production kube-prometheus-stack install/upgrade failed. Diagnostics:"
         helm status "$KUBE_PROM_STACK_RELEASE" -n "$MONITORING_NAMESPACE" || true
         kubectl get pods -n "$MONITORING_NAMESPACE" -o wide || true
@@ -2040,6 +2039,34 @@ install-observability-production:
         kubectl get pvc -n "$MONITORING_NAMESPACE" || true
         kubectl get events -n "$MONITORING_NAMESPACE" --sort-by=.lastTimestamp | tail -100 || true
         exit 1
+      fi
+
+      wait_for_monitoring_rollout() {
+        WORKLOAD="$1"
+        TIMEOUT="$2"
+        echo "Waiting for $WORKLOAD"
+        kubectl wait --for=create "$WORKLOAD" -n "$MONITORING_NAMESPACE" --timeout="$TIMEOUT"
+        kubectl rollout status "$WORKLOAD" -n "$MONITORING_NAMESPACE" --timeout="$TIMEOUT"
+      }
+
+      echo "--- Waiting for critical production monitoring workloads ---"
+      if ! wait_for_monitoring_rollout deployment/kube-prometheus-stack-operator 300s \
+        || ! wait_for_monitoring_rollout deployment/monitoring-grafana 300s \
+        || ! wait_for_monitoring_rollout deployment/monitoring-kube-state-metrics 300s \
+        || ! wait_for_monitoring_rollout statefulset/prometheus-kube-prometheus-stack-prometheus 300s; then
+        echo "❌ critical production monitoring workload did not become ready. Diagnostics:"
+        helm status "$KUBE_PROM_STACK_RELEASE" -n "$MONITORING_NAMESPACE" || true
+        kubectl get pods -n "$MONITORING_NAMESPACE" -o wide || true
+        kubectl get deploy,statefulset,daemonset -n "$MONITORING_NAMESPACE" || true
+        kubectl get pvc -n "$MONITORING_NAMESPACE" || true
+        kubectl get events -n "$MONITORING_NAMESPACE" --sort-by=.lastTimestamp | tail -100 || true
+        exit 1
+      fi
+
+      if ! kubectl rollout status daemonset/monitoring-prometheus-node-exporter -n "$MONITORING_NAMESPACE" --timeout=60s; then
+        echo "⚠️  production node-exporter is not fully scheduled on every eligible node; continuing because Prometheus, Grafana, kube-state-metrics, and the operator are ready."
+        kubectl get pods -n "$MONITORING_NAMESPACE" -l "app.kubernetes.io/name=prometheus-node-exporter" -o wide || true
+        kubectl get events -n "$MONITORING_NAMESPACE" --sort-by=.lastTimestamp | tail -40 || true
       fi
 
       FLUENT_BIT_ROLE_ARN="${FLUENT_BIT_ROLE_ARN:-$(aws iam get-role \
