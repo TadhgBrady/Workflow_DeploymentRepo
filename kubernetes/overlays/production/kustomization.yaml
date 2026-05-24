@@ -36,32 +36,32 @@ commonAnnotations:
   instrumentation.opentelemetry.io/inject-nodejs: "false"
   instrumentation.opentelemetry.io/inject-python: "false"
 
-# Production uses two replicas to reduce steady-state cost while preserving basic HA.
+# Production keeps one warm replica per service by default; HPAs scale out under load.
 replicas:
   - name: auth-service
-    count: 2
+    count: 1
   - name: user-bl-service
-    count: 2
+    count: 1
   - name: user-db-access-service
-    count: 2
+    count: 1
   - name: job-bl-service-deployment
-    count: 2
+    count: 1
   - name: job-db-access-service-deployment
-    count: 2
+    count: 1
   - name: customer-bl-service
-    count: 2
+    count: 1
   - name: customer-db-access-service
-    count: 2
+    count: 1
   - name: admin-bl-service
-    count: 2
+    count: 1
   - name: maps-access-service
-    count: 2
+    count: 1
   - name: notification-service
-    count: 2
+    count: 1
   - name: frontend-deployment
-    count: 2
+    count: 1
   - name: nginx-gateway
-    count: 2
+    count: 1
 
 # Service type patch - keep nginx internal; Istio ingressgateway owns external access.
 patches:

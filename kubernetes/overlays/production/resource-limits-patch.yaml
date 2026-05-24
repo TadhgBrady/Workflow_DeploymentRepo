@@ -9,8 +9,178 @@ spec:
       - name: auth-service
         resources:
           requests:
+            memory: "192Mi"
+            cpu: "100m"
+          limits:
             memory: "512Mi"
             cpu: "500m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-bl-service
+spec:
+  template:
+    spec:
+      containers:
+      - name: user-bl-service
+        resources:
+          requests:
+            memory: "192Mi"
+            cpu: "100m"
           limits:
-            memory: "1Gi"
-            cpu: "1000m"
+            memory: "512Mi"
+            cpu: "500m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-db-access-service
+spec:
+  template:
+    spec:
+      containers:
+      - name: user-db-access-service
+        resources:
+          requests:
+            memory: "192Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: job-bl-service-deployment
+spec:
+  template:
+    spec:
+      containers:
+      - name: job-bl-service
+        resources:
+          requests:
+            memory: "192Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: job-db-access-service-deployment
+spec:
+  template:
+    spec:
+      containers:
+      - name: job-db-access-service
+        resources:
+          requests:
+            memory: "192Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: customer-bl-service
+spec:
+  template:
+    spec:
+      containers:
+      - name: customer-bl-service
+        resources:
+          requests:
+            memory: "192Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: customer-db-access-service
+spec:
+  template:
+    spec:
+      containers:
+      - name: customer-db-access-service
+        resources:
+          requests:
+            memory: "192Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admin-bl-service
+spec:
+  template:
+    spec:
+      containers:
+      - name: admin-bl-service
+        resources:
+          requests:
+            memory: "192Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: maps-access-service
+spec:
+  template:
+    spec:
+      containers:
+      - name: maps-access-service
+        resources:
+          requests:
+            memory: "192Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-service
+spec:
+  template:
+    spec:
+      containers:
+      - name: notification-service
+        resources:
+          requests:
+            memory: "192Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-deployment
+spec:
+  template:
+    spec:
+      containers:
+      - name: frontend
+        resources:
+          requests:
+            memory: "192Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
