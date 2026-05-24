@@ -85,6 +85,28 @@ Every k6 GitLab job uploads a `k6-results/` artifact containing the Kubernetes l
 3. Open Grafana dashboard `/d/year4-k6-staging` and filter by that `testid` to view request rate, active VUs, failed request rate, checks, latency, and server errors for the run.
 4. Open the `staging-release-gate` artifact for the combined release evidence that links this k6 run with the Playwright browser run.
 
+## Manual staging runs without GitLab
+
+Use `local/run-staging-k6.ps1` when staging is already deployed and you want capacity evidence without starting a new deployment pipeline. The script creates a temporary Kubernetes Job in `year4-project-staging`, pushes k6 metrics to the staging Prometheus remote-write endpoint, writes local files under `k6-results/manual/`, and removes the Job/Secret/ConfigMap when the run completes.
+
+Examples:
+
+```powershell
+# Authenticated 10 VU workflow, closest to the release gate.
+.\local\run-staging-k6.ps1 -Suite real-user -Profile medium -Vus 10 -Duration 3m
+
+# Incremental authenticated ladder: 10 VUs, then 20, then 30.
+.\local\run-staging-k6.ps1 -Suite real-user -Profile medium -VusSteps 10,20,30 -Duration 3m
+
+# Scheduling/contention pressure using the hard workflow profile.
+.\local\run-staging-k6.ps1 -Suite real-user -Profile hard -Vus 24 -Duration 6m
+
+# Public endpoint spike exploration without authenticated data creation.
+.\local\run-staging-k6.ps1 -Suite public -Profile spike-lite -SpikeRate 25 -Duration 2m
+```
+
+Use real-user `-Vus`/`-VusSteps` for true virtual-user ladder tests. Public `spike-lite` is arrival-rate based, so tune `-SpikeRate`, `-BrowseRate`, and `-MaxVus` when exploring short bursts. Keep the GitLab `k6-load-staging` job as the release gate; use the manual script for finding headroom and collecting extra Grafana evidence.
+
 ## Mandatory gate coverage
 
 The medium gate is designed as a release baseline, not a single-endpoint benchmark. It splits 10 VUs into owner daily work, employee processing, and manager read scenarios. Together those journeys cover auth login, `/me`, token refresh recovery, customer create/search/delete, customer notes, job create/detail/list/delete, assignment, scheduling, conflict checks, status updates, calendar reads, employee/user list reads, and queue reads.
