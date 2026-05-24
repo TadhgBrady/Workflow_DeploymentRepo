@@ -21,13 +21,48 @@ for ARGOCD_APP in $ARGOCD_APPS; do
 	argocd --core app get "$ARGOCD_APP" --app-namespace "$ARGOCD_NAMESPACE"
 	argocd --core app sync "$ARGOCD_APP" --app-namespace "$ARGOCD_NAMESPACE" --revision main --prune --timeout "$ARGOCD_TIMEOUT"
 	if [ "$ARGOCD_APP" = "year4-project-production" ]; then
-		argocd --core app wait "$ARGOCD_APP" --app-namespace "$ARGOCD_NAMESPACE" --sync --health --timeout "$ARGOCD_TIMEOUT"
+		argocd --core app wait "$ARGOCD_APP" --app-namespace "$ARGOCD_NAMESPACE" --health --timeout "$ARGOCD_TIMEOUT"
 	else
 		argocd --core app wait "$ARGOCD_APP" --app-namespace "$ARGOCD_NAMESPACE" --sync --timeout "$ARGOCD_TIMEOUT"
 	fi
 	APP_STATUS_FILE="argocd-$ARGOCD_APP.json"
 	argocd --core app get "$ARGOCD_APP" --app-namespace "$ARGOCD_NAMESPACE" -o json > "$APP_STATUS_FILE"
 	if [ "$ARGOCD_APP" = "year4-project-production" ]; then
+		python3 - "$APP_STATUS_FILE" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as status_file:
+	app = json.load(status_file)
+
+status = app.get("status", {})
+sync_status = status.get("sync", {}).get("status")
+resources = status.get("resources") or []
+out_of_sync = [resource for resource in resources if resource.get("status") != "Synced"]
+
+namespace_only_drift = (
+	len(out_of_sync) == 1
+	and out_of_sync[0].get("kind") == "Namespace"
+	and out_of_sync[0].get("name") == "year4-project"
+	and not out_of_sync[0].get("group")
+	and not out_of_sync[0].get("namespace")
+)
+
+if sync_status == "Synced":
+	print("Production Argo CD application is Synced and Healthy")
+elif namespace_only_drift:
+	print("Production Argo CD application is Healthy; tolerating Namespace/year4-project metadata drift")
+else:
+	print(f"Production Argo CD application sync status is {sync_status}", file=sys.stderr)
+	for resource in out_of_sync:
+		group = resource.get("group") or "core"
+		namespace = resource.get("namespace") or "cluster"
+		kind = resource.get("kind") or "unknown"
+		name = resource.get("name") or "unknown"
+		status_value = resource.get("status") or "unknown"
+		print(f"OutOfSync: {group}/{kind} {namespace}/{name} status={status_value}", file=sys.stderr)
+	sys.exit(1)
+PY
 		cp "$APP_STATUS_FILE" argocd-production-app.json
 	fi
 done

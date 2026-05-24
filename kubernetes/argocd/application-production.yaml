@@ -24,8 +24,7 @@ spec:
     - kind: Namespace
       name: year4-project
       jsonPointers:
-        - /metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration
-        - /metadata/annotations/mesh.year4-project~1environment
+        - /metadata/annotations
         - /metadata/labels/argocd.argoproj.io~1instance
         - /metadata/labels/kubernetes.io~1metadata.name
   syncPolicy:

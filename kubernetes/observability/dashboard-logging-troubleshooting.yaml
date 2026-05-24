@@ -27,7 +27,7 @@ data:
             "name": "environment",
             "label": "Environment",
             "type": "custom",
-            "query": "local,staging,prod",
+            "query": "local,staging,production",
             "includeAll": true,
             "allValue": ".+",
             "multi": false,
@@ -36,7 +36,7 @@ data:
               {"selected": true, "text": "All", "value": "$__all"},
               {"selected": false, "text": "local", "value": "local"},
               {"selected": false, "text": "staging", "value": "staging"},
-              {"selected": false, "text": "prod", "value": "prod"}
+              {"selected": false, "text": "production", "value": "production"}
             ]
           },
           {

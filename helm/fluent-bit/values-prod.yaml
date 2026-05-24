@@ -15,6 +15,11 @@ serviceAccount:
 rbac:
   create: true
 
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 50%
+
 podAnnotations:
   prometheus.io/scrape: "true"
   prometheus.io/port: "2020"
@@ -89,7 +94,7 @@ config:
 
     [INPUT]
       Name tail
-      Path /var/log/containers/*.log
+      Path /var/log/containers/*_year4-project_*.log
       Parser cri
       Tag app.*
       Refresh_Interval 10
@@ -139,6 +144,16 @@ config:
       log_stream_prefix fluent-bit-
       auto_create_group false
       retry_limit 5
+
+    [OUTPUT]
+      Name loki
+      Match app.*
+      Host loki-gateway.monitoring.svc.cluster.local
+      Port 80
+      Labels cluster=aws-production,environment=production
+      Label_Keys $kubernetes['namespace_name'],$kubernetes['pod_name'],$kubernetes['container_name'],$kubernetes['labels']['app'],$service_name,$logging_level
+      Line_Format json
+      Retry_Limit 5
 
   parsers: |
     [PARSER]

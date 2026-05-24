@@ -1,0 +1,102 @@
+deploymentMode: SingleBinary
+
+global:
+  priorityClassName: year4-observability-critical
+
+loki:
+  auth_enabled: false
+  commonConfig:
+    path_prefix: /var/loki
+    replication_factor: 1
+  schemaConfig:
+    configs:
+      - from: "2024-04-01"
+        store: tsdb
+        object_store: filesystem
+        schema: v13
+        index:
+          prefix: loki_index_
+          period: 24h
+  storage:
+    type: filesystem
+    filesystem:
+      chunks_directory: /var/loki/chunks
+      rules_directory: /var/loki/rules
+  rulerConfig:
+    wal:
+      dir: /var/loki/ruler-wal
+  storage_config:
+    bloom_shipper:
+      working_directory: /var/loki/data/bloomshipper
+  limits_config:
+    retention_period: 72h
+    ingestion_rate_mb: 4
+    ingestion_burst_size_mb: 8
+    max_query_lookback: 72h
+  compactor:
+    retention_enabled: true
+    delete_request_store: filesystem
+
+serviceAccount:
+  create: true
+  name: loki
+  annotations: {}
+
+singleBinary:
+  priorityClassName: year4-observability-critical
+  replicas: 1
+  service:
+    labels:
+      prometheus.io/service-monitor: loki
+  persistence:
+    enabled: true
+    storageClass: gp3
+    size: 10Gi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 384Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+
+read:
+  replicas: 0
+
+write:
+  replicas: 0
+
+backend:
+  replicas: 0
+
+chunksCache:
+  enabled: false
+
+resultsCache:
+  enabled: false
+
+gateway:
+  enabled: true
+  priorityClassName: year4-observability-critical
+  replicas: 1
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 150m
+      memory: 192Mi
+
+monitoring:
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+
+minio:
+  enabled: false
+
+test:
+  enabled: false
+
+lokiCanary:
+  enabled: false
