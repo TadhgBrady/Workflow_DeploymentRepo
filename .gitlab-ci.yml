@@ -2238,10 +2238,9 @@ deploy-production:
       echo "Validating production Kustomize overlay with kubectl before apply..."
       kubectl kustomize kubernetes/overlays/production > /tmp/production-rendered.yaml
       kubectl apply --dry-run=client --validate=false -k kubernetes/overlays/production > /dev/null
-    # Sync secrets and run migrations before application rollouts.
+    # Sync secrets before Argo CD runs the PreSync migration hook.
     - kubectl apply -f kubernetes/overlays/production/external-secrets.yaml -n $PROD_NAMESPACE
     - sh scripts/deployment/sync-external-secrets.sh "$PROD_NAMESPACE" 180
-    - sh scripts/deployment/run-migration-job.sh "$PROD_NAMESPACE" /tmp/production-rendered.yaml 300s
     - kubectl apply --dry-run=server -k kubernetes/overlays/production > /dev/null
     - sh scripts/deployment/sync-argocd-production.sh
     # Force ESO to re-sync secrets from AWS before checking rollouts
