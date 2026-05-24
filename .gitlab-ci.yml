@@ -825,6 +825,7 @@ install-observability-staging:
       echo "═══════════════════════════════════════════════════════════════"
 
       kubectl apply -f kubernetes/observability/storageclass-gp3.yaml
+      kubectl apply -f kubernetes/base/priority-classes.yaml
       kubectl apply -f kubernetes/observability/namespace-monitoring.yaml
       kubectl apply -f kubernetes/observability/namespace-logging.yaml
       kubectl apply -f kubernetes/observability/limitrange-observability.yaml
@@ -1972,6 +1973,7 @@ install-observability-production:
       echo "═══════════════════════════════════════════════════════════════"
 
       kubectl apply -f kubernetes/observability/storageclass-gp3.yaml
+      kubectl apply -f kubernetes/base/priority-classes.yaml
       kubectl create namespace "$MONITORING_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
       kubectl create namespace "$LOGGING_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
       kubectl label namespace "$MONITORING_NAMESPACE" app.kubernetes.io/name=monitoring app.kubernetes.io/part-of=year4-project-observability environment=production --overwrite

@@ -76,6 +76,10 @@ if (Get-Variable PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyCo
 }
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $LocalDir = $PSScriptRoot
+$LocalBinDir = Join-Path $LocalDir "bin"
+if (Test-Path $LocalBinDir) {
+    $env:PATH = "$LocalBinDir;$env:PATH"
+}
 $OldVersion = $OldVersion.ToLowerInvariant()
 $NewVersion = $NewVersion.ToLowerInvariant()
 $OldBranch = "$BranchPrefix/old-$OldVersion"

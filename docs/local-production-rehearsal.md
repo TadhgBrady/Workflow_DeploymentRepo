@@ -34,6 +34,14 @@ argocd
 kubectl argo rollouts plugin
 ```
 
+On Windows, install the Argo CLIs into the repo-local `local/bin` directory with:
+
+```powershell
+.\local\install-argo-cli.ps1
+```
+
+`run-full-production-rehearsal.ps1` automatically adds `local/bin` to PATH when it exists.
+
 The default full run requires `argocd` and `kubectl argo rollouts` because production uses those tools. Use `-AllowCliFallback` only when you are doing a lower-fidelity local check.
 
 ## Run It
