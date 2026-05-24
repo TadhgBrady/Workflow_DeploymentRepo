@@ -162,7 +162,7 @@ spec:
       - name: notification-service
         resources:
           requests:
-            memory: "192Mi"
+            memory: "256Mi"
             cpu: "100m"
           limits:
             memory: "512Mi"
