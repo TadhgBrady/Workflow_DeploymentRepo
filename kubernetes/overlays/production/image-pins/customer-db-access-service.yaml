@@ -9,4 +9,4 @@ spec:
     spec:
       containers:
         - name: customer-db-access-service
-          image: bencev04/4th-year-proj-tadgh-bence:customer-db-access-service-b0e4e6be
+          image: bencev04/4th-year-proj-tadgh-bence:customer-db-access-service-097716b7
