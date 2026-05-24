@@ -183,7 +183,8 @@ function Set-ProductionVersionLabel {
         return
     }
 
-    Set-Content -Path $KustomizationPath -Value $updated -Encoding ascii
+    $updated = $updated.TrimEnd("`r", "`n") + "`r`n"
+    [System.IO.File]::WriteAllText($KustomizationPath, $updated, [System.Text.Encoding]::ASCII)
 }
 
 function Assert-GitState {
