@@ -7,7 +7,7 @@ spec:
     cpu: "16"
     memory: 64Gi
   disruption:
-    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidationPolicy: WhenEmpty
     consolidateAfter: 5m
   template:
     metadata:

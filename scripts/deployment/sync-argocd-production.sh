@@ -21,7 +21,12 @@ for ARGOCD_APP in $ARGOCD_APPS; do
 	argocd --core app get "$ARGOCD_APP" --app-namespace "$ARGOCD_NAMESPACE"
 	argocd --core app sync "$ARGOCD_APP" --app-namespace "$ARGOCD_NAMESPACE" --revision main --prune --timeout "$ARGOCD_TIMEOUT"
 	if [ "$ARGOCD_APP" = "year4-project-production" ]; then
-		argocd --core app wait "$ARGOCD_APP" --app-namespace "$ARGOCD_NAMESPACE" --health --timeout "$ARGOCD_TIMEOUT"
+		if ! argocd --core app wait "$ARGOCD_APP" --app-namespace "$ARGOCD_NAMESPACE" --health --timeout "$ARGOCD_TIMEOUT"; then
+			APP_STATUS_FILE="argocd-$ARGOCD_APP.json"
+			argocd --core app get "$ARGOCD_APP" --app-namespace "$ARGOCD_NAMESPACE" -o json > "$APP_STATUS_FILE" || true
+			cp "$APP_STATUS_FILE" argocd-production-app.json 2>/dev/null || true
+			exit 1
+		fi
 	else
 		argocd --core app wait "$ARGOCD_APP" --app-namespace "$ARGOCD_NAMESPACE" --sync --timeout "$ARGOCD_TIMEOUT"
 	fi

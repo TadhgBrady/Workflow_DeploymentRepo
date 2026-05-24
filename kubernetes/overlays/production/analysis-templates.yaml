@@ -19,8 +19,10 @@ spec:
     - name: canary-request-rate
       interval: 60s
       count: 15
+      failureLimit: 3
       inconclusiveLimit: 10
       successCondition: "result[0] >= {{args.min-request-rate}}"
+      failureCondition: "result[0] < {{args.min-request-rate}}"
       provider:
         prometheus:
           address: http://kube-prometheus-stack-prometheus.monitoring:9090

@@ -99,6 +99,7 @@ if (-not $services -or $services.Count -eq 0) {
 $timestamp = (Get-Date).ToUniversalTime().ToString("yyyyMMddHHmmss")
 $jobName = ConvertTo-SafeName "$JobPrefix-$timestamp"
 $durationSeconds = $DurationMinutes * 60
+$activeDeadlineSeconds = $durationSeconds + 900
 $ttlSeconds = [Math]::Max($durationSeconds + 900, 3600)
 $serviceList = ConvertTo-YamlLiteralList $services
 $pathList = ConvertTo-YamlLiteralList $Paths
@@ -120,7 +121,8 @@ metadata:
     app.kubernetes.io/part-of: year4-project-observability
     environment: production
 spec:
-  backoffLimit: 0
+  backoffLimit: 6
+  activeDeadlineSeconds: $activeDeadlineSeconds
   ttlSecondsAfterFinished: $ttlSeconds
   template:
     metadata:
@@ -132,6 +134,8 @@ spec:
         environment: production
     spec:
       restartPolicy: Never
+      priorityClassName: year4-batch
+      terminationGracePeriodSeconds: 10
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001

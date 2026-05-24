@@ -2315,6 +2315,7 @@ deploy-production:
     - kubectl apply -f kubernetes/overlays/production/external-secrets.yaml -n $PROD_NAMESPACE
     - sh scripts/deployment/sync-external-secrets.sh "$PROD_NAMESPACE" 180
     - kubectl apply --dry-run=server -k kubernetes/overlays/production > /dev/null
+    - sh scripts/deployment/start-production-canary-traffic.sh "$PROD_NAMESPACE" 2700 5 Both
     - sh scripts/deployment/sync-argocd-production.sh
     # Force ESO to re-sync secrets from AWS before checking rollouts
     - sh scripts/deployment/sync-external-secrets.sh "$PROD_NAMESPACE" 180
