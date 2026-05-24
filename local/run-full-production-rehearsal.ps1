@@ -350,9 +350,9 @@ function Set-RehearsalApplications([string]$TargetRevision) {
 function Sync-ArgoApplication([string]$AppName, [string]$Revision, [switch]$RequireHealth) {
     Write-Step "Syncing Argo CD app $AppName at $Revision"
     if (Get-Command argocd -ErrorAction SilentlyContinue) {
-        Invoke-Checked "argocd" @("--core", "--argocd-namespace", $ArgocdNamespace, "app", "sync", $AppName, "--revision", $Revision, "--prune", "--timeout", "$ArgoTimeoutSeconds") "Argo CD sync failed for $AppName"
-        $waitArgs = @("--core", "--argocd-namespace", $ArgocdNamespace, "app", "wait", $AppName, "--sync", "--timeout", "$ArgoTimeoutSeconds")
-        if ($RequireHealth) { $waitArgs = @("--core", "--argocd-namespace", $ArgocdNamespace, "app", "wait", $AppName, "--sync", "--health", "--timeout", "$ArgoTimeoutSeconds") }
+        Invoke-Checked "argocd" @("--core", "app", "sync", $AppName, "--app-namespace", $ArgocdNamespace, "--revision", $Revision, "--prune", "--timeout", "$ArgoTimeoutSeconds") "Argo CD sync failed for $AppName"
+        $waitArgs = @("--core", "app", "wait", $AppName, "--app-namespace", $ArgocdNamespace, "--sync", "--timeout", "$ArgoTimeoutSeconds")
+        if ($RequireHealth) { $waitArgs = @("--core", "app", "wait", $AppName, "--app-namespace", $ArgocdNamespace, "--sync", "--health", "--timeout", "$ArgoTimeoutSeconds") }
         Invoke-Checked "argocd" $waitArgs "Argo CD wait failed for $AppName"
     } else {
         if (-not $AllowCliFallback -and -not $DryRun) {
