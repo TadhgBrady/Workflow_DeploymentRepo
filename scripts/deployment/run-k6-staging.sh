@@ -228,7 +228,6 @@ spec:
         environment: $K6_ENVIRONMENT
         testid: $LABEL_TEST_ID
     spec:
-      priorityClassName: year4-observability-critical
       securityContext:
         runAsNonRoot: true
         runAsUser: 12345
