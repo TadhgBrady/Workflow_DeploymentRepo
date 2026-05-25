@@ -17,6 +17,7 @@ spec:
       value: "2000"
   metrics:
     - name: canary-request-rate
+      initialDelay: 180s
       interval: 60s
       count: 15
       failureLimit: 3
@@ -29,6 +30,7 @@ spec:
           query: |
             sum(rate(istio_requests_total{destination_service_name="{{args.canary-service}}",destination_service_namespace="{{args.namespace}}"}[5m])) or vector(0)
     - name: canary-5xx-rate
+      initialDelay: 180s
       interval: 60s
       count: 15
       failureLimit: 2
@@ -44,6 +46,7 @@ spec:
               clamp_min(sum(rate(istio_requests_total{destination_service_name="{{args.canary-service}}",destination_service_namespace="{{args.namespace}}"}[5m])), 0.001)
             ) or vector(0)
     - name: canary-vs-stable-error-delta
+      initialDelay: 180s
       interval: 60s
       count: 15
       failureLimit: 2
@@ -67,6 +70,7 @@ spec:
               )
             ) or vector(0)
     - name: canary-p95-latency
+      initialDelay: 180s
       interval: 60s
       count: 15
       failureLimit: 2
