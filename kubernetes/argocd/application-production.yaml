@@ -28,9 +28,6 @@ spec:
         - /metadata/labels/argocd.argoproj.io~1instance
         - /metadata/labels/kubernetes.io~1metadata.name
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ApplyOutOfSyncOnly=true
