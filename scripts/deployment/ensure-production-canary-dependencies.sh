@@ -37,7 +37,7 @@ patch_workload_priority() {
 
   if kubectl -n "$TARGET_NAMESPACE" get "$WORKLOAD_KIND" "$WORKLOAD_NAME" >/dev/null 2>&1; then
     kubectl -n "$TARGET_NAMESPACE" patch "$WORKLOAD_KIND" "$WORKLOAD_NAME" --type merge \
-      -p "{\"spec\":{\"template\":{\"spec\":{\"priorityClassName\":\"$PRIORITY_CLASS\"}}}}}"
+      -p "{\"spec\":{\"template\":{\"spec\":{\"priorityClassName\":\"$PRIORITY_CLASS\"}}}}"
   fi
 }
 

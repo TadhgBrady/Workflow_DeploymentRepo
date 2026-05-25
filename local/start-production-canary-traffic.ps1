@@ -79,6 +79,29 @@ function ConvertTo-YamlLiteralList {
     return (($Values | Sort-Object -Unique) -join "`n")
 }
 
+function Get-KubernetesServiceReadyEndpointAddresses {
+  param(
+    [Parameter(Mandatory = $true)][string]$TargetNamespace,
+    [Parameter(Mandatory = $true)][string]$ServiceName
+  )
+
+  $endpointSlicesJson = kubectl -n $TargetNamespace get endpointslices.discovery.k8s.io -l "kubernetes.io/service-name=$ServiceName" -o json 2>$null
+  if ($LASTEXITCODE -ne 0 -or -not $endpointSlicesJson) { return @() }
+
+  $endpointSlices = $endpointSlicesJson | ConvertFrom-Json
+  $addresses = New-Object System.Collections.Generic.List[string]
+  foreach ($slice in @($endpointSlices.items)) {
+    foreach ($endpoint in @($slice.endpoints)) {
+      if ($endpoint.conditions -and $endpoint.conditions.ready -eq $false) { continue }
+      foreach ($address in @($endpoint.addresses)) {
+        if ($address) { $addresses.Add([string]$address) }
+      }
+    }
+  }
+
+  return $addresses.ToArray()
+}
+
 function Wait-KubernetesServiceEndpoints {
   param(
     [Parameter(Mandatory = $true)][string]$TargetNamespace,
@@ -89,12 +112,13 @@ function Wait-KubernetesServiceEndpoints {
   Write-Host "Waiting for service endpoints: $ServiceName.$TargetNamespace"
   $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
   do {
-    $endpoints = kubectl -n $TargetNamespace get endpoints $ServiceName -o jsonpath='{.subsets[*].addresses[*].ip}' 2>$null
-    if ($endpoints) { return }
+    $endpoints = Get-KubernetesServiceReadyEndpointAddresses -TargetNamespace $TargetNamespace -ServiceName $ServiceName
+    if ($endpoints.Count -gt 0) { return }
     Start-Sleep -Seconds 5
   } while ((Get-Date) -lt $deadline)
 
-  kubectl -n $TargetNamespace get svc,endpoints $ServiceName -o wide | Out-Host
+  kubectl -n $TargetNamespace get svc $ServiceName -o wide | Out-Host
+  kubectl -n $TargetNamespace get endpointslices.discovery.k8s.io -l "kubernetes.io/service-name=$ServiceName" -o wide | Out-Host
   throw "Service $ServiceName in namespace $TargetNamespace has no ready endpoints."
 }
 
