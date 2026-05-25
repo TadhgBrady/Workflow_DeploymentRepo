@@ -80,9 +80,12 @@ spec:
         prometheus:
           address: http://kube-prometheus-stack-prometheus.monitoring:9090
           query: |
-            histogram_quantile(
-              0.95,
-              sum by (le) (
-                rate(istio_request_duration_milliseconds_bucket{destination_service_name="{{args.canary-service}}",destination_service_namespace="{{args.namespace}}"}[5m])
+            (
+              histogram_quantile(
+                0.95,
+                sum by (le) (
+                  rate(istio_request_duration_milliseconds_bucket{destination_service_name="{{args.canary-service}}",destination_service_namespace="{{args.namespace}}"}[5m])
+                )
               )
+              >= 0
             ) or vector(0)
