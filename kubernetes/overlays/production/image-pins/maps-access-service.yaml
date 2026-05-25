@@ -9,4 +9,4 @@ spec:
     spec:
       containers:
         - name: maps-access-service
-          image: bencev04/4th-year-proj-tadgh-bence:maps-access-service-b0e4e6be
+          image: bencev04/4th-year-proj-tadgh-bence:maps-access-service-097716b7
