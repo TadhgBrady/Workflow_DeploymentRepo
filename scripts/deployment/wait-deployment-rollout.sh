@@ -37,6 +37,36 @@ diagnose_workload() {
   echo ""
 }
 
+diagnose_analysis_runs() {
+  ROLLOUT_NAME="$1"
+
+  echo "-- Recent AnalysisRuns --"
+  kubectl get analysisruns.argoproj.io -n "$NAMESPACE" --sort-by=.metadata.creationTimestamp 2>/dev/null | tail -10 || true
+  echo "-- AnalysisRun details for $ROLLOUT_NAME --"
+  FOUND_ANALYSIS_RUNS="false"
+  for ANALYSIS_RUN in $(kubectl get analysisruns.argoproj.io -n "$NAMESPACE" -o name 2>/dev/null | grep -E "(^|/)$ROLLOUT_NAME(-|$)" | tail -5 || true); do
+    FOUND_ANALYSIS_RUNS="true"
+    kubectl describe "$ANALYSIS_RUN" -n "$NAMESPACE" || true
+  done
+  if [ "$FOUND_ANALYSIS_RUNS" = "false" ]; then
+    echo "No AnalysisRuns with names matching $ROLLOUT_NAME were found"
+  fi
+}
+
+diagnose_rollout() {
+  ROLLOUT="$1"
+  ROLLOUT_NAME="$2"
+
+  echo "-- Rollout description --"
+  kubectl describe "$ROLLOUT" -n "$NAMESPACE" || true
+  if command -v kubectl-argo-rollouts >/dev/null 2>&1; then
+    echo "-- Argo Rollouts tree --"
+    kubectl argo rollouts get rollout "$ROLLOUT_NAME" -n "$NAMESPACE" || true
+  fi
+  diagnose_analysis_runs "$ROLLOUT_NAME"
+  diagnose_workload "$ROLLOUT" "$ROLLOUT_NAME"
+}
+
 wait_rollout_without_plugin() {
   ROLLOUT="$1"
   ROLLOUT_NAME="$2"
@@ -96,11 +126,7 @@ for ROLLOUT in $(kubectl get rollouts.argoproj.io -n "$NAMESPACE" -o name 2>/dev
   fi
 
   echo "❌ $ROLLOUT rollout failed — gathering diagnostics..."
-  kubectl describe "$ROLLOUT" -n "$NAMESPACE" || true
-  if command -v kubectl-argo-rollouts >/dev/null 2>&1; then
-    kubectl argo rollouts get rollout "$ROLLOUT_NAME" -n "$NAMESPACE" || true
-  fi
-  diagnose_workload "$ROLLOUT" "$ROLLOUT_NAME"
+  diagnose_rollout "$ROLLOUT" "$ROLLOUT_NAME"
   FAILED_WORKLOADS="$FAILED_WORKLOADS rollout/$ROLLOUT_NAME"
 done
 
