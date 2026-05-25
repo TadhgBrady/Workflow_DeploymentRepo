@@ -5,6 +5,7 @@ ARGOCD_APPS="${ARGOCD_APPS:-year4-project-service-mesh-production year4-project-
 ARGOCD_NAMESPACE="${ARGOCD_NAMESPACE:-argocd}"
 ARGOCD_TIMEOUT="${ARGOCD_TIMEOUT:-900}"
 PROD_NAMESPACE="${PROD_NAMESPACE:-year4-project}"
+PROD_ROLLOUT_TIMEOUT="${PROD_ROLLOUT_TIMEOUT:-1800}"
 export ARGOCD_REQUIRE_PERSISTENT_REPO_CREDS="${ARGOCD_REQUIRE_PERSISTENT_REPO_CREDS:-true}"
 
 # In --core mode the Argo CD CLI discovers argocd-cm from the current kube
@@ -83,7 +84,7 @@ PY
 done
 
 echo "Waiting for production workloads after Argo CD sync"
-if ! sh scripts/deployment/wait-deployment-rollout.sh "$PROD_NAMESPACE" 300; then
+if ! sh scripts/deployment/wait-deployment-rollout.sh "$PROD_NAMESPACE" "$PROD_ROLLOUT_TIMEOUT"; then
 	APP_STATUS_FILE="argocd-year4-project-production.json"
 	argocd --core app get "year4-project-production" --app-namespace "$ARGOCD_NAMESPACE" -o json > "$APP_STATUS_FILE" || true
 	cp "$APP_STATUS_FILE" argocd-production-app.json 2>/dev/null || true
