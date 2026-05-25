@@ -3,6 +3,8 @@ meshConfig:
   defaultConfig:
     holdApplicationUntilProxyStarts: true
 pilot:
+  autoscaleMin: 2
+  autoscaleMax: 5
   cni:
     enabled: true
   resources:
@@ -13,6 +15,7 @@ pilot:
       cpu: 500m
       memory: 768Mi
 global:
+  priorityClassName: year4-mesh-critical
   proxy:
     resources:
       requests:

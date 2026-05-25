@@ -13,6 +13,7 @@ alertmanager:
 prometheus:
   enabled: true
   prometheusSpec:
+    priorityClassName: year4-observability-critical
     replicas: 1
     retention: 2d
     retentionSize: 8GB
@@ -40,6 +41,7 @@ prometheus:
               storage: 10Gi
 
 prometheusOperator:
+  priorityClassName: year4-observability-critical
   tls:
     enabled: false
   admissionWebhooks:
@@ -57,8 +59,14 @@ prometheusOperator:
 kubeStateMetrics:
   enabled: true
 
+kube-state-metrics:
+  priorityClassName: year4-observability-critical
+
 nodeExporter:
   enabled: true
+
+prometheus-node-exporter:
+  priorityClassName: year4-observability-critical
 
 kubelet:
   enabled: true
@@ -80,6 +88,7 @@ coreDns:
 
 grafana:
   enabled: true
+  priorityClassName: year4-observability-critical
   replicas: 1
   # The gp3 PVC is ReadWriteOnce; rolling updates can deadlock on EBS multi-attach.
   deploymentStrategy:

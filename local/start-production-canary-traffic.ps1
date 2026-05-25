@@ -35,9 +35,16 @@ param(
     [string]$Namespace = "year4-project",
     [string]$ClusterName = "yr4-project-production-eks",
     [string]$AwsRegion = "eu-west-1",
+    [string]$IstioNamespace = "istio-system",
+    [string]$MonitoringNamespace = "monitoring",
+    [string]$PrometheusService = "kube-prometheus-stack-prometheus",
     [string]$JobPrefix = "prod-canary-traffic",
     [string]$CurlImage = "curlimages/curl:8.11.1",
     [string[]]$Paths = @("/api/v1/health", "/health", "/ready", "/"),
+    [ValidateRange(1, 10)]
+    [int]$InjectionAttempts = 3,
+    [ValidateRange(30, 600)]
+    [int]$PodReadyTimeoutSeconds = 180,
 
     [switch]$NoKubeconfigUpdate,
     [switch]$KeepExisting,
@@ -70,6 +77,98 @@ function ConvertTo-SafeName {
 function ConvertTo-YamlLiteralList {
     param([Parameter(Mandatory = $true)][string[]]$Values)
     return (($Values | Sort-Object -Unique) -join "`n")
+}
+
+function Wait-KubernetesServiceEndpoints {
+  param(
+    [Parameter(Mandatory = $true)][string]$TargetNamespace,
+    [Parameter(Mandatory = $true)][string]$ServiceName,
+    [int]$TimeoutSeconds = 180
+  )
+
+  Write-Host "Waiting for service endpoints: $ServiceName.$TargetNamespace"
+  $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+  do {
+    $endpoints = kubectl -n $TargetNamespace get endpoints $ServiceName -o jsonpath='{.subsets[*].addresses[*].ip}' 2>$null
+    if ($endpoints) { return }
+    Start-Sleep -Seconds 5
+  } while ((Get-Date) -lt $deadline)
+
+  kubectl -n $TargetNamespace get svc,endpoints $ServiceName -o wide | Out-Host
+  throw "Service $ServiceName in namespace $TargetNamespace has no ready endpoints."
+}
+
+function Wait-MeshDependencies {
+  Write-Host "Checking release-critical mesh and analysis dependencies"
+  $injectionLabel = kubectl get namespace $Namespace -o jsonpath='{.metadata.labels.istio-injection}' 2>$null
+  $revisionLabel = kubectl get namespace $Namespace -o jsonpath='{.metadata.labels.istio\.io/rev}' 2>$null
+  if ($injectionLabel -ne "enabled" -and -not $revisionLabel) {
+    kubectl get namespace $Namespace --show-labels | Out-Host
+    throw "Namespace $Namespace is not labelled for Istio sidecar injection."
+  }
+
+  Invoke-Checked kubectl "-n" $IstioNamespace "rollout" "status" "deployment/istiod" "--timeout=300s"
+  Wait-KubernetesServiceEndpoints -TargetNamespace $IstioNamespace -ServiceName "istiod" -TimeoutSeconds 180
+  Invoke-Checked kubectl "get" "mutatingwebhookconfiguration" "istio-sidecar-injector"
+  Wait-KubernetesServiceEndpoints -TargetNamespace $MonitoringNamespace -ServiceName $PrometheusService -TimeoutSeconds 300
+}
+
+function Get-TrafficPodName {
+  $podName = kubectl -n $Namespace get pod -l "job-name=$jobName" -o jsonpath='{.items[0].metadata.name}' 2>$null
+  if ($LASTEXITCODE -ne 0) { return $null }
+  return $podName
+}
+
+function Wait-TrafficPodName {
+  $deadline = (Get-Date).AddSeconds($PodReadyTimeoutSeconds)
+  do {
+    $podName = Get-TrafficPodName
+    if ($podName) { return $podName }
+    Start-Sleep -Seconds 3
+  } while ((Get-Date) -lt $deadline)
+
+  kubectl -n $Namespace describe job $jobName | Out-Host
+  throw "Traffic Job $jobName did not create a Pod."
+}
+
+function Test-PodHasIstioProxy {
+  param([Parameter(Mandatory = $true)][string]$PodName)
+  $containers = kubectl -n $Namespace get pod $PodName -o jsonpath='{.spec.containers[*].name}' 2>$null
+  if ($LASTEXITCODE -ne 0) { return $false }
+  return (($containers -split '\s+') -contains "istio-proxy")
+}
+
+function Test-TrafficConnectivity {
+  param([Parameter(Mandatory = $true)][string]$PodName)
+  $firstService = $services | Select-Object -First 1
+  if (-not $firstService) { return $true }
+
+  $url = "http://$firstService.$Namespace.svc.cluster.local/api/v1/health"
+  $statusCode = kubectl -n $Namespace exec $PodName -c traffic -- sh -c "curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 2 --max-time 5 $url" 2>$null
+  if ($LASTEXITCODE -ne 0) { $statusCode = "000" }
+  return ($statusCode -notmatch '^(000|5\d\d)$')
+}
+
+function Confirm-TrafficPodReady {
+  if (-not $WaitForPod) { return }
+
+  $podName = Wait-TrafficPodName
+  Invoke-Checked kubectl "wait" "-n" $Namespace "--for=condition=PodScheduled" "pod/$podName" "--timeout=${PodReadyTimeoutSeconds}s"
+
+  if (-not (Test-PodHasIstioProxy -PodName $podName)) {
+    Write-Host "ERROR: traffic Pod $podName was created without the istio-proxy sidecar" -ForegroundColor Red
+    Write-Host "This would make STRICT mTLS reset synthetic canary traffic and cause Argo Rollouts to see canary-request-rate=0." -ForegroundColor Red
+    kubectl -n $Namespace get pod $podName -o wide | Out-Host
+    kubectl -n $Namespace describe pod $podName | Out-Host
+    throw "Traffic Pod was not sidecar-injected."
+  }
+
+  Invoke-Checked kubectl "wait" "-n" $Namespace "--for=condition=Ready" "pod/$podName" "--timeout=${PodReadyTimeoutSeconds}s"
+
+  if (-not (Test-TrafficConnectivity -PodName $podName)) {
+    kubectl -n $Namespace logs $podName --tail=40 | Out-Host
+    throw "Traffic Pod $podName cannot reach canary services through the mesh."
+  }
 }
 
 if (-not $NoKubeconfigUpdate) {
@@ -106,7 +205,7 @@ $pathList = ConvertTo-YamlLiteralList $Paths
 $serviceListYaml = (($serviceList -split "`n") | ForEach-Object { "                $_" }) -join "`n"
 $pathListYaml = (($pathList -split "`n") | ForEach-Object { "                $_" }) -join "`n"
 
-if (-not $KeepExisting) {
+if (-not $KeepExisting -and -not $DryRun) {
     kubectl -n $Namespace delete job -l app.kubernetes.io/name=production-canary-traffic --ignore-not-found=true --wait=false *> $null
 }
 
@@ -218,10 +317,26 @@ if ($DryRun) {
     return
 }
 
-$jobYaml | kubectl apply -f - | Out-Host
+  Wait-MeshDependencies
 
-if ($WaitForPod) {
-    kubectl wait -n $Namespace --for=condition=PodScheduled pod -l "job-name=$jobName" --timeout=3m | Out-Host
+for ($attempt = 1; $attempt -le $InjectionAttempts; $attempt++) {
+  if ($attempt -gt 1) {
+    Write-Host "Retrying production canary traffic Job after failed sidecar/connectivity verification (attempt $attempt/$InjectionAttempts)" -ForegroundColor Yellow
+    kubectl -n $Namespace delete job $jobName --ignore-not-found=true --wait=true *> $null
+    Wait-MeshDependencies
+  }
+
+  $jobYaml | kubectl apply -f - | Out-Host
+
+  try {
+    Confirm-TrafficPodReady
+    break
+  } catch {
+    if ($attempt -ge $InjectionAttempts) {
+      kubectl -n $Namespace delete job $jobName --ignore-not-found=true --wait=false *> $null
+      throw
+    }
+  }
 }
 
 kubectl -n $Namespace get job $jobName -o wide | Out-Host

@@ -299,6 +299,7 @@ if (Test-Path $ciFile) {
         "scripts/deployment/bootstrap-istio.sh",
         "scripts/deployment/bootstrap-istio-staging.sh",
         "scripts/deployment/bootstrap-istio-production.sh",
+        "scripts/deployment/ensure-production-canary-dependencies.sh",
         "scripts/deployment/discover-loadbalancer-url.sh",
         "kubernetes/argocd/kustomization.yaml",
         "kubernetes/argocd/project-production.yaml",
@@ -373,6 +374,45 @@ if (Test-Path $ciFile) {
         Assert-ContainsText $promValuesText "enableRemoteWriteReceiver: true" "Prometheus remote-write receiver is enabled for k6"
     } else {
         Write-Host "  FAIL staging Prometheus values file is missing" -ForegroundColor Red
+        $pipelineErrors++
+    }
+
+    $prodPromValuesFile = Join-Path $RepoRoot "helm/kube-prometheus-stack/values-prod.yaml"
+    if (Test-Path $prodPromValuesFile) {
+        $prodPromValuesText = Get-Content $prodPromValuesFile -Raw
+        Assert-ContainsText $prodPromValuesText "priorityClassName: year4-observability-critical" "production observability workloads use release-critical priority"
+    } else {
+        Write-Host "  FAIL production Prometheus values file is missing" -ForegroundColor Red
+        $pipelineErrors++
+    }
+
+    $istiodValuesFile = Join-Path $RepoRoot "kubernetes/service-mesh/istiod-values.yaml"
+    if (Test-Path $istiodValuesFile) {
+        $istiodValuesText = Get-Content $istiodValuesFile -Raw
+        Assert-ContainsText $istiodValuesText "priorityClassName: year4-mesh-critical" "istiod uses mesh-critical priority"
+        Assert-ContainsText $istiodValuesText "autoscaleMin: 2" "istiod keeps at least two replicas during production canaries"
+    }
+
+    $prodTrafficScript = Join-Path $RepoRoot "scripts/deployment/start-production-canary-traffic.sh"
+    if (Test-Path $prodTrafficScript) {
+        $prodTrafficText = Get-Content $prodTrafficScript -Raw
+        Assert-ContainsText $prodTrafficText "PROD_TRAFFIC_INJECTION_ATTEMPTS" "production canary traffic retries missing sidecar injection"
+        Assert-ContainsText $prodTrafficText "istio-proxy" "production canary traffic verifies Istio sidecar injection before rollout analysis"
+        Assert-ContainsText $prodTrafficText "canary-request-rate=0" "production canary traffic explains the rollout-analysis failure mode"
+    } else {
+        Write-Host "  FAIL production canary traffic script is missing" -ForegroundColor Red
+        $pipelineErrors++
+    }
+
+    $prodCanaryDependenciesScript = Join-Path $RepoRoot "scripts/deployment/ensure-production-canary-dependencies.sh"
+    if (Test-Path $prodCanaryDependenciesScript) {
+        $prodCanaryDependenciesText = Get-Content $prodCanaryDependenciesScript -Raw
+        Assert-ContainsText $ciText "scripts/deployment/ensure-production-canary-dependencies.sh" "production deploy verifies canary dependencies before traffic starts"
+        Assert-ContainsText $prodCanaryDependenciesText '"minReplicas":2' "production canary dependency check keeps at least two istiod replicas"
+        Assert-ContainsText $prodCanaryDependenciesText "priorityClassName" "production canary dependency check enforces critical PriorityClasses"
+        Assert-ContainsText $prodCanaryDependenciesText "kube-prometheus-stack-prometheus" "production canary dependency check waits for Prometheus analysis endpoint"
+    } else {
+        Write-Host "  FAIL production canary dependency script is missing" -ForegroundColor Red
         $pipelineErrors++
     }
 

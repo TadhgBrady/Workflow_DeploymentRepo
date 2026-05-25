@@ -68,6 +68,7 @@ echo "Prometheus service:   $PROMETHEUS_SERVICE.$MONITORING_NAMESPACE"
 
 kubectl create namespace "$ISTIO_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
 kubectl create namespace "$APP_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -f kubernetes/base/priority-classes.yaml
 kubectl label namespace "$APP_NAMESPACE" istio-injection=enabled --overwrite
 kubectl label namespace "$APP_NAMESPACE" app.kubernetes.io/part-of=year4-project --overwrite
 kubectl annotate namespace "$APP_NAMESPACE" mesh.year4-project/environment="$ENVIRONMENT" --overwrite
