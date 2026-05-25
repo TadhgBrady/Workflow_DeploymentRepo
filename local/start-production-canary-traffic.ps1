@@ -40,7 +40,7 @@ param(
     [string]$PrometheusService = "kube-prometheus-stack-prometheus",
     [string]$JobPrefix = "prod-canary-traffic",
     [string]$CurlImage = "curlimages/curl:8.11.1",
-    [string[]]$Paths = @("/api/v1/health", "/health", "/ready", "/"),
+    [string[]]$Paths = @("__service_safe_defaults__"),
     [ValidateRange(1, 10)]
     [int]$InjectionAttempts = 3,
     [ValidateRange(30, 600)]
@@ -300,16 +300,37 @@ $pathListYaml
               echo "Namespace: `$NAMESPACE"
               echo "Services:"
               printf '%s\n' "`$TARGET_SERVICES"
-              echo "Paths:"
-              printf '%s\n' "`$TARGET_PATHS"
+              paths_for_service() {
+                case "`$TARGET_PATHS" in
+                  "__service_safe_defaults__")
+                    case "`$1" in
+                      frontend-service|frontend-service-canary|nginx-gateway|nginx-gateway-canary)
+                        printf '%s\n' /
+                        ;;
+                      *)
+                        printf '%s\n' /api/v1/health
+                        ;;
+                    esac
+                    ;;
+                  *)
+                    printf '%s\n' "`$TARGET_PATHS"
+                    ;;
+                esac
+              }
+              if [ "`$TARGET_PATHS" = "__service_safe_defaults__" ]; then
+                echo "Paths: service-specific safe defaults"
+              else
+                echo "Paths:"
+                printf '%s\n' "`$TARGET_PATHS"
+              fi
               while [ "`$(date +%s)" -lt "`$END_TIME" ]; do
                 for SERVICE in `$TARGET_SERVICES; do
-                  for PATH_VALUE in `$TARGET_PATHS; do
+                  for PATH_VALUE in `$(paths_for_service "`$SERVICE"); do
                     URL="http://`$SERVICE.`$NAMESPACE.svc.cluster.local`$PATH_VALUE"
                     CODE="`$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 2 --max-time 5 "`$URL")" || CODE="000"
                     TOTAL="`$((TOTAL + 1))"
                     case "`$CODE" in
-                      000|5*) FAILURES="`$((FAILURES + 1))" ;;
+                      000|4*|5*) FAILURES="`$((FAILURES + 1))" ;;
                     esac
                     printf '%s service=%s path=%s status=%s total=%s failures=%s\n' "`$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "`$SERVICE" "`$PATH_VALUE" "`$CODE" "`$TOTAL" "`$FAILURES"
                   done

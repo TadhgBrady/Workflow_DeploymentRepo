@@ -7,7 +7,8 @@ INTERVAL_SECONDS="${3:-${PROD_TRAFFIC_INTERVAL_SECONDS:-5}}"
 MODE="${4:-${PROD_TRAFFIC_MODE:-Both}}"
 JOB_PREFIX="${PROD_TRAFFIC_JOB_PREFIX:-prod-canary-traffic}"
 CURL_IMAGE="${PROD_TRAFFIC_CURL_IMAGE:-curlimages/curl:8.11.1}"
-PATHS="${PROD_TRAFFIC_PATHS:-/ /api/v1/health /health /ready}"
+SAFE_DEFAULT_PATHS="__service_safe_defaults__"
+PATHS="${PROD_TRAFFIC_PATHS:-$SAFE_DEFAULT_PATHS}"
 KEEP_EXISTING="${PROD_TRAFFIC_KEEP_EXISTING:-false}"
 WAIT_FOR_POD="${PROD_TRAFFIC_WAIT_FOR_POD:-true}"
 ISTIO_NAMESPACE="${ISTIO_NAMESPACE:-istio-system}"
@@ -251,16 +252,37 @@ $PATH_LIST_YAML
               echo "Namespace: \$NAMESPACE"
               echo "Services:"
               printf '%s\n' "\$TARGET_SERVICES"
-              echo "Paths:"
-              printf '%s\n' "\$TARGET_PATHS"
+              paths_for_service() {
+                case "\$TARGET_PATHS" in
+                  "__service_safe_defaults__")
+                    case "\$1" in
+                      frontend-service|frontend-service-canary|nginx-gateway|nginx-gateway-canary)
+                        printf '%s\n' /
+                        ;;
+                      *)
+                        printf '%s\n' /api/v1/health
+                        ;;
+                    esac
+                    ;;
+                  *)
+                    printf '%s\n' "\$TARGET_PATHS"
+                    ;;
+                esac
+              }
+              if [ "\$TARGET_PATHS" = "__service_safe_defaults__" ]; then
+                echo "Paths: service-specific safe defaults"
+              else
+                echo "Paths:"
+                printf '%s\n' "\$TARGET_PATHS"
+              fi
               while [ "\$(date +%s)" -lt "\$END_TIME" ]; do
                 for SERVICE in \$TARGET_SERVICES; do
-                  for PATH_VALUE in \$TARGET_PATHS; do
+                  for PATH_VALUE in \$(paths_for_service "\$SERVICE"); do
                     URL="http://\$SERVICE.\$NAMESPACE.svc.cluster.local\$PATH_VALUE"
                     CODE="\$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 2 --max-time 5 "\$URL")" || CODE="000"
                     TOTAL="\$((TOTAL + 1))"
                     case "\$CODE" in
-                      000|5*) FAILURES="\$((FAILURES + 1))" ;;
+                      000|4*|5*) FAILURES="\$((FAILURES + 1))" ;;
                     esac
                     printf '%s service=%s path=%s status=%s total=%s failures=%s\n' "\$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "\$SERVICE" "\$PATH_VALUE" "\$CODE" "\$TOTAL" "\$FAILURES"
                   done
