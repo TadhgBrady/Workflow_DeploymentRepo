@@ -67,6 +67,6 @@ resources:
   # Ingress
   - ingress-gateway.yml
 
-patches:
-  - path: kiali-layer-labels.yaml
-  - path: kiali-layer-routing-labels.yaml
+patchesStrategicMerge:
+  - kiali-layer-labels.yaml
+  - kiali-layer-routing-labels.yaml
